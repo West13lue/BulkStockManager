@@ -1,91 +1,81 @@
 // catalogStore.js
 const fs = require("fs");
+const fsp = require("fs").promises;
 const path = require("path");
+const crypto = require("crypto");
+const { logEvent } = require("./utils/logger");
 
-const FILE = process.env.CATALOG_FILE || "/var/data/catalog.json";
+const DATA_DIR = process.env.DATA_DIR || "/var/data";
+const FILE = path.join(DATA_DIR, "categories.json");
 
 function ensureDir() {
-  const dir = path.dirname(FILE);
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 }
 
 function load() {
   try {
     ensureDir();
-    if (!fs.existsSync(FILE)) return { categories: [], productMeta: {} };
+    if (!fs.existsSync(FILE)) return [];
     const raw = fs.readFileSync(FILE, "utf8");
-    const json = JSON.parse(raw);
-    return {
-      categories: Array.isArray(json.categories) ? json.categories : [],
-      productMeta: json.productMeta && typeof json.productMeta === "object" ? json.productMeta : {},
-    };
-  } catch {
-    return { categories: [], productMeta: {} };
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (e) {
+    logEvent("categories_load_error", { message: e.message }, "error");
+    return [];
   }
 }
 
-function save(data) {
+function save(categories) {
   ensureDir();
-  fs.writeFileSync(FILE, JSON.stringify(data, null, 2), "utf8");
+  const tmp = FILE + ".tmp";
+  fs.writeFileSync(tmp, JSON.stringify(categories, null, 2), "utf8");
+  fs.renameSync(tmp, FILE);
 }
 
-function uid() {
-  return "cat_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
-}
+let categories = load();
 
 function listCategories() {
-  return load().categories;
+  return categories.slice();
 }
 
 function createCategory(name) {
-  const db = load();
-  const cat = { id: uid(), name };
-  db.categories.push(cat);
-  save(db);
+  const n = String(name || "").trim();
+  if (!n) throw new Error("Nom de catégorie invalide");
+
+  if (categories.some(c => c.name.toLowerCase() === n.toLowerCase())) {
+    throw new Error("Catégorie déjà existante");
+  }
+
+  const cat = {
+    id: crypto.randomUUID(),
+    name: n,
+    createdAt: new Date().toISOString(),
+  };
+
+  categories.push(cat);
+  save(categories);
+
+  logEvent("category_created", { id: cat.id, name: cat.name });
   return cat;
 }
 
 function renameCategory(id, name) {
-  const db = load();
-  const c = db.categories.find((x) => x.id === id);
-  if (!c) return null;
-  c.name = name;
-  save(db);
-  return c;
+  const n = String(name || "").trim();
+  if (!n) throw new Error("Nom invalide");
+
+  const cat = categories.find(c => c.id === id);
+  if (!cat) throw new Error("Catégorie introuvable");
+
+  cat.name = n;
+  save(categories);
+  return cat;
 }
 
 function deleteCategory(id) {
-  const db = load();
-  const before = db.categories.length;
-  db.categories = db.categories.filter((x) => x.id !== id);
-
-  // retire aussi la catégorie des produits
-  for (const pid of Object.keys(db.productMeta || {})) {
-    const meta = db.productMeta[pid] || {};
-    meta.categoryIds = Array.isArray(meta.categoryIds)
-      ? meta.categoryIds.filter((c) => c !== id)
-      : [];
-    db.productMeta[pid] = meta;
-  }
-
-  save(db);
-  return db.categories.length !== before;
-}
-
-function getProductMeta(productId) {
-  const db = load();
-  return db.productMeta?.[productId] || { categoryIds: [] };
-}
-
-function setProductMeta(productId, meta) {
-  const db = load();
-  db.productMeta = db.productMeta || {};
-  db.productMeta[productId] = {
-    ...(db.productMeta[productId] || {}),
-    ...(meta || {}),
-  };
-  save(db);
-  return true;
+  const before = categories.length;
+  categories = categories.filter(c => c.id !== id);
+  if (categories.length === before) throw new Error("Catégorie introuvable");
+  save(categories);
 }
 
 module.exports = {
@@ -93,6 +83,4 @@ module.exports = {
   createCategory,
   renameCategory,
   deleteCategory,
-  getProductMeta,
-  setProductMeta,
 };

@@ -51,6 +51,23 @@ function logEvent(event, data = {}, level = "info") {
   );
 }
 
+// Toujours renvoyer du JSON (évite "JSON.parse unexpected character" côté front)
+function safeJson(res, fn) {
+  try {
+    const maybePromise = fn();
+    if (maybePromise && typeof maybePromise.then === "function") {
+      return maybePromise.catch((e) => {
+        logEvent("api_error", { message: e?.message }, "error");
+        res.status(500).json({ error: e?.message || "Erreur serveur" });
+      });
+    }
+    return maybePromise;
+  } catch (e) {
+    logEvent("api_error", { message: e?.message }, "error");
+    return res.status(500).json({ error: e?.message || "Erreur serveur" });
+  }
+}
+
 function verifyShopifyWebhook(rawBodyBuffer, hmacHeader) {
   const secret = process.env.SHOPIFY_WEBHOOK_SECRET;
   if (!secret) return true; // dev
@@ -86,6 +103,8 @@ async function pushProductInventoryToShopify(shopify, productView) {
 }
 
 // ================= Middlewares =================
+
+// Static UI
 app.use(express.static(path.join(__dirname, "public")));
 
 // CORS (utile si iframe admin)
@@ -97,14 +116,17 @@ app.use((req, res, next) => {
   next();
 });
 
-// CSP Shopify Admin
+// CSP Shopify Admin (iframe)
 app.use((req, res, next) => {
   const shopDomain = process.env.SHOP_NAME ? `https://${process.env.SHOP_NAME}.myshopify.com` : "*";
-  res.setHeader("Content-Security-Policy", `frame-ancestors https://admin.shopify.com ${shopDomain};`);
+  res.setHeader(
+    "Content-Security-Policy",
+    `frame-ancestors https://admin.shopify.com ${shopDomain};`
+  );
   next();
 });
 
-// JSON pour API
+// JSON pour API (IMPORTANT: ne pas casser le RAW webhook)
 app.use("/api", express.json({ limit: "2mb" }));
 
 // Healthcheck Render
@@ -187,6 +209,7 @@ app.post("/webhooks/orders/create", express.raw({ type: "application/json" }), a
 app.get("/", (req, res) => res.sendFile(path.join(__dirname, "public", "index.html")));
 
 // ================= API =================
+
 app.get("/api/server-info", (req, res) => {
   res.json({
     mode: process.env.NODE_ENV || "development",
@@ -199,45 +222,41 @@ app.get("/api/server-info", (req, res) => {
 
 // ✅ Ce que ton app.js attend : { products:[...], categories:[...] }
 app.get("/api/stock", (req, res) => {
-  const { sort = "alpha", category = "" } = req.query;
+  safeJson(res, () => {
+    const { sort = "alpha", category = "" } = req.query;
 
-  const catalog = getCatalogSnapshot();
-  let products = Array.isArray(catalog.products) ? catalog.products.slice() : [];
-  const categories = Array.isArray(catalog.categories) ? catalog.categories : [];
+    const catalog = getCatalogSnapshot();
+    let products = Array.isArray(catalog.products) ? catalog.products.slice() : [];
+    const categories = Array.isArray(catalog.categories) ? catalog.categories : [];
 
-  if (category) {
-    products = products.filter(
-      (p) => Array.isArray(p.categoryIds) && p.categoryIds.includes(String(category))
-    );
-  }
+    if (category) {
+      products = products.filter(
+        (p) => Array.isArray(p.categoryIds) && p.categoryIds.includes(String(category))
+      );
+    }
 
-  if (sort === "alpha") {
-    products.sort((a, b) =>
-      String(a.name || "").localeCompare(String(b.name || ""), "fr", { sensitivity: "base" })
-    );
-  }
+    if (sort === "alpha") {
+      products.sort((a, b) =>
+        String(a.name || "").localeCompare(String(b.name || ""), "fr", { sensitivity: "base" })
+      );
+    }
 
-  res.json({ products, categories });
+    res.json({ products, categories });
+  });
 });
 
-// ======== TEST COMMANDE (pour bouton "Tester une commande") ========
+// ======== TEST COMMANDE (bouton "Tester une commande") ========
 app.post("/api/test-order", async (req, res) => {
-  try {
+  safeJson(res, async () => {
     const productId = Object.keys(PRODUCT_CONFIG)[0];
-    if (!productId) {
-      return res.status(400).json({ error: "Aucun produit configuré dans PRODUCT_CONFIG" });
-    }
+    if (!productId) return res.status(400).json({ error: "Aucun produit configuré" });
 
     const product = PRODUCT_CONFIG[productId];
     const firstLabel = Object.keys(product.variants || {})[0];
-    if (!firstLabel) {
-      return res.status(400).json({ error: "Aucune variante configurée sur ce produit" });
-    }
+    if (!firstLabel) return res.status(400).json({ error: "Aucune variante configurée" });
 
     const gramsPerUnit = Number(product.variants[firstLabel].gramsPerUnit || 0);
-    if (!gramsPerUnit) {
-      return res.status(400).json({ error: "gramsPerUnit invalide" });
-    }
+    if (!gramsPerUnit) return res.status(400).json({ error: "gramsPerUnit invalide" });
 
     // -1 unité => -gramsPerUnit grammes
     const updated = await restockProduct(productId, -gramsPerUnit);
@@ -258,7 +277,7 @@ app.post("/api/test-order", async (req, res) => {
       meta: { variantLabel: firstLabel, units: 1 },
     });
 
-    return res.json({
+    res.json({
       success: true,
       message: `Test OK: -1 unité (${firstLabel}g) sur "${updated.name}"`,
       productId,
@@ -266,87 +285,98 @@ app.post("/api/test-order", async (req, res) => {
       gramsDelta: -Math.abs(gramsPerUnit),
       totalAfter: updated.totalGrams,
     });
-  } catch (e) {
-    logEvent("api_test_order_error", { message: e?.message }, "error");
-    return res.status(500).json({ error: e?.message || "Erreur serveur" });
-  }
+  });
 });
 
-// ======== Catégories (format attendu) ========
+// ======== Catégories ========
 app.get("/api/categories", (req, res) => {
-  res.json({ categories: listCategories() });
+  safeJson(res, () => {
+    res.json({ categories: listCategories() });
+  });
 });
 
 app.post("/api/categories", (req, res) => {
-  const { name } = req.body || {};
-  if (!name || String(name).trim().length < 1) return res.status(400).json({ error: "Nom invalide" });
+  safeJson(res, () => {
+    const { name } = req.body || {};
+    if (!name || String(name).trim().length < 1) {
+      return res.status(400).json({ error: "Nom invalide" });
+    }
 
-  const created = createCategory(String(name).trim());
+    const created = createCategory(String(name).trim());
 
-  addMovement({
-    source: "category_create",
-    gramsDelta: 0,
-    meta: { categoryId: created.id, name: created.name },
+    addMovement({
+      source: "category_create",
+      gramsDelta: 0,
+      meta: { categoryId: created.id, name: created.name },
+    });
+
+    res.json({ success: true, category: created });
   });
-
-  return res.json({ success: true, category: created });
 });
 
 app.put("/api/categories/:id", (req, res) => {
-  const id = String(req.params.id);
-  const { name } = req.body || {};
-  if (!name || String(name).trim().length < 1) return res.status(400).json({ error: "Nom invalide" });
+  safeJson(res, () => {
+    const id = String(req.params.id);
+    const { name } = req.body || {};
+    if (!name || String(name).trim().length < 1) {
+      return res.status(400).json({ error: "Nom invalide" });
+    }
 
-  const updated = renameCategory(id, String(name).trim());
-  if (!updated) return res.status(404).json({ error: "Catégorie introuvable" });
+    const updated = renameCategory(id, String(name).trim());
+    if (!updated) return res.status(404).json({ error: "Catégorie introuvable" });
 
-  addMovement({
-    source: "category_rename",
-    gramsDelta: 0,
-    meta: { categoryId: id, name: updated.name },
+    addMovement({
+      source: "category_rename",
+      gramsDelta: 0,
+      meta: { categoryId: id, name: updated.name },
+    });
+
+    res.json({ success: true, category: updated });
   });
-
-  return res.json({ success: true, category: updated });
 });
 
 app.delete("/api/categories/:id", (req, res) => {
-  const id = String(req.params.id);
-  const ok = deleteCategory(id);
-  if (!ok) return res.status(404).json({ error: "Catégorie introuvable" });
+  safeJson(res, () => {
+    const id = String(req.params.id);
+    const ok = deleteCategory(id);
+    if (!ok) return res.status(404).json({ error: "Catégorie introuvable" });
 
-  addMovement({
-    source: "category_delete",
-    gramsDelta: 0,
-    meta: { categoryId: id },
+    addMovement({
+      source: "category_delete",
+      gramsDelta: 0,
+      meta: { categoryId: id },
+    });
+
+    res.json({ success: true });
   });
-
-  return res.json({ success: true });
 });
 
-// ======== Assigner catégories à un produit (POST/PUT) ========
+// ======== Assigner catégories à un produit ========
 function handleSetProductCategories(req, res) {
-  const productId = String(req.params.productId);
-  const { categoryIds } = req.body || {};
-  const ids = Array.isArray(categoryIds) ? categoryIds.map(String) : [];
+  return safeJson(res, () => {
+    const productId = String(req.params.productId);
+    const { categoryIds } = req.body || {};
+    const ids = Array.isArray(categoryIds) ? categoryIds.map(String) : [];
 
-  const ok = setProductCategories(productId, ids);
-  if (!ok) return res.status(404).json({ error: "Produit introuvable (non configuré)" });
+    const ok = setProductCategories(productId, ids);
+    if (!ok) return res.status(404).json({ error: "Produit introuvable (non configuré)" });
 
-  addMovement({
-    source: "product_set_categories",
-    productId,
-    gramsDelta: 0,
-    meta: { categoryIds: ids },
+    addMovement({
+      source: "product_set_categories",
+      productId,
+      gramsDelta: 0,
+      meta: { categoryIds: ids },
+    });
+
+    res.json({ success: true, productId, categoryIds: ids });
   });
-
-  return res.json({ success: true, productId, categoryIds: ids });
 }
 app.post("/api/products/:productId/categories", handleSetProductCategories);
 app.put("/api/products/:productId/categories", handleSetProductCategories);
 
 // ======== Ajuster le stock TOTAL (en grammes) : + ou - ========
 app.post("/api/products/:productId/adjust-total", async (req, res) => {
-  try {
+  safeJson(res, async () => {
     const productId = String(req.params.productId);
     const { gramsDelta } = req.body || {};
     const g = Number(gramsDelta);
@@ -376,82 +406,93 @@ app.post("/api/products/:productId/adjust-total", async (req, res) => {
       totalAfter: updated.totalGrams,
     });
 
-    return res.json({ success: true, product: updated });
-  } catch (e) {
-    logEvent("api_adjust_total_error", { message: e?.message }, "error");
-    return res.status(500).json({ error: e?.message || "Erreur serveur" });
-  }
+    res.json({ success: true, product: updated });
+  });
 });
 
 // ======== Supprimer un produit de l’interface (config locale) ========
 app.delete("/api/products/:productId", (req, res) => {
-  const productId = String(req.params.productId);
+  safeJson(res, () => {
+    const productId = String(req.params.productId);
 
-  const ok = removeProduct(productId);
-  if (!ok) return res.status(404).json({ error: "Produit introuvable" });
+    const ok = removeProduct(productId);
+    if (!ok) return res.status(404).json({ error: "Produit introuvable" });
 
-  addMovement({
-    source: "product_delete",
-    productId,
-    gramsDelta: 0,
+    addMovement({
+      source: "product_delete",
+      productId,
+      gramsDelta: 0,
+    });
+
+    res.json({ success: true, productId });
   });
-
-  return res.json({ success: true, productId });
 });
 
 // ======== Historique d’un produit ========
 app.get("/api/products/:productId/history", (req, res) => {
-  const productId = String(req.params.productId);
-  const limit = Math.min(Number(req.query.limit || 200), 2000);
+  safeJson(res, () => {
+    const productId = String(req.params.productId);
+    const limit = Math.min(Number(req.query.limit || 200), 2000);
 
-  const all = listMovements({ limit: 10000 }) || [];
-  const filtered = all.filter((m) => String(m.productId || "") === productId).slice(0, limit);
+    const all = listMovements({ limit: 10000 }) || [];
+    const filtered = all.filter((m) => String(m.productId || "") === productId).slice(0, limit);
 
-  res.json({ count: filtered.length, data: filtered });
+    res.json({ count: filtered.length, data: filtered });
+  });
 });
 
 // ======== Mouvements (global) ========
 app.get("/api/movements", (req, res) => {
-  const limit = Math.min(Number(req.query.limit || 200), 2000);
-  const data = listMovements({ limit });
-  res.json({ count: data.length, data });
+  safeJson(res, () => {
+    const limit = Math.min(Number(req.query.limit || 200), 2000);
+    const data = listMovements({ limit });
+    res.json({ count: data.length, data });
+  });
 });
 
 app.get("/api/movements.csv", (req, res) => {
-  const limit = Math.min(Number(req.query.limit || 2000), 10000);
-  const data = listMovements({ limit });
-  const csv = toCSV(data);
+  safeJson(res, () => {
+    const limit = Math.min(Number(req.query.limit || 2000), 10000);
+    const data = listMovements({ limit });
+    const csv = toCSV(data);
 
-  res.setHeader("Content-Type", "text/csv; charset=utf-8");
-  res.setHeader("Content-Disposition", 'attachment; filename="stock-movements.csv"');
-  res.send(csv);
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", 'attachment; filename="stock-movements.csv"');
+    res.send(csv);
+  });
 });
 
 app.delete("/api/movements", (req, res) => {
-  clearMovements();
-  return res.json({ success: true });
+  safeJson(res, () => {
+    clearMovements();
+    res.json({ success: true });
+  });
 });
 
 // ======== Export stock CSV ========
 app.get("/api/stock.csv", (req, res) => {
-  const catalog = getCatalogSnapshot();
-  const products = Array.isArray(catalog.products) ? catalog.products : [];
+  safeJson(res, () => {
+    const catalog = getCatalogSnapshot();
+    const products = Array.isArray(catalog.products) ? catalog.products : [];
 
-  const header = ["productId", "name", "totalGrams", "categoryIds"].join(";");
-  const lines = products.map((p) => {
-    const cats = Array.isArray(p.categoryIds) ? p.categoryIds.join(",") : "";
-    return [p.productId, (p.name || "").replace(/;/g, ","), Number(p.totalGrams || 0), cats].join(";");
+    const header = ["productId", "name", "totalGrams", "categoryIds"].join(";");
+    const lines = products.map((p) => {
+      const cats = Array.isArray(p.categoryIds) ? p.categoryIds.join(",") : "";
+      return [p.productId, (p.name || "").replace(/;/g, ","), Number(p.totalGrams || 0), cats].join(
+        ";"
+      );
+    });
+
+    const csv = [header, ...lines].join("\n");
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", 'attachment; filename="stock.csv"');
+    res.send(csv);
   });
-
-  const csv = [header, ...lines].join("\n");
-  res.setHeader("Content-Type", "text/csv; charset=utf-8");
-  res.setHeader("Content-Disposition", 'attachment; filename="stock.csv"');
-  res.send(csv);
 });
 
 // ======== Shopify: lister produits (pour import) ========
 app.get("/api/shopify/products", async (req, res) => {
-  try {
+  safeJson(res, async () => {
     const limit = Math.min(Number(req.query.limit || 50), 250);
     const q = String(req.query.query || "").trim().toLowerCase();
 
@@ -466,16 +507,13 @@ app.get("/api/shopify/products", async (req, res) => {
     if (q) out = out.filter((p) => p.title.toLowerCase().includes(q));
 
     out.sort((a, b) => a.title.localeCompare(b.title, "fr", { sensitivity: "base" }));
-    return res.json({ products: out });
-  } catch (e) {
-    logEvent("shopify_products_list_error", { message: e?.message }, "error");
-    return res.status(500).json({ error: e?.message || "Erreur Shopify" });
-  }
+    res.json({ products: out });
+  });
 });
 
 // ======== Import 1 produit Shopify -> upsert config ========
 app.post("/api/import/product", async (req, res) => {
-  try {
+  safeJson(res, async () => {
     const { productId, totalGrams, categoryIds } = req.body || {};
     if (!productId) return res.status(400).json({ error: "productId manquant" });
 
@@ -509,11 +547,8 @@ app.post("/api/import/product", async (req, res) => {
       meta: { categoryIds: Array.isArray(categoryIds) ? categoryIds : [] },
     });
 
-    return res.json({ success: true, product: imported });
-  } catch (e) {
-    logEvent("import_product_error", { message: e?.message }, "error");
-    return res.status(500).json({ error: e?.message || "Erreur import" });
-  }
+    res.json({ success: true, product: imported });
+  });
 });
 
 // ================= Start =================
