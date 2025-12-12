@@ -6,6 +6,7 @@
 // + Alertes stock bas
 // + Export CSV
 // + Historique mouvements (au-dessus console)
+// + Affichage produits groupés par catégorie
 // ============================================
 
 // --------------------------------------------
@@ -43,11 +44,8 @@ function escapeHtml(str) {
 }
 
 function fmtDateFR(iso) {
-  try {
-    return new Date(iso).toLocaleString('fr-FR');
-  } catch {
-    return String(iso || '');
-  }
+  try { return new Date(iso).toLocaleString('fr-FR'); }
+  catch { return String(iso || ''); }
 }
 
 function fmtDelta(delta) {
@@ -95,9 +93,10 @@ async function refreshMovements() {
       const name = m.productName || (stockData[m.productId]?.name) || m.productId || '-';
       const delta = Number(m.deltaGrams ?? m.gramsDelta ?? m.delta ?? 0);
       const type = m.type || m.source || 'mouvement';
-      const extra = m.orderName ? ` • ${escapeHtml(m.orderName)}` : (m.orderId ? ` • #${escapeHtml(m.orderId)}` : '');
+      const extra = m.orderName
+        ? ` • ${escapeHtml(m.orderName)}`
+        : (m.orderId ? ` • #${escapeHtml(m.orderId)}` : '');
 
-      // Style inline pour être robuste même si ton CSS n'a pas encore les classes
       return `
         <div style="
           display:flex;
@@ -220,6 +219,8 @@ async function getServerInfo() {
 
 // ============================================
 // STOCK (supporte 2 formats API)
+// - Ancien: { [id]: {name,totalGrams,variants} }
+// - Nouveau: { products:[...], categories:[...] }
 // ============================================
 async function refreshStock() {
   ensureCatalogControls();
@@ -248,6 +249,7 @@ async function refreshStock() {
         };
       }
       stockData = map;
+
       updateCategoryFilterOptions();
       displayProducts(stockData);
       updateStats(stockData);
@@ -271,6 +273,7 @@ function updateCategoryFilterOptions() {
   if (!sel) return;
 
   const current = sel.value;
+
   sel.innerHTML = `<option value="">Toutes</option>` + categories
     .slice()
     .sort((a, b) => String(a.name).localeCompare(String(b.name), 'fr'))
@@ -281,7 +284,7 @@ function updateCategoryFilterOptions() {
 }
 
 // ============================================
-// AFFICHAGE PRODUITS
+// AFFICHAGE PRODUITS (groupés par catégorie)
 // ============================================
 function displayProducts(stock) {
   const productList = document.getElementById('productList');
@@ -293,10 +296,9 @@ function displayProducts(stock) {
     return;
   }
 
-  // Helper: nom catégorie depuis id
   const catNameById = (cid) => categories.find(c => c.id === cid)?.name || null;
 
-  // Groupes: { "catId": [ [productId, product], ... ] } + sans catégorie
+  // Groupes : { catId: [ [productId, product] ] }
   const groups = {};
   const uncategorized = [];
 
@@ -306,22 +308,18 @@ function displayProducts(stock) {
       uncategorized.push([id, product]);
       continue;
     }
-
-    // Un produit peut être dans plusieurs catégories → on l’affiche dans chaque
     for (const cid of ids) {
       if (!groups[cid]) groups[cid] = [];
       groups[cid].push([id, product]);
     }
   }
 
-  // Tri des catégories par nom
   const sortedCatIds = Object.keys(groups).sort((a, b) => {
     const an = String(catNameById(a) || '').toLowerCase();
     const bn = String(catNameById(b) || '').toLowerCase();
     return an.localeCompare(bn, 'fr', { sensitivity: 'base' });
   });
 
-  // Tri interne des produits (option tri alpha déjà côté serveur, mais on sécurise)
   const sortEntries = (arr) => arr.slice().sort((A, B) => {
     const a = String(A[1]?.name || '');
     const b = String(B[1]?.name || '');
@@ -393,32 +391,9 @@ function displayProducts(stock) {
   productList.innerHTML = html;
 }
 
-  productList.innerHTML = products.map(([id, product]) => {
-    const total = Number(product.totalGrams || 0);
-    const percent = Math.max(0, Math.min(100, Math.round((total / 200) * 100)));
-    const lowClass = total <= Number(serverInfo?.lowStockThreshold || 10) ? ' low' : '';
-    const cats = Array.isArray(product.categoryIds) ? product.categoryIds : [];
-    const catNames = cats
-      .map(cid => categories.find(c => c.id === cid)?.name)
-      .filter(Boolean);
-
-    return `
-      <div class="product-item${lowClass}" onclick="openProductModal('${id}')">
-        <div class="product-header">
-          <div>
-            <div class="product-name">${escapeHtml(product.name)}</div>
-            ${catNames.length ? `<div class="product-cats">${catNames.map(n => `<span class="pill">${escapeHtml(n)}</span>`).join('')}</div>` : ''}
-          </div>
-          <div class="product-stock">${total}g</div>
-        </div>
-        <div class="stock-bar">
-          <div class="stock-bar-fill" style="width:${percent}%"></div>
-        </div>
-      </div>
-    `;
-  }).join('');
-}
-
+// ============================================
+// STATS
+// ============================================
 function updateStats(stock) {
   const products = Object.values(stock || {});
   const totalProducts = products.length;
