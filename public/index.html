@@ -1,178 +1,239 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>🌿 CBD Stock Manager</title>
-  <link rel="stylesheet" href="/css/style.css">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CBD Stock Manager</title>
+
+  <!-- CSS (doit exister dans public/css/style.css) -->
+  <link rel="stylesheet" href="/css/style.css" />
+
+  <!-- (Optionnel) petites bases si ton CSS n'est pas chargé -->
+  <style>
+    /* fallback minimal au cas où le CSS ne charge pas */
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 0; }
+    .hidden { display:none !important; }
+  </style>
 </head>
+
 <body>
-  <div class="container">
+  <div class="app">
     <!-- Header -->
-    <div class="header">
-      <h1>🌿 CBD Stock Manager</h1>
-
-      <!-- Badge statut -->
-      <span class="status-badge" id="statusBadge">
-        <span class="loading"></span> Chargement...
-      </span>
-
-      <!-- Infos serveur (remplies par app.js) -->
-      <div class="server-meta" style="margin-top:10px; color:#718096; font-weight:600;">
-        Mode: <span id="serverMode">-</span>
-      </div>
-      <!-- Le JS injecte ici le bloc tri/filtre/import -->
-      <!-- (catalogControls sera auto-ajouté dans .header) -->
-    </div>
-
-    <!-- Stats Grid -->
-    <div class="stats-grid">
-      <div class="stat-card">
-        <h3>Produits actifs</h3>
-        <div class="value" id="statProducts">-</div>
-        <div class="label">Configurations actives</div>
-      </div>
-      <div class="stat-card">
-        <h3>Stock total</h3>
-        <div class="value" id="statGrams">-</div>
-        <div class="label">Grammes disponibles</div>
-      </div>
-      <div class="stat-card">
-        <h3>Webhook</h3>
-        <div class="value" id="webhookStatus">-</div>
-        <div class="label" id="webhookLabel">Vérification...</div>
-      </div>
-      <div class="stat-card">
-        <h3>Sécurité HMAC</h3>
-        <div class="value" id="hmacStatus">-</div>
-        <div class="label" id="hmacLabel">Vérification...</div>
-      </div>
-    </div>
-
-    <!-- Main Content -->
-    <div class="main-content">
-      <!-- Products List -->
-      <div class="card">
-        <h2 class="card-title">📦 Gestion du Stock</h2>
-        <div class="info-box">
-          <strong>📊 Surveillance en temps réel</strong><br>
-          Les stocks sont mis à jour automatiquement lors de chaque commande Shopify.
+    <header class="header">
+      <div class="header-left">
+        <h1 class="title">CBD Stock Manager</h1>
+        <div class="sub">
+          <span id="statusText">Chargement...</span>
+          <span class="muted">•</span>
+          <span class="muted">Mode: <strong id="modeText">...</strong></span>
         </div>
-        <div class="product-list" id="productList">
-          <div style="text-align: center; padding: 40px; color: #a0aec0;">
-            ⏳ Chargement des produits...
+      </div>
+
+      <div class="header-right">
+        <div class="toolbar">
+          <button id="btnCategories" class="btn">
+            🗂️ <span>Catégories</span>
+          </button>
+          <button id="btnImportShopify" class="btn btn-primary">
+            ➕ <span>Import Shopify</span>
+          </button>
+
+          <a id="btnStockCSV" class="btn btn-outline" href="/api/stock.csv" target="_blank" rel="noopener">
+            ⬇️ <span>Stock CSV</span>
+          </a>
+          <a id="btnMovementsCSV" class="btn btn-outline" href="/api/movements.csv" target="_blank" rel="noopener">
+            ⬇️ <span>Mouvements CSV</span>
+          </a>
+        </div>
+      </div>
+    </header>
+
+    <!-- Filters row -->
+    <section class="filters">
+      <div class="filter">
+        <label for="categorySelect">CATÉGORIE</label>
+        <select id="categorySelect">
+          <option value="">Toutes</option>
+        </select>
+      </div>
+
+      <div class="filter">
+        <label for="sortSelect">TRI</label>
+        <select id="sortSelect">
+          <option value="alpha">A → Z</option>
+          <option value="stock_asc">Stock ↑</option>
+          <option value="stock_desc">Stock ↓</option>
+        </select>
+      </div>
+    </section>
+
+    <!-- Main layout -->
+    <main class="main">
+      <!-- Left: Summary + actions + console -->
+      <aside class="sidebar">
+        <div class="card">
+          <h2 class="card-title">Produits actifs</h2>
+          <div class="kv">
+            <div class="k">Configurations actives</div>
+            <div class="v" id="activeProductsCount">-</div>
           </div>
         </div>
-      </div>
 
-      <!-- Actions Panel -->
-      <div class="card">
-        <h2 class="card-title">⚡ Actions Rapides</h2>
-        <div class="action-buttons">
-          <button class="btn btn-primary" onclick="testOrder()">
-            🧪 Tester une commande
-          </button>
-          <button class="btn btn-success" onclick="openRestockModal()">
-            ♻️ Réapprovisionner
-          </button>
-          <button class="btn btn-info" onclick="refreshStock()">
-            🔄 Actualiser le stock
-          </button>
-        </div>
-
-        <div class="info-box" style="margin-top: 20px;">
-          <strong>💡 Astuce</strong><br>
-          Utilisez le bouton "Tester" pour simuler une commande et vérifier le fonctionnement.
-        </div>
-      </div>
-    </div>
-
-    <!-- Result Panel -->
-    <div class="result-panel">
-      <h2 class="card-title">📋 Console de résultats</h2>
-      <div class="result-content" id="result">
-Bienvenue dans le gestionnaire de stock CBD ! 🌿
-
-✨ Fonctionnalités disponibles :
-  • Surveillance automatique des commandes Shopify
-  • Mise à jour en temps réel du stock
-  • Réapprovisionnement manuel
-  • Tests de commandes simulées
-  • Import produits Shopify (auto variantes)
-  • Catégories + tri A→Z
-  • Export CSV (stock + mouvements)
-
-👆 Cliquez sur un bouton pour commencer...
-      </div>
-    </div>
-
-    <!-- (optionnel) Dernière MAJ (si ton JS veut l’afficher) -->
-    <div style="display:none" id="lastUpdate">-</div>
-  </div>
-
-  <!-- Restock Modal -->
-  <div class="modal" id="restockModal">
-    <div class="modal-content">
-      <h3 class="modal-title">♻️ Réapprovisionner un produit</h3>
-      <form id="restockForm" onsubmit="submitRestock(event)">
-        <div class="form-group">
-          <label for="productSelect">Produit</label>
-          <select id="productSelect" required>
-            <option value="">Sélectionnez un produit...</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label for="gramsInput">Quantité à ajouter (grammes)</label>
-          <input type="number" id="gramsInput" min="1" required placeholder="Ex: 50">
-        </div>
-        <div class="modal-buttons">
-          <button type="button" class="btn btn-secondary" onclick="closeRestockModal()">
-            Annuler
-          </button>
-          <button type="submit" class="btn btn-success">
-            ✅ Confirmer
-          </button>
-        </div>
-      </form>
-    </div>
-  </div>
-
-  <!-- Product Detail Modal -->
-  <div class="modal" id="productModal">
-    <div class="modal-content modal-large">
-      <div class="modal-header">
-        <h3 class="modal-title" id="productModalTitle">Détails du produit</h3>
-        <button type="button" class="btn-close" onclick="closeProductModal()">✕</button>
-      </div>
-
-      <div class="product-detail-grid">
-        <!-- Stock Total -->
-        <div class="detail-section">
-          <h4>📊 Stock Total</h4>
-          <div class="stock-total-edit">
-            <input type="number" id="totalGramsInput" class="large-input" min="0" step="0.1">
-            <span class="unit-label">grammes</span>
+        <div class="card">
+          <h2 class="card-title">Stock total</h2>
+          <div class="kv">
+            <div class="k">Grammes disponibles</div>
+            <div class="v" id="totalGramsAll">-</div>
           </div>
-          <button class="btn btn-primary btn-small" onclick="updateTotalStock()">
-            💾 Mettre à jour le stock total
-          </button>
         </div>
 
-        <!-- Variantes -->
-        <div class="detail-section">
-          <h4>📦 Variantes disponibles</h4>
-          <div id="variantsList" class="variants-list"></div>
+        <div class="card">
+          <h2 class="card-title">Webhook</h2>
+          <div class="kv">
+            <div class="k">Vérification</div>
+            <div class="v" id="webhookStatus">-</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2 class="card-title">Sécurité HMAC</h2>
+          <div class="kv">
+            <div class="k">Vérification</div>
+            <div class="v" id="hmacStatus">-</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2 class="card-title">📦 Gestion du Stock</h2>
+          <p class="muted">
+            Surveillance en temps réel.<br />
+            Les stocks sont mis à jour automatiquement lors de chaque commande Shopify.
+          </p>
+          <div class="kv">
+            <div class="k">Dernière maj</div>
+            <div class="v" id="lastUpdateText">-</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2 class="card-title">⚡ Actions Rapides</h2>
+          <div class="actions">
+            <button id="btnTestOrder" class="btn btn-outline">🧪 Tester une commande</button>
+            <button id="btnRestock" class="btn btn-outline">♻️ Réapprovisionner</button>
+            <button id="btnRefresh" class="btn">🔄 Actualiser le stock</button>
+          </div>
+
+          <div class="tip">
+            💡 <strong>Astuce</strong><br />
+            Utilise <em>“Tester”</em> pour simuler une commande et vérifier le fonctionnement.
+          </div>
+        </div>
+
+        <div class="card">
+          <h2 class="card-title">🧾 Console de résultats</h2>
+          <pre id="consoleLog" class="console">...</pre>
+        </div>
+      </aside>
+
+      <!-- Right: Products table -->
+      <section class="content">
+        <div class="card">
+          <div class="card-head">
+            <h2 class="card-title">Produits</h2>
+
+            <div class="search">
+              <input id="searchInput" type="search" placeholder="Rechercher une variété..." />
+            </div>
+          </div>
+
+          <div class="table-wrap">
+            <table class="table" id="stockTable">
+              <thead>
+                <tr>
+                  <th>Produit</th>
+                  <th>Total (g)</th>
+                  <th>Variantes (dispo)</th>
+                  <th>Catégories</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="stockTableBody">
+                <tr>
+                  <td colspan="5" class="muted">Chargement...</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- ===================== -->
+    <!-- MODALS (simples)      -->
+    <!-- ===================== -->
+
+    <!-- Modal Catégories -->
+    <div id="modalCategories" class="modal hidden" aria-hidden="true">
+      <div class="modal-backdrop" data-close="true"></div>
+      <div class="modal-card" role="dialog" aria-modal="true" aria-label="Catégories">
+        <div class="modal-head">
+          <h3>Catégories</h3>
+          <button class="btn btn-icon" data-close="true" aria-label="Fermer">✖</button>
+        </div>
+
+        <div class="modal-body">
+          <div class="row">
+            <input id="newCategoryName" type="text" placeholder="Nom de la catégorie..." />
+            <button id="btnAddCategory" class="btn btn-primary">Ajouter</button>
+          </div>
+
+          <div id="categoriesList" class="list muted">Chargement...</div>
         </div>
       </div>
+    </div>
 
-      <div class="modal-footer">
-        <button type="button" class="btn btn-secondary" onclick="closeProductModal()">
-          Fermer
-        </button>
+    <!-- Modal Import Shopify -->
+    <div id="modalImport" class="modal hidden" aria-hidden="true">
+      <div class="modal-backdrop" data-close="true"></div>
+      <div class="modal-card" role="dialog" aria-modal="true" aria-label="Import Shopify">
+        <div class="modal-head">
+          <h3>Import Shopify</h3>
+          <button class="btn btn-icon" data-close="true" aria-label="Fermer">✖</button>
+        </div>
+
+        <div class="modal-body">
+          <p class="muted">
+            Sélectionne un produit Shopify, puis importe sa configuration (variantes + inventoryItemId).
+          </p>
+
+          <div class="row">
+            <button id="btnLoadShopifyProducts" class="btn btn-outline">📥 Charger les produits</button>
+            <span class="muted" id="importStatus">-</span>
+          </div>
+
+          <div class="row">
+            <label class="muted" for="shopifyProductSelect">Produit Shopify</label>
+            <select id="shopifyProductSelect" style="width:100%">
+              <option value="">—</option>
+            </select>
+          </div>
+
+          <div class="row">
+            <label class="muted" for="importTotalGrams">Total grammes initial (optionnel)</label>
+            <input id="importTotalGrams" type="number" min="0" step="1" placeholder="Ex: 50" />
+          </div>
+
+          <div class="row">
+            <button id="btnDoImport" class="btn btn-primary">Importer</button>
+          </div>
+
+          <div id="importPreview" class="console muted">...</div>
+        </div>
       </div>
     </div>
   </div>
 
+  <!-- JS (doit exister dans public/js/app.js) -->
   <script src="/js/app.js"></script>
 </body>
 </html>
