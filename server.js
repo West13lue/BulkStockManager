@@ -3,9 +3,8 @@
 // Bulk Stock Manager - Shopify (Render)
 // API alignée avec public/js/app.js
 // - Static: /public (index.html + css/js)
-// - API: server-info, stock (catalog), categories, shopify products, import
+// - API: server-info, stock, categories, shopify products, import, movements JSON/CSV
 // - Webhook: orders/create (HMAC) => MAJ stock + push Shopify inventory
-// - CSV: stock.csv + movements.csv
 // ============================================
 
 if (process.env.NODE_ENV !== "production") {
@@ -26,7 +25,6 @@ const {
   getStockSnapshot,
   setProductCategories,
   upsertImportedProductConfig,
-  getCatalogSnapshot,
 } = require("./stockManager");
 
 // Mouvements
@@ -51,7 +49,6 @@ function logEvent(event, data = {}, level = "info") {
 }
 
 function parseGramsFromVariantTitle(variantTitle = "") {
-  // ex: "1.5", "3", "10 g", "25G", "50"
   const m = String(variantTitle).match(/([\d.,]+)/);
   if (!m) return null;
   return parseFloat(m[1].replace(",", "."));
@@ -109,7 +106,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// JSON sur /api uniquement (important: webhook utilise raw)
+// JSON sur /api uniquement (webhook utilise raw)
 app.use("/api", express.json({ limit: "2mb" }));
 
 // Health check
@@ -120,7 +117,7 @@ app.get("/", (req, res) => res.sendFile(path.join(__dirname, "public", "index.ht
 
 // ---------------- API ----------------
 
-// Infos serveur (app.js attend productCount + mode)
+// Infos serveur
 app.get("/api/server-info", (req, res) => {
   res.json({
     mode: process.env.NODE_ENV || "development",
@@ -131,9 +128,7 @@ app.get("/api/server-info", (req, res) => {
   });
 });
 
-// Stock (format attendu par app.js: { products, categories })
-// filtre: ?category=cat_xxx
-// tri: ?sort=alpha
+// Stock (format app.js: { products, categories })
 app.get("/api/stock", (req, res) => {
   const { sort = "", category = "" } = req.query;
 
@@ -162,7 +157,7 @@ app.get("/api/stock", (req, res) => {
   });
 });
 
-// CSV stock (bouton app.js)
+// CSV stock
 app.get("/api/stock.csv", (req, res) => {
   const snapshot = getStockSnapshot();
   const products = Object.entries(snapshot).map(([productId, p]) => ({
@@ -179,7 +174,23 @@ app.get("/api/stock.csv", (req, res) => {
   res.send(csv);
 });
 
-// CSV mouvements (bouton app.js)
+// ✅ NEW: Mouvements JSON (pour affichage au-dessus console)
+app.get("/api/movements", (req, res) => {
+  try {
+    const days = Math.min(Number(req.query.days || 7), 90);
+    const limit = Math.min(Number(req.query.limit || 80), 1000);
+
+    const rows = listMovements({ days })
+      .sort((a, b) => new Date(b.ts || 0) - new Date(a.ts || 0))
+      .slice(0, limit);
+
+    return res.json({ movements: rows });
+  } catch (e) {
+    return res.status(500).json({ error: e?.message || "Erreur mouvements" });
+  }
+});
+
+// CSV mouvements
 app.get("/api/movements.csv", (req, res) => {
   const days = Math.min(Number(req.query.days || 7), 90);
   const rows = listMovements({ days });
@@ -190,7 +201,6 @@ app.get("/api/movements.csv", (req, res) => {
 });
 
 // -------- Categories (format app.js: {categories}) --------
-
 app.get("/api/categories", (req, res) => {
   res.json({ categories: listCategories() });
 });
@@ -228,7 +238,7 @@ app.post("/api/products/:productId/categories", (req, res) => {
   res.json({ success: true });
 });
 
-// -------- Restock (modal) --------
+// -------- Restock --------
 app.post("/api/restock", async (req, res) => {
   try {
     const productId = String(req.body?.productId || "");
@@ -268,16 +278,18 @@ app.post("/api/restock", async (req, res) => {
   }
 });
 
-// -------- Test order (app.js) --------
+// -------- Test order --------
 app.post("/api/test-order", async (req, res) => {
   try {
-    // prend le premier produit configuré
     const pid = Object.keys(PRODUCT_CONFIG || {})[0];
     if (!pid) return res.status(400).json({ error: "Aucun produit configuré" });
 
-    // on retire 1 unité de la plus petite variante (si possible)
     const p = PRODUCT_CONFIG[pid];
-    const labels = Object.keys(p.variants || {}).map(Number).filter((n) => Number.isFinite(n)).sort((a, b) => a - b);
+    const labels = Object.keys(p.variants || {})
+      .map(Number)
+      .filter((n) => Number.isFinite(n))
+      .sort((a, b) => a - b);
+
     const gramsPerUnit = labels.length ? labels[0] : 1;
 
     const updated = await applyOrderToProduct(String(pid), gramsPerUnit);
@@ -312,7 +324,7 @@ app.post("/api/test-order", async (req, res) => {
   }
 });
 
-// -------- Shopify: Search products (format app.js: {products:[{id,title,variantsCount}]} ) --------
+// -------- Shopify: Search products (format app.js) --------
 app.get("/api/shopify/products", async (req, res) => {
   try {
     const limit = Math.min(Number(req.query.limit || 100), 250);
@@ -337,7 +349,7 @@ app.get("/api/shopify/products", async (req, res) => {
   }
 });
 
-// -------- Import product from Shopify (app.js: POST /api/import/product) --------
+// -------- Import product from Shopify --------
 app.post("/api/import/product", async (req, res) => {
   try {
     const productId = String(req.body?.productId || "");
@@ -368,7 +380,6 @@ app.post("/api/import/product", async (req, res) => {
     const imported = upsertImportedProductConfig({
       productId: String(p.id),
       name: String(p.title || p.handle || p.id),
-      // Important: on ne force pas totalGrams ici (tu pourras restock ensuite)
       variants,
       categoryIds,
     });
@@ -390,7 +401,7 @@ app.post("/api/import/product", async (req, res) => {
 });
 
 // ---------------- Webhook Shopify ----------------
-// IMPORTANT: raw body uniquement ici sinon HMAC faux
+// IMPORTANT: raw body ici sinon HMAC faux
 app.post("/webhooks/orders/create", express.raw({ type: "application/json" }), async (req, res) => {
   const isProduction = process.env.NODE_ENV === "production";
   const skipHmac = process.env.SKIP_HMAC_VALIDATION === "true";
