@@ -1,30 +1,32 @@
 // ============================================
 // BULK STOCK MANAGER - Front (Admin UI)
-// ============================================
-// - Contrôles catalog (tri/filtre/import/export)
 // - Produits groupés par catégorie
-// - Modal produit : variantes lisibles + catégories + historique + ajuster stock (unités)
-// - Modals Import/Catégories avec backdrop
+// - Modals avec backdrop (lisibilité)
+// - Catégories : assignation produit OK
+// - Ajustement stock TOTAL (+ / - en grammes)
+// - Suppression produit (config uniquement)
+// - Historique produit
 // ============================================
 
-// --------------------------------------------
-// DOM refs
-// --------------------------------------------
 const result = document.getElementById("result");
-
-let stockData = {};       // map: { [productId]: { name, totalGrams, variants, categoryIds } }
+let stockData = {};       // map { [productId]: {name,totalGrams,variants,categoryIds} }
 let catalogData = null;   // { products:[], categories:[] }
-let categories = [];      // [{id,name}]
 let serverInfo = {};
 let currentProductId = null;
 
 let currentCategoryFilter = "";
-let sortAlpha = true; // default A->Z
+let sortAlpha = true;
+let categories = []; // [{id,name}]
 
-// --------------------------------------------
-// Utils
-// --------------------------------------------
-function qs(sel) { return document.querySelector(sel); }
+// ---------------- util ----------------
+function log(message, type = "info") {
+  const timestamp = new Date().toLocaleTimeString("fr-FR");
+  if (!result) return;
+  result.textContent = `[${timestamp}] ${message}`;
+  result.className = "result-content " + type;
+  result.scrollTop = result.scrollHeight;
+}
+
 function el(id) { return document.getElementById(id); }
 
 function escapeHtml(str) {
@@ -34,67 +36,16 @@ function escapeHtml(str) {
     .replace(/'/g, "&#039;");
 }
 
-function log(message, type = "info") {
-  const timestamp = new Date().toLocaleTimeString("fr-FR");
-  if (!result) return;
-  result.textContent = `[${timestamp}] ${message}`;
-  result.className = "result-content " + type;
-  result.scrollTop = result.scrollHeight;
-}
-
-function fmtDateFR(iso) {
-  try { return new Date(iso).toLocaleString("fr-FR"); }
-  catch { return String(iso || ""); }
-}
-
-function fmtDelta(delta) {
-  const n = Number(delta || 0);
-  const sign = n > 0 ? "+" : "";
-  return `${sign}${n}g`;
-}
-
-function deltaBadge(delta) {
-  const n = Number(delta || 0);
-  if (n > 0) return "✅";
-  if (n < 0) return "🔻";
-  return "•";
-}
-
-function catNameById(cid) {
-  return categories.find(c => String(c.id) === String(cid))?.name || null;
-}
-
-// --------------------------------------------
-// Backdrop pour les modals (Import/Catégories)
-// --------------------------------------------
-function ensureModalBackdrop(modalEl, onClose) {
+function ensureModalBackdrop(modalEl) {
   if (!modalEl) return;
-
-  // Backdrop déjà présent ?
   if (modalEl.querySelector(".modal-backdrop")) return;
-
   const backdrop = document.createElement("div");
   backdrop.className = "modal-backdrop";
-  backdrop.addEventListener("click", () => {
-    modalEl.classList.remove("active");
-    if (typeof onClose === "function") onClose();
-  });
-
-  // Si le contenu est directement .modal-content (sans panel), on le wrap
-  const content = modalEl.querySelector(".modal-content");
-  if (content && !content.closest(".modal-panel")) {
-    const panel = document.createElement("div");
-    panel.className = "modal-panel";
-    content.parentNode.insertBefore(panel, content);
-    panel.appendChild(content);
-  }
-
-  modalEl.insertBefore(backdrop, modalEl.firstChild);
+  backdrop.addEventListener("click", () => modalEl.classList.remove("active"));
+  modalEl.prepend(backdrop);
 }
 
-// --------------------------------------------
-// Contrôles du header (tri/filtre/import/export)
-// --------------------------------------------
+// ---------------- controls header ----------------
 function ensureCatalogControls() {
   const header = document.querySelector(".header");
   if (!header) return;
@@ -103,7 +54,6 @@ function ensureCatalogControls() {
   const wrap = document.createElement("div");
   wrap.id = "catalogControls";
   wrap.className = "catalog-controls";
-
   wrap.innerHTML = `
     <div class="catalog-row">
       <div class="field">
@@ -131,47 +81,24 @@ function ensureCatalogControls() {
   `;
   header.appendChild(wrap);
 
-  el("categoryFilter")?.addEventListener("change", async (e) => {
+  el("categoryFilter").addEventListener("change", async (e) => {
     currentCategoryFilter = e.target.value || "";
     await refreshStock();
   });
 
-  el("sortMode")?.addEventListener("change", async (e) => {
+  el("sortMode").addEventListener("change", async (e) => {
     sortAlpha = e.target.value === "alpha";
     await refreshStock();
   });
 
-  el("btnImport")?.addEventListener("click", openImportModal);
-  el("btnCategories")?.addEventListener("click", openCategoriesModal);
+  el("btnImport").addEventListener("click", openImportModal);
+  el("btnCategories").addEventListener("click", openCategoriesModal);
 
-  el("btnExportStock")?.addEventListener("click", () => {
-    window.location.href = "/api/stock.csv";
-  });
-
-  el("btnExportMovements")?.addEventListener("click", () => {
-    window.location.href = "/api/movements.csv";
-  });
+  el("btnExportStock").addEventListener("click", () => (window.location.href = "/api/stock.csv"));
+  el("btnExportMovements").addEventListener("click", () => (window.location.href = "/api/movements.csv"));
 }
 
-function updateCategoryFilterOptions() {
-  const sel = el("categoryFilter");
-  if (!sel) return;
-
-  const current = sel.value;
-  sel.innerHTML =
-    `<option value="">Toutes</option>` +
-    categories
-      .slice()
-      .sort((a, b) => String(a.name).localeCompare(String(b.name), "fr", { sensitivity: "base" }))
-      .map(c => `<option value="${escapeHtml(String(c.id))}">${escapeHtml(String(c.name))}</option>`)
-      .join("");
-
-  if (current) sel.value = current;
-}
-
-// --------------------------------------------
-// Server info
-// --------------------------------------------
+// ---------------- server info ----------------
 async function getServerInfo() {
   try {
     const res = await fetch("/api/server-info");
@@ -193,9 +120,36 @@ async function getServerInfo() {
   }
 }
 
-// --------------------------------------------
-// Stock
-// --------------------------------------------
+// ---------------- categories ----------------
+async function loadCategories() {
+  try {
+    const res = await fetch("/api/categories");
+    const data = await res.json();
+    categories = Array.isArray(data.categories) ? data.categories : [];
+    updateCategoryFilterOptions();
+    updateProductCategoriesOptions();
+  } catch (e) {
+    log("❌ Erreur chargement catégories: " + e.message, "error");
+  }
+}
+
+function updateCategoryFilterOptions() {
+  const sel = el("categoryFilter");
+  if (!sel) return;
+
+  const current = sel.value;
+  sel.innerHTML =
+    `<option value="">Toutes</option>` +
+    categories
+      .slice()
+      .sort((a, b) => String(a.name).localeCompare(String(b.name), "fr"))
+      .map((c) => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.name)}</option>`)
+      .join("");
+
+  if (current) sel.value = current;
+}
+
+// ---------------- stock ----------------
 async function refreshStock() {
   ensureCatalogControls();
   log("⏳ Actualisation du stock...", "info");
@@ -208,14 +162,13 @@ async function refreshStock() {
     const res = await fetch(url.pathname + url.search);
     const data = await res.json();
 
-    // Nouveau format
     if (data && Array.isArray(data.products)) {
       catalogData = data;
-      categories = Array.isArray(data.categories) ? data.categories : [];
+      categories = Array.isArray(data.categories) ? data.categories : categories;
 
       const map = {};
       for (const p of data.products) {
-        map[String(p.productId)] = {
+        map[p.productId] = {
           name: p.name,
           totalGrams: p.totalGrams,
           variants: p.variants || {},
@@ -225,19 +178,17 @@ async function refreshStock() {
       stockData = map;
 
       updateCategoryFilterOptions();
-      displayProducts(stockData);
+      displayProductsGrouped(stockData);
       updateStats(stockData);
 
-      log("✅ Stock actualisé (catalog)\n\n" + JSON.stringify(data, null, 2), "success");
+      log("✅ Stock actualisé", "success");
       return;
     }
 
-    // Legacy format
     stockData = data || {};
-    displayProducts(stockData);
+    displayProductsGrouped(stockData);
     updateStats(stockData);
-
-    log("✅ Stock actualisé\n\n" + JSON.stringify(stockData, null, 2), "success");
+    log("✅ Stock actualisé", "success");
   } catch (err) {
     log("❌ ERREUR: " + err.message, "error");
   }
@@ -248,136 +199,176 @@ function updateStats(stock) {
   const totalProducts = products.length;
   const totalGrams = products.reduce((acc, p) => acc + Number(p.totalGrams || 0), 0);
 
-  el("statProducts") && (el("statProducts").textContent = totalProducts);
-  el("statGrams") && (el("statGrams").textContent = `${totalGrams}g`);
-  el("lastUpdate") && (el("lastUpdate").textContent = new Date().toLocaleString("fr-FR"));
+  const countEl = el("statProducts");
+  const gramsEl = el("statGrams");
+  const lastEl = el("lastUpdate");
+
+  if (countEl) countEl.textContent = totalProducts;
+  if (gramsEl) gramsEl.textContent = `${totalGrams}g`;
+  if (lastEl) lastEl.textContent = new Date().toLocaleString("fr-FR");
 }
 
-// --------------------------------------------
-// Produits groupés par catégorie (affichage principal)
-// --------------------------------------------
-function displayProducts(stock) {
+// ---------------- grouped display ----------------
+function getCategoryNameById(id) {
+  return categories.find((c) => String(c.id) === String(id))?.name || null;
+}
+
+function displayProductsGrouped(stock) {
   const productList = el("productList");
   if (!productList) return;
 
   const entries = Object.entries(stock || {});
   if (!entries.length) {
-    productList.innerHTML = `<div style="text-align:center; padding:40px; color:#a0aec0;">Aucun produit configuré</div>`;
+    productList.innerHTML = `<div class="muted" style="padding:12px;">Aucun produit configuré</div>`;
     return;
   }
 
-  const groups = {};          // { catId: [[id, product], ...] }
-  const uncategorized = [];   // [[id, product], ...]
+  // Group by category (first category or "Sans catégorie")
+  const groups = new Map();
 
-  for (const [id, product] of entries) {
-    const ids = Array.isArray(product.categoryIds) ? product.categoryIds : [];
-    if (!ids.length) {
-      uncategorized.push([id, product]);
-      continue;
-    }
-    for (const cid of ids) {
-      const key = String(cid);
-      if (!groups[key]) groups[key] = [];
-      groups[key].push([id, product]);
-    }
+  for (const [id, p] of entries) {
+    const catIds = Array.isArray(p.categoryIds) ? p.categoryIds : [];
+    const first = catIds[0] || "__uncat__";
+    const keyName = first === "__uncat__" ? "Sans catégorie" : (getCategoryNameById(first) || "Sans catégorie");
+
+    if (!groups.has(keyName)) groups.set(keyName, []);
+    groups.get(keyName).push([id, p]);
   }
 
-  const sortedCatIds = Object.keys(groups).sort((a, b) => {
-    const an = String(catNameById(a) || "").toLowerCase();
-    const bn = String(catNameById(b) || "").toLowerCase();
-    return an.localeCompare(bn, "fr", { sensitivity: "base" });
-  });
+  // Sort group names
+  const groupNames = Array.from(groups.keys()).sort((a, b) => a.localeCompare(b, "fr"));
+  productList.innerHTML = groupNames
+    .map((gName) => {
+      const items = groups.get(gName) || [];
 
-  const sortEntries = (arr) => arr.slice().sort((A, B) => {
-    const a = String(A[1]?.name || "");
-    const b = String(B[1]?.name || "");
-    return a.localeCompare(b, "fr", { sensitivity: "base" });
-  });
+      // Sort products inside group if alpha
+      if (sortAlpha) {
+        items.sort((a, b) => String(a[1].name).localeCompare(String(b[1].name), "fr", { sensitivity: "base" }));
+      }
 
-  function renderProductCard(id, product) {
-    const total = Number(product.totalGrams || 0);
-    const percent = Math.max(0, Math.min(100, Math.round((total / 200) * 100)));
-    const lowClass = total <= Number(serverInfo?.lowStockThreshold || 10) ? " low" : "";
+      const cards = items
+        .map(([id, product]) => {
+          const total = Number(product.totalGrams || 0);
+          const percent = Math.max(0, Math.min(100, Math.round((total / 200) * 100)));
+          const lowClass = total <= Number(serverInfo?.lowStockThreshold || 10) ? " low" : "";
 
-    const cats = Array.isArray(product.categoryIds) ? product.categoryIds : [];
-    const catNames = cats.map(catNameById).filter(Boolean);
+          return `
+            <div class="product-item${lowClass}" onclick="openProductModal('${escapeHtml(id)}')">
+              <div class="product-header" style="display:flex;justify-content:space-between;gap:10px;">
+                <div>
+                  <div class="product-name">${escapeHtml(product.name)}</div>
+                </div>
+                <div class="product-stock">${total}g</div>
+              </div>
+              <div class="stock-bar">
+                <div class="stock-bar-fill" style="width:${percent}%"></div>
+              </div>
+            </div>
+          `;
+        })
+        .join("");
 
-    return `
-      <div class="product-item${lowClass}" onclick="openProductModal('${escapeHtml(String(id))}')">
-        <div class="product-header" style="display:flex; justify-content:space-between; gap:10px;">
-          <div style="min-width:0;">
-            <div class="product-name" style="font-weight:900;">${escapeHtml(product.name)}</div>
-            ${catNames.length ? `
-              <div class="product-cats" style="margin-top:6px; display:flex; flex-wrap:wrap; gap:6px;">
-                ${catNames.map(n => `
-                  <span class="pill" style="border:1px solid rgba(255,255,255,.12); background:rgba(255,255,255,.04); padding:3px 8px; border-radius:999px; font-size:12px;">
-                    ${escapeHtml(n)}
-                  </span>`).join("")}
-              </div>` : ""}
+      return `
+        <div class="category-section">
+          <div class="category-title">
+            <div>${escapeHtml(gName)}</div>
+            <div class="category-count">${items.length} produit(s)</div>
           </div>
-          <div class="product-stock" style="font-weight:900; white-space:nowrap;">${total}g</div>
+          <div class="product-grid">${cards}</div>
         </div>
-
-        <div class="stock-bar" style="margin-top:10px; height:8px; border-radius:999px; background:rgba(255,255,255,.08); overflow:hidden;">
-          <div class="stock-bar-fill" style="height:100%; width:${percent}%; background:rgba(167,139,250,.9);"></div>
-        </div>
-      </div>
-    `;
-  }
-
-  let html = "";
-
-  for (const cid of sortedCatIds) {
-    const name = catNameById(cid) || "Catégorie";
-    const items = sortEntries(groups[cid]);
-    html += `
-      <div class="category-section">
-        <div class="category-title">
-          <div>${escapeHtml(name)}</div>
-          <div class="category-count">${items.length} produit(s)</div>
-        </div>
-        <div class="product-grid">
-          ${items.map(([id, p]) => renderProductCard(id, p)).join("")}
-        </div>
-      </div>
-    `;
-  }
-
-  if (uncategorized.length) {
-    const items = sortEntries(uncategorized);
-    html += `
-      <div class="category-section">
-        <div class="category-title">
-          <div>Sans catégorie</div>
-          <div class="category-count">${items.length} produit(s)</div>
-        </div>
-        <div class="product-grid">
-          ${items.map(([id, p]) => renderProductCard(id, p)).join("")}
-        </div>
-      </div>
-    `;
-  }
-
-  productList.innerHTML = html;
+      `;
+    })
+    .join("");
 }
 
-// --------------------------------------------
-// Variantes (lisibles)
-// --------------------------------------------
+// ---------------- test order ----------------
+async function testOrder() {
+  log("⏳ Traitement de la commande test en cours...", "info");
+  try {
+    const res = await fetch("/api/test-order", { method: "POST" });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data?.error || "Erreur test-order");
+    log("✅ COMMANDE TEST OK\n\n" + JSON.stringify(data, null, 2), "success");
+    await refreshStock();
+  } catch (err) {
+    log("❌ ERREUR: " + err.message, "error");
+  }
+}
+
+// ---------------- restock modal (grams) ----------------
+function openRestockModal() {
+  const modal = el("restockModal");
+  const select = el("productSelect");
+  if (!modal || !select) return;
+
+  ensureModalBackdrop(modal);
+
+  select.innerHTML =
+    '<option value="">Sélectionnez un produit...</option>' +
+    Object.entries(stockData).map(([id, product]) =>
+      `<option value="${escapeHtml(id)}">${escapeHtml(product.name)} (Stock: ${Number(product.totalGrams || 0)}g)</option>`
+    ).join("");
+
+  modal.classList.add("active");
+}
+
+function closeRestockModal() {
+  const m = el("restockModal");
+  if (m) m.classList.remove("active");
+  const f = el("restockForm");
+  if (f) f.reset();
+}
+
+// ---------------- product modal ----------------
+function openProductModal(productId) {
+  currentProductId = productId;
+  const product = stockData[productId];
+  if (!product) return;
+
+  const modal = el("productModal");
+  ensureModalBackdrop(modal);
+
+  const title = el("productModalTitle");
+  const totalInput = el("totalGramsInput");
+
+  if (title) title.textContent = `📦 ${product.name}`;
+  if (totalInput) totalInput.value = Number(product.totalGrams || 0);
+
+  displayVariants(product.variants);
+  ensureProductControlsUI();
+  ensureProductCategoriesUI();
+
+  // Apply current categories selection
+  const catSelect = el("productCategoriesSelect");
+  if (catSelect) {
+    const ids = Array.isArray(product.categoryIds) ? product.categoryIds.map(String) : [];
+    for (const opt of Array.from(catSelect.options)) {
+      opt.selected = ids.includes(String(opt.value));
+    }
+  }
+
+  // Load product history
+  loadProductHistory(productId);
+
+  modal.classList.add("active");
+}
+
+function closeProductModal() {
+  el("productModal")?.classList.remove("active");
+  currentProductId = null;
+}
+
 function displayVariants(variants) {
   const variantsList = el("variantsList");
   if (!variantsList) return;
 
-  const variantsArray = Object.entries(variants || {})
-    .map(([label, variant]) => [String(label), variant])
-    .sort((a, b) => (parseFloat(a[0]) || 0) - (parseFloat(b[0]) || 0));
-
-  if (!variantsArray.length) {
+  const arr = Object.entries(variants || {});
+  if (!arr.length) {
     variantsList.innerHTML = `<div class="muted" style="padding:12px;">Aucune variante configurée</div>`;
     return;
   }
 
-  variantsList.innerHTML = variantsArray.map(([label, variant]) => {
+  variantsList.innerHTML = arr.map(([label, variant]) => {
     const canSell = Number(variant.canSell ?? 0);
     let stockClass = "high";
     if (canSell <= 2) stockClass = "low";
@@ -392,11 +383,90 @@ function displayVariants(variants) {
   }).join("");
 }
 
-// --------------------------------------------
-// Modal produit : catégories (multi-select)
-// --------------------------------------------
+// ---------------- product controls: adjust total + delete ----------------
+function ensureProductControlsUI() {
+  const modalContent = document.querySelector("#productModal .modal-content");
+  if (!modalContent) return;
+  if (el("productAdjustBlock")) return;
+
+  const block = document.createElement("div");
+  block.id = "productAdjustBlock";
+  block.className = "form-group";
+  block.innerHTML = `
+    <label>Stock total (ajouter / enlever en grammes)</label>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+      <input id="adjustTotalGrams" type="number" min="1" step="1" placeholder="Ex: 50" style="max-width:180px;" />
+      <button type="button" class="btn btn-primary btn-sm" id="btnAddTotal">➕ Ajouter</button>
+      <button type="button" class="btn btn-secondary btn-sm" id="btnRemoveTotal">➖ Enlever</button>
+      <div style="flex:1"></div>
+      <button type="button" class="btn btn-secondary btn-sm" id="btnDeleteProduct">🗑️ Supprimer produit</button>
+    </div>
+    <div class="hint muted">Ici on ajuste directement le stock total (moins d’erreurs, pas par variante).</div>
+  `;
+
+  modalContent.appendChild(block);
+
+  el("btnAddTotal")?.addEventListener("click", () => adjustTotal(+1));
+  el("btnRemoveTotal")?.addEventListener("click", () => adjustTotal(-1));
+  el("btnDeleteProduct")?.addEventListener("click", deleteCurrentProduct);
+}
+
+async function adjustTotal(sign) {
+  if (!currentProductId) return;
+  const grams = Number(el("adjustTotalGrams")?.value || 0);
+  if (!grams || grams <= 0) return alert("Entre une quantité de grammes valide");
+
+  const gramsDelta = sign * grams;
+
+  try {
+    const res = await fetch(`/api/products/${encodeURIComponent(currentProductId)}/adjust-total`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ gramsDelta }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data?.error || "Erreur ajustement total");
+
+    log(`✅ Stock total mis à jour (${gramsDelta > 0 ? "+" : ""}${gramsDelta}g)`, "success");
+
+    // refresh list + keep modal open
+    await refreshStock();
+    const updated = stockData[currentProductId];
+    if (updated) {
+      el("totalGramsInput").value = Number(updated.totalGrams || 0);
+      displayVariants(updated.variants);
+      loadProductHistory(currentProductId);
+    }
+  } catch (e) {
+    log("❌ Erreur ajustement total: " + e.message, "error");
+    alert("Erreur: " + e.message);
+  }
+}
+
+async function deleteCurrentProduct() {
+  if (!currentProductId) return;
+  const p = stockData[currentProductId];
+  const name = p?.name || currentProductId;
+
+  if (!confirm(`Supprimer "${name}" de l'interface ? (cela ne supprime PAS le produit Shopify)`)) return;
+
+  try {
+    const res = await fetch(`/api/products/${encodeURIComponent(currentProductId)}`, { method: "DELETE" });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data?.error || "Erreur suppression");
+
+    log(`✅ Produit supprimé: ${name}`, "success");
+    closeProductModal();
+    await refreshStock();
+  } catch (e) {
+    log("❌ Erreur suppression produit: " + e.message, "error");
+    alert("Erreur: " + e.message);
+  }
+}
+
+// ---------------- categories in product modal ----------------
 function ensureProductCategoriesUI() {
-  const modalContent = qs("#productModal .modal-content");
+  const modalContent = document.querySelector("#productModal .modal-content");
   if (!modalContent) return;
   if (el("productCategoriesSelect")) return;
 
@@ -404,29 +474,22 @@ function ensureProductCategoriesUI() {
   block.className = "form-group";
   block.innerHTML = `
     <label>Catégories</label>
-    <select id="productCategoriesSelect" multiple size="6" style="width:100%;"></select>
-    <div class="hint muted">Ctrl (Windows) / Cmd (Mac) pour sélectionner plusieurs catégories.</div>
-    <div style="margin-top:10px; display:flex; gap:10px; flex-wrap:wrap;">
-      <button type="button" class="btn btn-secondary btn-sm" id="btnSaveCategories">💾 Enregistrer catégories</button>
+    <select id="productCategoriesSelect" multiple size="6"></select>
+    <div class="hint muted">Ctrl (Windows) / Cmd (Mac) pour sélectionner plusieurs. (Aucune sélection = Sans catégorie)</div>
+    <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:10px;">
       <button type="button" class="btn btn-secondary btn-sm" id="btnClearCategories">🧹 Tout enlever</button>
+      <button type="button" class="btn btn-primary btn-sm" id="btnSaveCategories">💾 Enregistrer</button>
     </div>
-    <div id="categoriesSaveState" class="muted" style="margin-top:8px;"></div>
   `;
 
-  // Place juste après Variantes si possible
-  const variantsList = el("variantsList");
-  const variantsGroup = variantsList ? variantsList.closest(".form-group") : null;
-  if (variantsGroup && variantsGroup.parentNode) {
-    variantsGroup.parentNode.insertBefore(block, variantsGroup.nextSibling);
-  } else {
-    modalContent.appendChild(block);
-  }
+  modalContent.appendChild(block);
+  updateProductCategoriesOptions();
 
   el("btnSaveCategories")?.addEventListener("click", saveProductCategories);
   el("btnClearCategories")?.addEventListener("click", () => {
     const sel = el("productCategoriesSelect");
     if (!sel) return;
-    Array.from(sel.options).forEach(o => (o.selected = false));
+    for (const opt of Array.from(sel.options)) opt.selected = false;
   });
 }
 
@@ -434,431 +497,139 @@ function updateProductCategoriesOptions() {
   const sel = el("productCategoriesSelect");
   if (!sel) return;
 
-  const prevSelected = new Set(Array.from(sel.selectedOptions).map(o => String(o.value)));
-
   sel.innerHTML = categories
     .slice()
-    .sort((a, b) => String(a.name).localeCompare(String(b.name), "fr", { sensitivity: "base" }))
-    .map(c => `<option value="${escapeHtml(String(c.id))}">${escapeHtml(String(c.name))}</option>`)
+    .sort((a, b) => String(a.name).localeCompare(String(b.name), "fr"))
+    .map((c) => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.name)}</option>`)
     .join("");
-
-  Array.from(sel.options).forEach(o => {
-    o.selected = prevSelected.has(String(o.value));
-  });
 }
 
 async function saveProductCategories() {
   if (!currentProductId) return;
-
   const sel = el("productCategoriesSelect");
-  const state = el("categoriesSaveState");
   if (!sel) return;
 
-  const categoryIds = Array.from(sel.selectedOptions).map(o => String(o.value));
+  const categoryIds = Array.from(sel.selectedOptions).map((o) => o.value);
 
   try {
-    if (state) state.textContent = "⏳ Enregistrement...";
-    const res = await fetch(`/api/products/${encodeURIComponent(String(currentProductId))}/categories`, {
+    const res = await fetch(`/api/products/${encodeURIComponent(currentProductId)}/categories`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ categoryIds }),
     });
+
     const data = await res.json();
-    if (!res.ok) throw new Error(data?.error || "Erreur API catégories");
+    if (!res.ok) throw new Error(data?.error || "Erreur");
 
-    if (state) state.textContent = "✅ Catégories enregistrées";
-    log("✅ Catégories enregistrées\n\n" + JSON.stringify(data, null, 2), "success");
-
+    log("✅ Catégories enregistrées", "success");
     await refreshStock();
+
+    // refresh modal product data
+    const updated = stockData[currentProductId];
+    if (updated) {
+      // reselect from updated
+      const ids = Array.isArray(updated.categoryIds) ? updated.categoryIds.map(String) : [];
+      for (const opt of Array.from(sel.options)) opt.selected = ids.includes(String(opt.value));
+    }
   } catch (e) {
-    if (state) state.textContent = "❌ " + e.message;
     log("❌ Erreur catégories: " + e.message, "error");
-    alert("Erreur en enregistrant les catégories : " + e.message);
-  }
-}
-
-// --------------------------------------------
-// Modal produit : ajuster stock (unités) par variante
-// --------------------------------------------
-function ensureProductAdjustUnitsUI() {
-  const modalContent = qs("#productModal .modal-content");
-  if (!modalContent) return;
-  if (el("adjustUnitsBox")) return;
-
-  const block = document.createElement("div");
-  block.className = "form-group";
-  block.id = "adjustUnitsBox";
-  block.innerHTML = `
-    <label>Stock (par unités)</label>
-
-    <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end;">
-      <div style="flex:1; min-width:160px;">
-        <div class="hint muted" style="margin-bottom:6px;">Variante</div>
-        <select id="adjustVariantKey" style="width:100%;"></select>
-      </div>
-
-      <div style="width:160px;">
-        <div class="hint muted" style="margin-bottom:6px;">Unités</div>
-        <input id="adjustUnitsValue" type="number" min="1" step="1" value="1" style="width:100%;" />
-      </div>
-
-      <button class="btn btn-secondary btn-sm" type="button" id="btnRemoveUnits">➖ Enlever</button>
-      <button class="btn btn-primary btn-sm" type="button" id="btnAddUnits">➕ Ajouter</button>
-    </div>
-
-    <div id="adjustUnitsState" class="muted" style="margin-top:8px;"></div>
-  `;
-
-  // Place sous Variantes si possible
-  const variantsList = el("variantsList");
-  const variantsGroup = variantsList ? variantsList.closest(".form-group") : null;
-  if (variantsGroup && variantsGroup.parentNode) {
-    variantsGroup.parentNode.insertBefore(block, variantsGroup.nextSibling);
-  } else {
-    modalContent.appendChild(block);
-  }
-
-  el("btnRemoveUnits")?.addEventListener("click", () => adjustUnits("remove"));
-  el("btnAddUnits")?.addEventListener("click", () => adjustUnits("add"));
-}
-
-function fillAdjustUnitsVariants(product) {
-  const sel = el("adjustVariantKey");
-  if (!sel) return;
-
-  const variants = product?.variants || {};
-  const keys = Object.keys(variants)
-    .map(k => String(k))
-    .sort((a, b) => (parseFloat(a) || 0) - (parseFloat(b) || 0));
-
-  sel.innerHTML = keys.map(k => {
-    const v = variants[k];
-    const canSell = Number(v?.canSell ?? 0);
-    return `<option value="${escapeHtml(k)}">${escapeHtml(k)}g — ${canSell} unité(s)</option>`;
-  }).join("");
-}
-
-async function adjustUnits(op) {
-  if (!currentProductId) return;
-  const product = stockData[currentProductId];
-  if (!product) return;
-
-  const state = el("adjustUnitsState");
-  const variantKey = el("adjustVariantKey")?.value;
-  const units = Number(el("adjustUnitsValue")?.value || 0);
-
-  if (!variantKey) return alert("Choisis une variante.");
-  if (!Number.isFinite(units) || units <= 0) return alert("Nombre d’unités invalide.");
-
-  try {
-    if (state) state.textContent = "⏳ Mise à jour...";
-
-    const res = await fetch(`/api/products/${encodeURIComponent(String(currentProductId))}/adjust-units`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ variantKey, units, op }),
-    });
-
-    const data = await res.json();
-    if (!res.ok) throw new Error(data?.error || "Erreur ajustement stock");
-
-    if (state) state.textContent = "✅ Stock mis à jour";
-    log("✅ Stock mis à jour\n\n" + JSON.stringify(data, null, 2), "success");
-
-    await refreshStock();
-
-    // Ré-ouvrir pour rafraîchir stocks variantes + historique
-    openProductModal(currentProductId);
-
-    // Refresh historique global + produit si présents
-    if (typeof refreshMovements === "function") refreshMovements();
-    if (typeof refreshProductHistory === "function") refreshProductHistory(currentProductId);
-
-  } catch (e) {
-    if (state) state.textContent = "❌ " + e.message;
-    log("❌ Erreur adjustUnits: " + e.message, "error");
     alert("Erreur: " + e.message);
   }
 }
 
-// --------------------------------------------
-// Historique produit (dans modal)
-// --------------------------------------------
-function ensureProductHistoryUI() {
-  const modalContent = qs("#productModal .modal-content");
+// ---------------- product history ----------------
+async function loadProductHistory(productId) {
+  const modalContent = document.querySelector("#productModal .modal-content");
   if (!modalContent) return;
-  if (el("productHistoryBox")) return;
 
-  const block = document.createElement("div");
-  block.className = "product-history";
-  block.id = "productHistoryBox";
-  block.innerHTML = `
-    <div style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
-      <div style="font-weight:900;">🕒 Historique du produit</div>
-      <div style="display:flex; gap:8px; align-items:center;">
-        <select id="productHistoryDays" class="btn btn-secondary btn-sm" style="padding:6px 10px;">
-          <option value="7">7j</option>
-          <option value="30" selected>30j</option>
-          <option value="90">90j</option>
-        </select>
-        <button class="btn btn-secondary btn-sm" type="button" id="btnRefreshProductHistory">🔄</button>
-      </div>
-    </div>
-    <div id="productHistoryList" class="history-list">
-      <div class="muted" style="padding:10px;">-</div>
-    </div>
-  `;
+  // ensure area
+  let block = el("productHistoryBlock");
+  if (!block) {
+    block = document.createElement("div");
+    block.id = "productHistoryBlock";
+    block.className = "product-history";
+    block.innerHTML = `
+      <div class="card-title">🕒 Historique du produit</div>
+      <div class="muted" style="margin-top:6px;">Derniers mouvements liés à ce produit.</div>
+      <div id="productHistoryList" class="history-list"></div>
+    `;
+    modalContent.appendChild(block);
+  }
 
-  modalContent.appendChild(block);
-
-  el("btnRefreshProductHistory")?.addEventListener("click", () => refreshProductHistory(currentProductId));
-  el("productHistoryDays")?.addEventListener("change", () => refreshProductHistory(currentProductId));
-}
-
-async function refreshProductHistory(productId) {
   const list = el("productHistoryList");
   if (!list) return;
 
-  if (!productId) {
-    list.innerHTML = `<div class="muted" style="padding:10px;">Aucun produit</div>`;
-    return;
-  }
-
-  const days = Number(el("productHistoryDays")?.value || 30);
-  list.innerHTML = `<div class="muted" style="padding:10px;">⏳ Chargement...</div>`;
+  list.innerHTML = `<div class="muted" style="padding:10px;">Chargement...</div>`;
 
   try {
-    const url = new URL(window.location.origin + "/api/movements");
-    url.searchParams.set("days", String(days));
-    url.searchParams.set("limit", "250");
-
-    const res = await fetch(url.pathname + url.search);
+    const res = await fetch(`/api/products/${encodeURIComponent(productId)}/history?limit=200`);
     const data = await res.json();
-    if (!res.ok) throw new Error(data?.error || "Erreur historique");
+    if (!res.ok) throw new Error(data?.error || "Erreur history");
 
-    const rows = (Array.isArray(data.movements) ? data.movements : [])
-      .filter(m => String(m.productId || "") === String(productId))
-      .slice(0, 80);
-
-    if (!rows.length) {
-      list.innerHTML = `<div class="muted" style="padding:10px;">Aucun mouvement sur ${days} jour(s).</div>`;
+    const items = Array.isArray(data.data) ? data.data : [];
+    if (!items.length) {
+      list.innerHTML = `<div class="muted" style="padding:10px;">Aucun mouvement.</div>`;
       return;
     }
 
-    list.innerHTML = rows.map(m => {
-      const ts = fmtDateFR(m.ts || m.createdAt || "");
-      const type = m.type || m.source || "mouvement";
-      const delta = Number(m.deltaGrams ?? m.gramsDelta ?? m.delta ?? 0);
-      const after = (m.gramsAfter ?? m.totalAfter ?? m.after ?? null);
-
-      const extra = m.orderName
-        ? ` • ${escapeHtml(m.orderName)}`
-        : (m.orderId ? ` • #${escapeHtml(m.orderId)}` : "");
+    list.innerHTML = items.map((m) => {
+      const ts = m.ts ? new Date(m.ts).toLocaleString("fr-FR") : "";
+      const delta = Number(m.gramsDelta || 0);
+      const sign = delta > 0 ? "+" : "";
+      const source = m.source || "movement";
+      const totalAfter = Number(m.totalAfter ?? NaN);
 
       return `
         <div class="history-item">
-          <div style="min-width:0;">
-            <div class="h-title">${escapeHtml(type)}${extra}</div>
-            <div class="h-sub">${escapeHtml(ts)}${after != null ? ` • Stock après: ${escapeHtml(String(after))}g` : ""}</div>
+          <div>
+            <div class="h-title">${escapeHtml(source)}</div>
+            <div class="h-sub">${escapeHtml(ts)}</div>
           </div>
-          <div class="h-delta">${deltaBadge(delta)} ${escapeHtml(fmtDelta(delta))}</div>
+          <div class="h-delta">${sign}${delta}g ${Number.isFinite(totalAfter) ? `→ ${totalAfter}g` : ""}</div>
         </div>
       `;
     }).join("");
-
   } catch (e) {
-    list.innerHTML = `<div style="color:#ef4444; padding:10px;">❌ ${escapeHtml(e.message)}</div>`;
+    list.innerHTML = `<div style="color:#fca5a5; padding:10px;">Erreur: ${escapeHtml(e.message)}</div>`;
   }
 }
 
-// --------------------------------------------
-// Modal produit : ouverture/fermeture
-// --------------------------------------------
-function openProductModal(productId) {
-  currentProductId = String(productId);
-  const product = stockData[currentProductId];
-  if (!product) return;
-
-  el("productModalTitle") && (el("productModalTitle").textContent = `📦 ${product.name}`);
-  el("totalGramsInput") && (el("totalGramsInput").value = Number(product.totalGrams || 0));
-
-  displayVariants(product.variants);
-
-  // Ajuster stock (unités)
-  ensureProductAdjustUnitsUI();
-  fillAdjustUnitsVariants(product);
-
-  // Catégories
-  ensureProductCategoriesUI();
-  updateProductCategoriesOptions();
-
-  const catSelect = el("productCategoriesSelect");
-  if (catSelect) {
-    const ids = Array.isArray(product.categoryIds) ? product.categoryIds.map(String) : [];
-    for (const opt of Array.from(catSelect.options)) {
-      opt.selected = ids.includes(String(opt.value));
-    }
-  }
-
-  // Historique du produit
-  ensureProductHistoryUI();
-  refreshProductHistory(currentProductId);
-
-  el("productModal")?.classList.add("active");
-}
-
-function closeProductModal() {
-  el("productModal")?.classList.remove("active");
-  currentProductId = null;
-}
-
-// --------------------------------------------
-// Restock modal (celui de ton index.html)
-// --------------------------------------------
-function openRestockModal() {
-  const modal = el("restockModal");
-  const select = el("productSelect");
-  if (!modal || !select) return;
-
-  select.innerHTML =
-    `<option value="">Sélectionnez un produit...</option>` +
-    Object.entries(stockData).map(([id, p]) =>
-      `<option value="${escapeHtml(String(id))}">${escapeHtml(p.name)} (Stock: ${Number(p.totalGrams || 0)}g)</option>`
-    ).join("");
-
-  modal.classList.add("active");
-}
-
-function closeRestockModal() {
-  el("restockModal")?.classList.remove("active");
-  el("restockForm")?.reset?.();
-}
-
-// --------------------------------------------
-// Test order
-// --------------------------------------------
-async function testOrder() {
-  log("⏳ Traitement de la commande test en cours...", "info");
-  try {
-    const res = await fetch("/api/test-order", { method: "POST" });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data?.error || "Erreur test-order");
-    log("✅ COMMANDE TEST TRAITÉE\n\n" + JSON.stringify(data, null, 2), "success");
-    await refreshStock();
-    if (typeof refreshMovements === "function") refreshMovements();
-  } catch (err) {
-    log("❌ ERREUR: " + err.message, "error");
-  }
-}
-
-// --------------------------------------------
-// Global movements (si ton index.html a la zone)
-// (facultatif : ne casse rien si absent)
-// --------------------------------------------
-async function refreshMovements() {
-  const box = el("movementsList");
-  if (!box) return;
-
-  const days = Number(el("movementsDays")?.value || 7);
-  box.innerHTML = `<div style="color:#9ca3af; padding:8px 2px;">⏳ Chargement...</div>`;
-
-  try {
-    const url = new URL(window.location.origin + "/api/movements");
-    url.searchParams.set("days", String(days));
-    url.searchParams.set("limit", "80");
-
-    const res = await fetch(url.pathname + url.search);
-    const data = await res.json();
-    if (!res.ok) throw new Error(data?.error || "Erreur chargement mouvements");
-
-    const rows = Array.isArray(data.movements) ? data.movements : [];
-    if (!rows.length) {
-      box.innerHTML = `<div style="color:#9ca3af; padding:8px 2px;">Aucun mouvement sur ${days} jour(s).</div>`;
-      return;
-    }
-
-    box.innerHTML = rows.map((m) => {
-      const ts = fmtDateFR(m.ts || m.createdAt || m.time || "");
-      const name = m.productName || (stockData[m.productId]?.name) || m.productId || "-";
-      const delta = Number(m.deltaGrams ?? m.gramsDelta ?? m.delta ?? 0);
-      const type = m.type || m.source || "mouvement";
-      const extra = m.orderName
-        ? ` • ${escapeHtml(m.orderName)}`
-        : (m.orderId ? ` • #${escapeHtml(m.orderId)}` : "");
-
-      return `
-        <div style="
-          display:flex;
-          justify-content:space-between;
-          align-items:flex-start;
-          gap:10px;
-          padding:10px 10px;
-          border:1px solid rgba(255,255,255,.08);
-          border-radius:12px;
-          background:rgba(15,23,42,.6);
-          margin-bottom:8px;">
-          <div style="min-width:0;">
-            <div style="font-weight:800; line-height:1.2;">${escapeHtml(name)}</div>
-            <div style="color:#9ca3af; font-size:12px; margin-top:4px;">
-              ${escapeHtml(ts)} • ${escapeHtml(type)}${extra}
-            </div>
-          </div>
-          <div style="
-            flex:0 0 auto;
-            border:1px solid rgba(255,255,255,.12);
-            background:rgba(255,255,255,.04);
-            border-radius:999px;
-            padding:6px 10px;
-            font-weight:900;
-            white-space:nowrap;">
-            ${deltaBadge(delta)} ${escapeHtml(fmtDelta(delta))}
-          </div>
-        </div>
-      `;
-    }).join("");
-
-  } catch (e) {
-    box.innerHTML = `<div style="color:#ef4444; padding:8px 2px;">❌ ${escapeHtml(e.message)}</div>`;
-  }
-}
-
-// --------------------------------------------
-// Modals : Catégories (CRUD)
-// --------------------------------------------
+// ---------------- Categories modal (with backdrop) ----------------
 function openCategoriesModal() {
   let modal = el("categoriesModal");
-
   if (!modal) {
     modal = document.createElement("div");
     modal.id = "categoriesModal";
     modal.className = "modal";
     modal.innerHTML = `
-      <div class="modal-content">
-        <div class="modal-title">📁 Catégories</div>
+      <div class="modal-panel">
+        <div class="modal-content">
+          <div class="modal-head">
+            <div class="modal-title">📁 Catégories</div>
+            <button class="btn btn-close" type="button" id="btnCloseCategories">✖</button>
+          </div>
 
-        <div class="info-box">
-          Crée des catégories pour trier tes produits (ex: Fleurs, Résines, Gummies…).
-        </div>
+          <div class="info-box">
+            Crée des catégories pour trier tes produits (ex: Fleurs, Résines, Gummies…).
+          </div>
 
-        <div class="catalog-modal-row">
-          <input id="newCategoryName" placeholder="Nom de catégorie (ex: Fleurs)" />
-          <button class="btn btn-primary btn-sm" id="btnAddCategory">Ajouter</button>
-        </div>
+          <div class="catalog-modal-row" style="display:flex; gap:10px; margin-top:12px; flex-wrap:wrap;">
+            <input id="newCategoryName" placeholder="Nom de catégorie (ex: Fleurs)" style="flex:1; min-width:220px;" />
+            <button class="btn btn-primary btn-sm" id="btnAddCategory">Ajouter</button>
+          </div>
 
-        <div id="categoriesList" class="categories-list"></div>
-
-        <div class="modal-buttons">
-          <button class="btn btn-secondary" id="btnCloseCategories">Fermer</button>
+          <div id="categoriesList" class="categories-list"></div>
         </div>
       </div>
     `;
     document.body.appendChild(modal);
+    ensureModalBackdrop(modal);
 
-    el("btnCloseCategories")?.addEventListener("click", () => modal.classList.remove("active"));
-
-    el("btnAddCategory")?.addEventListener("click", async () => {
-      const name = el("newCategoryName")?.value?.trim();
+    el("btnCloseCategories").addEventListener("click", () => modal.classList.remove("active"));
+    el("btnAddCategory").addEventListener("click", async () => {
+      const name = el("newCategoryName").value.trim();
       if (!name) return;
+
       try {
         const res = await fetch("/api/categories", {
           method: "POST",
@@ -866,7 +637,7 @@ function openCategoriesModal() {
           body: JSON.stringify({ name }),
         });
         const data = await res.json();
-        if (!res.ok) throw new Error(data?.error || "Erreur création catégorie");
+        if (!res.ok) throw new Error(data?.error || "Erreur");
 
         el("newCategoryName").value = "";
         await loadCategories();
@@ -878,48 +649,31 @@ function openCategoriesModal() {
     });
   }
 
-  ensureModalBackdrop(modal, () => {});
   renderCategoriesList();
   modal.classList.add("active");
-}
-
-async function loadCategories() {
-  try {
-    const res = await fetch("/api/categories");
-    const data = await res.json();
-    categories = Array.isArray(data.categories) ? data.categories : [];
-
-    updateCategoryFilterOptions();
-    updateProductCategoriesOptions();
-  } catch (e) {
-    log("❌ Erreur chargement catégories: " + e.message, "error");
-  }
 }
 
 function renderCategoriesList() {
   const list = el("categoriesList");
   if (!list) return;
 
-  const sorted = categories.slice().sort((a, b) =>
-    String(a.name).localeCompare(String(b.name), "fr", { sensitivity: "base" })
-  );
-
+  const sorted = categories.slice().sort((a, b) => String(a.name).localeCompare(String(b.name), "fr"));
   if (!sorted.length) {
-    list.innerHTML = `<div style="color:#a0aec0; padding:10px;">Aucune catégorie</div>`;
+    list.innerHTML = `<div class="muted" style="padding:10px;">Aucune catégorie</div>`;
     return;
   }
 
-  list.innerHTML = sorted.map(c => `
+  list.innerHTML = sorted.map((c) => `
     <div class="category-item">
       <div class="category-name">${escapeHtml(c.name)}</div>
       <div class="category-actions">
-        <button class="btn btn-secondary btn-sm" data-act="rename" data-id="${escapeHtml(String(c.id))}">Renommer</button>
-        <button class="btn btn-secondary btn-sm" data-act="delete" data-id="${escapeHtml(String(c.id))}">Supprimer</button>
+        <button class="btn btn-secondary btn-sm" data-act="rename" data-id="${escapeHtml(c.id)}">Renommer</button>
+        <button class="btn btn-secondary btn-sm" data-act="delete" data-id="${escapeHtml(c.id)}">Supprimer</button>
       </div>
     </div>
   `).join("");
 
-  list.querySelectorAll("button[data-act]").forEach(btn => {
+  list.querySelectorAll("button[data-act]").forEach((btn) => {
     btn.addEventListener("click", async () => {
       const id = btn.getAttribute("data-id");
       const act = btn.getAttribute("data-act");
@@ -935,7 +689,7 @@ function renderCategoriesList() {
             body: JSON.stringify({ name: name.trim() }),
           });
           const data = await res.json();
-          if (!res.ok) throw new Error(data?.error || "Erreur rename");
+          if (!res.ok) throw new Error(data?.error || "Erreur");
         }
 
         if (act === "delete") {
@@ -943,7 +697,7 @@ function renderCategoriesList() {
 
           const res = await fetch(`/api/categories/${encodeURIComponent(id)}`, { method: "DELETE" });
           const data = await res.json();
-          if (!res.ok) throw new Error(data?.error || "Erreur delete");
+          if (!res.ok) throw new Error(data?.error || "Erreur");
         }
 
         await loadCategories();
@@ -956,61 +710,56 @@ function renderCategoriesList() {
   });
 }
 
-// --------------------------------------------
-// Modals : Import Shopify
-// --------------------------------------------
+// ---------------- Import modal (with backdrop) ----------------
 function openImportModal() {
   let modal = el("importModal");
-
   if (!modal) {
     modal = document.createElement("div");
     modal.id = "importModal";
     modal.className = "modal";
     modal.innerHTML = `
-      <div class="modal-content modal-wide">
-        <div class="modal-title">➕ Import depuis Shopify</div>
-
-        <div class="import-toolbar">
-          <input id="importQuery" placeholder="Rechercher un produit (ex: amnesia)" />
-          <button class="btn btn-info btn-sm" id="btnSearchShopify">Rechercher</button>
-
-          <div class="field">
-            <label>Catégorie (optionnel)</label>
-            <select id="importCategory">
-              <option value="">Aucune</option>
-            </select>
+      <div class="modal-panel">
+        <div class="modal-content modal-wide">
+          <div class="modal-head">
+            <div class="modal-title">➕ Import depuis Shopify</div>
+            <button class="btn btn-close" type="button" id="btnCloseImport">✖</button>
           </div>
-        </div>
 
-        <div id="importResults" class="import-results"></div>
+          <div class="import-toolbar" style="display:flex;gap:10px;flex-wrap:wrap;">
+            <input id="importQuery" placeholder="Rechercher un produit (ex: amnesia)" style="flex:1;min-width:260px;" />
+            <button class="btn btn-info btn-sm" id="btnSearchShopify">Rechercher</button>
 
-        <div class="modal-buttons">
-          <button class="btn btn-secondary" id="btnCloseImport">Fermer</button>
+            <div class="field" style="min-width:220px;">
+              <label>Catégorie (optionnel)</label>
+              <select id="importCategory">
+                <option value="">Aucune</option>
+              </select>
+            </div>
+          </div>
+
+          <div id="importResults" class="import-results"></div>
         </div>
       </div>
     `;
     document.body.appendChild(modal);
+    ensureModalBackdrop(modal);
 
-    el("btnCloseImport")?.addEventListener("click", () => modal.classList.remove("active"));
-    el("btnSearchShopify")?.addEventListener("click", () => searchShopifyProducts());
+    el("btnCloseImport").addEventListener("click", () => modal.classList.remove("active"));
+    el("btnSearchShopify").addEventListener("click", () => searchShopifyProducts());
   }
 
-  // Fill categories dropdown
   const sel = el("importCategory");
   if (sel) {
     sel.innerHTML =
       `<option value="">Aucune</option>` +
       categories
         .slice()
-        .sort((a, b) => String(a.name).localeCompare(String(b.name), "fr", { sensitivity: "base" }))
-        .map(c => `<option value="${escapeHtml(String(c.id))}">${escapeHtml(String(c.name))}</option>`)
+        .sort((a, b) => String(a.name).localeCompare(String(b.name), "fr"))
+        .map((c) => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.name)}</option>`)
         .join("");
   }
 
-  el("importResults") && (el("importResults").innerHTML =
-    `<div style="color:#a0aec0; padding:10px;">Lance une recherche pour afficher tes produits Shopify.</div>`);
-
-  ensureModalBackdrop(modal, () => {});
+  el("importResults").innerHTML = `<div class="muted" style="padding:10px;">Lance une recherche pour afficher tes produits Shopify.</div>`;
   modal.classList.add("active");
 }
 
@@ -1032,11 +781,11 @@ async function searchShopifyProducts() {
 
     const items = Array.isArray(data.products) ? data.products : [];
     if (!items.length) {
-      results.innerHTML = `<div style="color:#a0aec0; padding:10px;">Aucun produit trouvé.</div>`;
+      results.innerHTML = `<div class="muted" style="padding:10px;">Aucun produit trouvé.</div>`;
       return;
     }
 
-    results.innerHTML = items.map(p => `
+    results.innerHTML = items.map((p) => `
       <div class="import-item">
         <div class="import-main">
           <div class="import-title">${escapeHtml(p.title)}</div>
@@ -1046,14 +795,14 @@ async function searchShopifyProducts() {
       </div>
     `).join("");
 
-    results.querySelectorAll("button[data-import]").forEach(btn => {
+    results.querySelectorAll("button[data-import]").forEach((btn) => {
       btn.addEventListener("click", async () => {
         const productId = btn.getAttribute("data-import");
         await importProduct(productId);
       });
     });
   } catch (e) {
-    results.innerHTML = `<div style="color:#f56565; padding:10px;">Erreur: ${escapeHtml(e.message)}</div>`;
+    results.innerHTML = `<div style="color:#fca5a5; padding:10px;">Erreur: ${escapeHtml(e.message)}</div>`;
   }
 }
 
@@ -1066,45 +815,28 @@ async function importProduct(productId) {
     const res = await fetch("/api/import/product", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ productId, categoryIds, gramsMode: "parse_title" }),
+      body: JSON.stringify({ productId, categoryIds }),
     });
-
     const data = await res.json();
-    if (!res.ok) throw new Error(data?.error || "Erreur import");
+    if (!res.ok) throw new Error(data?.error || "Erreur");
 
-    log("✅ Produit importé\n\n" + JSON.stringify(data, null, 2), "success");
-
+    log("✅ Produit importé", "success");
     await refreshStock();
-    refreshMovements();
   } catch (e) {
     log("❌ Import échoué: " + e.message, "error");
   }
 }
 
-// --------------------------------------------
-// Init
-// --------------------------------------------
+// ---------------- init ----------------
 window.addEventListener("load", async () => {
   await getServerInfo();
   await loadCategories();
   await refreshStock();
 
-  // si historique global existe dans ton index.html
-  if (el("movementsList")) {
-    await refreshMovements();
-    el("movementsDays")?.addEventListener("change", refreshMovements);
-  }
-
-  // Expose pour les onclick HTML
+  // expose functions used by index.html buttons
   window.openProductModal = openProductModal;
-  window.closeProductModal = closeProductModal;
-
   window.openRestockModal = openRestockModal;
   window.closeRestockModal = closeRestockModal;
-
+  window.closeProductModal = closeProductModal;
   window.testOrder = testOrder;
-
-  // expose si tu as un bouton "refresh"
-  window.refreshMovements = refreshMovements;
-  window.refreshProductHistory = refreshProductHistory;
 });
