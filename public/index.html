@@ -68,10 +68,37 @@
         </div>
       </div>
 
-      <!-- CONSOLE -->
-      <div class="card">
-        <div class="card-title">🧾 Console</div>
-        <div id="result" class="result-content">...</div>
+      <!-- COLONNE DROITE : Historique au-dessus + Console en dessous -->
+      <div>
+        <!-- HISTORIQUE -->
+        <div class="card">
+          <div class="card-title">📜 Historique des mouvements</div>
+
+          <div class="actions-row" style="margin-top:8px;">
+            <button class="btn" type="button" onclick="refreshMovements()">🔄 Actualiser</button>
+
+            <select id="movementsDays" style="max-width:180px;">
+              <option value="1">1 jour</option>
+              <option value="3">3 jours</option>
+              <option value="7" selected>7 jours</option>
+              <option value="30">30 jours</option>
+            </select>
+          </div>
+
+          <div id="movementsList" class="muted" style="margin-top:10px;">
+            Chargement...
+          </div>
+
+          <div class="card-foot muted" style="margin-top:10px;">
+            Astuce : tu peux exporter en CSV avec le bouton “Mouvements CSV” en haut.
+          </div>
+        </div>
+
+        <!-- CONSOLE plus bas -->
+        <div class="card" style="margin-top:12px;">
+          <div class="card-title">🧾 Console</div>
+          <div id="result" class="result-content">...</div>
+        </div>
       </div>
     </div>
   </div>
@@ -165,7 +192,6 @@
           const data = await res.json();
           if (!res.ok) throw new Error(data?.error || "Erreur restock");
 
-          // ferme modal + recharge
           if (window.closeRestockModal) window.closeRestockModal();
           location.reload();
         } catch (err) {
