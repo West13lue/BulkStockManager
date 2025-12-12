@@ -1,6 +1,7 @@
 // ============================================
 // GESTIONNAIRE DE STOCK CBD POUR SHOPIFY
 // PRÊT POUR RENDER (PORT + 0.0.0.0 + /health)
+// + Historique mouvements (Option 2) + Logs JSON
 // ============================================
 
 if (process.env.NODE_ENV !== "production") {
@@ -19,13 +20,32 @@ const {
   restockProduct,
 } = require("./stockManager");
 
+const { addMovement, listMovements, toCSV } = require("./movementStore");
+
+// --------------------------------------------
+// Logger structuré (Render friendly)
+// --------------------------------------------
+function logEvent(event, data = {}, level = "info") {
+  const payload = {
+    ts: new Date().toISOString(),
+    level,
+    event,
+    ...data,
+  };
+  console.log(JSON.stringify(payload));
+}
+
 const app = express();
+
+// ============================================
+// HEALTHCHECK
+// ============================================
+app.get("/health", (req, res) => res.status(200).send("ok"));
 
 // ============================================
 // MIDDLEWARE : Servir les fichiers statiques
 // ============================================
 app.use(express.static(path.join(__dirname, "public")));
-app.get("/health", (req, res) => res.status(200).send("ok-v2"));
 
 // ============================================
 // MIDDLEWARE : CORS
@@ -57,11 +77,6 @@ app.use((req, res, next) => {
 });
 
 // ============================================
-// ROUTE : Healthcheck (Render)
-// ============================================
-app.get("/health", (req, res) => res.status(200).send("ok"));
-
-// ============================================
 // CONFIG SHOPIFY
 // ============================================
 const shopify = getShopifyClient();
@@ -90,23 +105,39 @@ function verifyShopifyWebhook(rawBodyBuffer, hmacHeader) {
 async function updateProductStock(productId, gramsToSubtract) {
   const update = applyOrderToProduct(productId, gramsToSubtract);
   if (!update) {
-    console.log(`Produit ${productId} non configuré`);
+    logEvent("product_not_configured", { productId }, "warn");
     return;
   }
 
-  console.log(`${update.name} (${productId}) : ${update.totalGrams}g restants`);
+  logEvent("product_stock_updated_local", {
+    productId,
+    name: update.name,
+    totalGrams: update.totalGrams,
+  });
 
   for (const [label, variantCfg] of Object.entries(update.variants)) {
     const unitsAvailable = variantCfg.canSell;
+
     try {
       await shopify.inventoryLevel.set({
         location_id: process.env.LOCATION_ID,
         inventory_item_id: variantCfg.inventoryItemId,
         available: unitsAvailable,
       });
-      console.log(`  ${label} → ${unitsAvailable} unité(s) dispo`);
+
+      logEvent("inventory_level_set", {
+        productId,
+        label,
+        unitsAvailable,
+        inventoryItemId: variantCfg.inventoryItemId,
+        locationId: process.env.LOCATION_ID,
+      });
     } catch (error) {
-      console.error(`  Erreur MAJ stock ${label}:`, error.message);
+      logEvent(
+        "inventory_level_set_error",
+        { productId, label, message: error.message },
+        "error"
+      );
     }
   }
 
@@ -121,8 +152,7 @@ app.post("/webhooks/orders/create", (req, res) => {
   const skipHmac = process.env.SKIP_HMAC_VALIDATION === "true";
   const hmacHeader = req.get("X-Shopify-Hmac-Sha256");
 
-  console.log("\n=== Webhook reçu ===");
-  console.log("Mode:", isProduction ? "PRODUCTION" : "DÉVELOPPEMENT");
+  logEvent("webhook_received", { mode: isProduction ? "production" : "dev" });
 
   const chunks = [];
   req.on("data", (chunk) => chunks.push(chunk));
@@ -130,7 +160,7 @@ app.post("/webhooks/orders/create", (req, res) => {
   req.on("end", async () => {
     try {
       if (chunks.length === 0) {
-        console.log("⚠ Aucune donnée reçue");
+        logEvent("webhook_empty_body", {}, "warn");
         return res.sendStatus(400);
       }
 
@@ -139,31 +169,35 @@ app.post("/webhooks/orders/create", (req, res) => {
       // Vérification HMAC en production
       if (isProduction && process.env.SHOPIFY_WEBHOOK_SECRET && !skipHmac) {
         if (!hmacHeader) {
-          console.log("❌ HMAC manquant");
+          logEvent("webhook_hmac_missing", {}, "warn");
           return res.sendStatus(401);
         }
         const isValid = verifyShopifyWebhook(rawBody, hmacHeader);
         if (!isValid) {
-          console.log("❌ HMAC invalide");
+          logEvent("webhook_hmac_invalid", {}, "warn");
           return res.sendStatus(401);
         }
-        console.log("✅ HMAC valide");
+        logEvent("webhook_hmac_valid");
       }
 
       let order;
       try {
         order = JSON.parse(rawBody.toString("utf8"));
       } catch (e) {
-        console.log("⚠ Erreur parsing JSON");
+        logEvent("webhook_json_parse_error", {}, "warn");
         return res.sendStatus(400);
       }
 
       if (!order.id || !order.line_items) {
-        console.log("⚠ Webhook invalide");
+        logEvent("webhook_invalid_payload", { hasId: !!order.id }, "warn");
         return res.sendStatus(200);
       }
 
-      console.log(`Commande: ${order.name || "Sans nom"} (ID: ${order.id})`);
+      logEvent("order_received", {
+        orderId: String(order.id),
+        orderName: order.name || null,
+        lineCount: order.line_items.length,
+      });
 
       for (const item of order.line_items) {
         if (!item.product_id) continue;
@@ -180,22 +214,44 @@ app.post("/webhooks/orders/create", (req, res) => {
         const gramsPerUnit = parseFloat(gramsMatch[1].replace(",", "."));
         const totalGrams = gramsPerUnit * quantity;
 
-        console.log(
-          `  ${item.title} - ${variantTitle} x${quantity} = ${totalGrams}g`
-        );
+        const before = PRODUCT_CONFIG[productId]?.totalGrams ?? null;
 
         await updateProductStock(productId, totalGrams);
+
+        const after = PRODUCT_CONFIG[productId]?.totalGrams ?? null;
+
+        // Historique + logs structurés
+        addMovement({
+          source: "webhook",
+          productId,
+          productName: PRODUCT_CONFIG[productId]?.name,
+          gramsDelta: -totalGrams,
+          gramsBefore: before,
+          gramsAfter: after,
+          orderId: order.id,
+          orderName: order.name,
+          lineTitle: item.title,
+          variantTitle,
+          meta: { quantity, gramsPerUnit },
+        });
+
+        logEvent("stock_movement", {
+          source: "webhook",
+          productId,
+          gramsDelta: -totalGrams,
+          orderId: String(order.id),
+        });
       }
 
       return res.sendStatus(200);
     } catch (err) {
-      console.error("Erreur webhook:", err);
+      logEvent("webhook_processing_error", { message: err.message }, "error");
       if (!res.headersSent) return res.sendStatus(500);
     }
   });
 
   req.on("error", (err) => {
-    console.error("Erreur flux webhook:", err);
+    logEvent("webhook_stream_error", { message: err.message }, "error");
     if (!res.headersSent) return res.sendStatus(500);
   });
 });
@@ -221,6 +277,47 @@ app.get("/api/stock", (req, res) => {
 });
 
 // ============================================
+// API : Historique des mouvements (mémoire)
+// GET /api/movements?limit=200&productId=...&orderId=...&source=webhook
+// ============================================
+app.get("/api/movements", (req, res) => {
+  const { limit, productId, orderId, source } = req.query;
+  const data = listMovements({ limit, productId, orderId, source });
+  res.json({ count: data.length, data });
+});
+
+// ============================================
+// API : Export mouvements (CSV ou JSON)
+// GET /api/movements/export?format=csv&limit=1000
+// ============================================
+app.get("/api/movements/export", (req, res) => {
+  const { format = "json", limit, productId, orderId, source } = req.query;
+  const data = listMovements({
+    limit: limit || 1000,
+    productId,
+    orderId,
+    source,
+  });
+
+  if (String(format).toLowerCase() === "csv") {
+    const csv = toCSV(data);
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="stock-movements-${Date.now()}.csv"`
+    );
+    return res.send(csv);
+  }
+
+  res.setHeader("Content-Type", "application/json; charset=utf-8");
+  res.setHeader(
+    "Content-Disposition",
+    `attachment; filename="stock-movements-${Date.now()}.json"`
+  );
+  return res.send(JSON.stringify({ count: data.length, data }, null, 2));
+});
+
+// ============================================
 // API : Réapprovisionner
 // ============================================
 app.post("/api/restock", express.json(), async (req, res) => {
@@ -232,13 +329,26 @@ app.post("/api/restock", express.json(), async (req, res) => {
       return res.status(400).json({ error: "Quantité invalide" });
     }
 
+    const before = PRODUCT_CONFIG[productId]?.totalGrams ?? null;
+
     const updated = restockProduct(productId, g);
     if (!updated) {
       return res.status(404).json({ error: "Produit non trouvé" });
     }
 
-    console.log(`Réassort ${updated.name}: +${g}g → ${updated.totalGrams}g`);
     await updateProductStock(productId, 0);
+
+    addMovement({
+      source: "restock",
+      productId,
+      productName: updated.name,
+      gramsDelta: +g,
+      gramsBefore: before,
+      gramsAfter: updated.totalGrams,
+      meta: { via: "api/restock" },
+    });
+
+    logEvent("stock_movement", { source: "restock", productId, gramsDelta: +g });
 
     return res.json({
       success: true,
@@ -246,7 +356,7 @@ app.post("/api/restock", express.json(), async (req, res) => {
       newTotal: updated.totalGrams,
     });
   } catch (error) {
-    console.error("Erreur /api/restock:", error);
+    logEvent("api_restock_error", { message: error.message }, "error");
     return res.status(500).json({ error: error.message });
   }
 });
@@ -273,13 +383,23 @@ app.post("/api/set-total-stock", express.json(), async (req, res) => {
 
     const updated = restockProduct(productId, difference);
 
-    console.log(
-      `Stock manuel ${updated.name}: ${currentTotal}g → ${newTotal}g (${
-        difference > 0 ? "+" : ""
-      }${difference}g)`
-    );
-
     await updateProductStock(productId, 0);
+
+    addMovement({
+      source: "set_total",
+      productId,
+      productName: updated.name,
+      gramsDelta: difference,
+      gramsBefore: currentTotal,
+      gramsAfter: updated.totalGrams,
+      meta: { via: "api/set-total-stock" },
+    });
+
+    logEvent("stock_movement", {
+      source: "set_total",
+      productId,
+      gramsDelta: difference,
+    });
 
     return res.json({
       success: true,
@@ -289,17 +409,17 @@ app.post("/api/set-total-stock", express.json(), async (req, res) => {
       difference,
     });
   } catch (error) {
-    console.error("Erreur /api/set-total-stock:", error);
+    logEvent("api_set_total_stock_error", { message: error.message }, "error");
     return res.status(500).json({ error: error.message });
   }
 });
 
 // ============================================
-// API : Test de commande
+// API : Test de commande (même logique que webhook)
 // ============================================
 app.post("/api/test-order", express.json(), async (req, res) => {
   try {
-    console.log("\n=== Test de commande manuelle ===");
+    logEvent("test_order_start");
 
     const testOrder = {
       id: Date.now(),
@@ -314,8 +434,6 @@ app.post("/api/test-order", express.json(), async (req, res) => {
       ],
     };
 
-    console.log("Commande test:", testOrder.name);
-
     for (const item of testOrder.line_items) {
       const productId = item.product_id.toString();
       const variantTitle = item.variant_title || "";
@@ -327,10 +445,32 @@ app.post("/api/test-order", express.json(), async (req, res) => {
       const gramsPerUnit = parseFloat(gramsMatch[1].replace(",", "."));
       const totalGrams = gramsPerUnit * quantity;
 
-      console.log(
-        `  ${item.title} - ${variantTitle} x${quantity} = ${totalGrams}g`
-      );
+      const before = PRODUCT_CONFIG[productId]?.totalGrams ?? null;
+
       await updateProductStock(productId, totalGrams);
+
+      const after = PRODUCT_CONFIG[productId]?.totalGrams ?? null;
+
+      addMovement({
+        source: "test_order",
+        productId,
+        productName: PRODUCT_CONFIG[productId]?.name,
+        gramsDelta: -totalGrams,
+        gramsBefore: before,
+        gramsAfter: after,
+        orderId: testOrder.id,
+        orderName: testOrder.name,
+        lineTitle: item.title,
+        variantTitle,
+        meta: { quantity, gramsPerUnit },
+      });
+
+      logEvent("stock_movement", {
+        source: "test_order",
+        productId,
+        gramsDelta: -totalGrams,
+        orderId: String(testOrder.id),
+      });
     }
 
     return res.json({
@@ -339,7 +479,7 @@ app.post("/api/test-order", express.json(), async (req, res) => {
       order: testOrder,
     });
   } catch (error) {
-    console.error("Erreur test order:", error);
+    logEvent("test_order_error", { message: error.message }, "error");
     return res.status(500).json({ error: error.message });
   }
 });
@@ -359,15 +499,12 @@ const HOST = "0.0.0.0";
 const PUBLIC_URL = process.env.RENDER_PUBLIC_URL || "";
 
 app.listen(PORT, HOST, () => {
-  console.log(`\nServeur démarré sur ${HOST}:${PORT}`);
-  console.log(`Gestion de ${Object.keys(PRODUCT_CONFIG).length} produits CBD`);
-
-  if (PUBLIC_URL) {
-    console.log(`Interface: ${PUBLIC_URL}`);
-    console.log(`Health: ${PUBLIC_URL}/health`);
-    console.log(`Webhook: ${PUBLIC_URL}/webhooks/orders/create\n`);
-  } else {
-    console.log(`Health: http://localhost:${PORT}/health`);
-    console.log(`Webhook: http://localhost:${PORT}/webhooks/orders/create\n`);
-  }
+  logEvent("server_started", {
+    host: HOST,
+    port: PORT,
+    productCount: Object.keys(PRODUCT_CONFIG).length,
+    publicUrl: PUBLIC_URL || null,
+    health: (PUBLIC_URL ? `${PUBLIC_URL}/health` : null),
+    webhook: (PUBLIC_URL ? `${PUBLIC_URL}/webhooks/orders/create` : null),
+  });
 });
