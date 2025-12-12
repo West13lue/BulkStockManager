@@ -1,94 +1,67 @@
-// movementStore.js
-// Historique en mémoire + export JSON/CSV (sans DB)
+const fs = require("fs");
+const path = require("path");
 
-const MAX_MOVEMENTS = Number(process.env.MAX_MOVEMENTS || 5000);
+const BASE_DIR = process.env.MOVEMENTS_DIR || "/var/data/movements";
 
-// En mémoire (perdu si Render redémarre)
-const movements = [];
-
-// Ajoute un mouvement (le plus récent en premier)
-function addMovement(m) {
-  movements.unshift({
-    id: m.id || `${Date.now()}-${Math.random().toString(16).slice(2)}`,
-    ts: m.ts || new Date().toISOString(),
-    source: m.source, // webhook | restock | set_total | manual
-    productId: String(m.productId || ""),
-    productName: m.productName || null,
-    gramsDelta: Number(m.gramsDelta || 0), // - = sortie, + = entrée
-    gramsBefore: m.gramsBefore ?? null,
-    gramsAfter: m.gramsAfter ?? null,
-    orderId: m.orderId ? String(m.orderId) : null,
-    orderName: m.orderName || null,
-    lineTitle: m.lineTitle || null,
-    variantTitle: m.variantTitle || null,
-    requestId: m.requestId || null,
-    meta: m.meta || null,
-  });
-
-  if (movements.length > MAX_MOVEMENTS) movements.length = MAX_MOVEMENTS;
-}
-
-function listMovements({ limit = 200, productId, orderId, source } = {}) {
-  let out = movements;
-
-  if (productId) out = out.filter((x) => x.productId === String(productId));
-  if (orderId) out = out.filter((x) => x.orderId === String(orderId));
-  if (source) out = out.filter((x) => x.source === source);
-
-  limit = Math.min(Number(limit || 200), 2000);
-  return out.slice(0, limit);
-}
-
-function toCSV(rows) {
-  const headers = [
-    "ts",
-    "source",
-    "productId",
-    "productName",
-    "gramsDelta",
-    "gramsBefore",
-    "gramsAfter",
-    "orderId",
-    "orderName",
-    "lineTitle",
-    "variantTitle",
-    "requestId",
-    "meta",
-  ];
-
-  const escape = (v) => {
-    if (v === null || v === undefined) return "";
-    const s = typeof v === "string" ? v : JSON.stringify(v);
-    // CSV safe
-    return `"${s.replace(/"/g, '""')}"`;
-  };
-
-  const lines = [];
-  lines.push(headers.join(","));
-  for (const r of rows) {
-    lines.push(
-      [
-        r.ts,
-        r.source,
-        r.productId,
-        r.productName,
-        r.gramsDelta,
-        r.gramsBefore,
-        r.gramsAfter,
-        r.orderId,
-        r.orderName,
-        r.lineTitle,
-        r.variantTitle,
-        r.requestId,
-        r.meta,
-      ].map(escape).join(",")
-    );
+function ensureDir() {
+  if (!fs.existsSync(BASE_DIR)) {
+    fs.mkdirSync(BASE_DIR, { recursive: true });
   }
-  return lines.join("\n");
+}
+
+function todayFile() {
+  const day = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+  return path.join(BASE_DIR, `${day}.ndjson`);
+}
+
+function addMovement(movement) {
+  ensureDir();
+  const file = todayFile();
+  const line = JSON.stringify(movement) + "\n";
+  fs.appendFileSync(file, line, "utf8");
+}
+
+function listMovements({ days = 7 } = {}) {
+  ensureDir();
+  const now = new Date();
+  const out = [];
+
+  for (let i = 0; i < days; i++) {
+    const d = new Date(now);
+    d.setDate(now.getDate() - i);
+    const file = path.join(BASE_DIR, d.toISOString().slice(0, 10) + ".ndjson");
+
+    if (!fs.existsSync(file)) continue;
+
+    const lines = fs.readFileSync(file, "utf8").trim().split("\n");
+    for (const l of lines) {
+      try {
+        out.push(JSON.parse(l));
+      } catch {}
+    }
+  }
+
+  return out;
+}
+
+function purgeOld(daysToKeep) {
+  ensureDir();
+  const files = fs.readdirSync(BASE_DIR);
+
+  const limit = new Date();
+  limit.setDate(limit.getDate() - daysToKeep);
+
+  for (const f of files) {
+    const dateStr = f.replace(".ndjson", "");
+    const d = new Date(dateStr);
+    if (d < limit) {
+      fs.unlinkSync(path.join(BASE_DIR, f));
+    }
+  }
 }
 
 module.exports = {
   addMovement,
   listMovements,
-  toCSV,
+  purgeOld,
 };
