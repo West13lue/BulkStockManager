@@ -3,26 +3,17 @@ const path = require("path");
 const bodyParser = require("body-parser");
 const cors = require("cors");
 
-const {
-  listCategories,
-  createCategory,
-  deleteCategory,
-} = require("./catalogStore");
-
+const { listCategories, createCategory, deleteCategory } = require("./catalogStore");
 const { addMovement } = require("./movementStore");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// =====================
-// MIDDLEWARES
-// =====================
+// ===== Middlewares
 app.use(cors());
 app.use(bodyParser.json());
 
-// =====================
-// API - CATEGORIES
-// =====================
+// ===== API - Categories
 app.get("/api/categories", (req, res) => {
   try {
     res.json(listCategories());
@@ -35,18 +26,13 @@ app.get("/api/categories", (req, res) => {
 app.post("/api/categories", (req, res) => {
   try {
     const { name } = req.body;
-    if (!name) {
-      return res.status(400).json({ error: "Nom requis" });
-    }
+    if (!name) return res.status(400).json({ error: "Nom requis" });
 
     const category = createCategory(name);
 
-    // mouvement NON bloquant
+    // movement NON bloquant
     try {
-      addMovement({
-        type: "CATEGORY_CREATE",
-        label: name,
-      });
+      addMovement({ type: "CATEGORY_CREATE", label: name });
     } catch (e) {
       console.warn("Movement ignored:", e.message);
     }
@@ -61,15 +47,10 @@ app.post("/api/categories", (req, res) => {
 app.delete("/api/categories/:id", (req, res) => {
   try {
     const ok = deleteCategory(req.params.id);
-    if (!ok) {
-      return res.status(404).json({ error: "Catégorie introuvable" });
-    }
+    if (!ok) return res.status(404).json({ error: "Catégorie introuvable" });
 
     try {
-      addMovement({
-        type: "CATEGORY_DELETE",
-        id: req.params.id,
-      });
+      addMovement({ type: "CATEGORY_DELETE", id: req.params.id });
     } catch {}
 
     res.json({ success: true });
@@ -79,17 +60,15 @@ app.delete("/api/categories/:id", (req, res) => {
   }
 });
 
-// =====================
-// FRONTEND (IMPORTANT)
-// =====================
+// ===== Front static
 app.use(express.static(path.join(__dirname)));
 
-// ⚠️ FIX ICI : plus de "*"
-app.get("/*", (req, res) => {
+// ✅ Catch-all SAFE (Express 5) : RegExp au lieu de "*" ou "/*"
+// On évite d’attraper /api/... pour ne pas casser l’API.
+app.get(/^\/(?!api\/).*/, (req, res) => {
   res.sendFile(path.join(__dirname, "index.html"));
 });
 
-// =====================
 app.listen(PORT, () => {
   console.log("✅ Server running on port", PORT);
 });
