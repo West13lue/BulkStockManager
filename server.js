@@ -60,12 +60,12 @@ app.use((req, res, next) => {
 // CSP Shopify admin iframe
 app.use((req, res, next) => {
   const shopDomain = process.env.SHOP_NAME ? `https://${process.env.SHOP_NAME}.myshopify.com` : "*";
-  res.setHeader("Content-Security-Policy", `frame-ancestors https://admin.shopify.com ${shopDomain};`);
-  next expose: next();
+  res.setHeader(
+    "Content-Security-Policy",
+    `frame-ancestors https://admin.shopify.com ${shopDomain};`
+  );
+  next();
 });
-
-// (correction: typo)
-app.use((req, res, next) => next()); // harmless no-op to keep file stable
 
 // Health
 app.get("/health", (req, res) => res.status(200).send("ok"));
