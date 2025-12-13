@@ -1,64 +1,77 @@
-// catalogStore.js
-// ============================================
-// Catégories (multi-boutique)
-// - Persist per-shop on Render Disk:
-//     /var/data/shops/<shop>/categories.json
-// ============================================
-
+// catalogStore.js — Multi-shop safe (Render disk /var/data)
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 const { logEvent } = require("./utils/logger");
-const { sanitizeShop, shopDir } = require("./stockState");
 
-function fileForShop(shop) {
-  return path.join(shopDir(shop), "categories.json");
+const DATA_DIR = process.env.DATA_DIR || "/var/data";
+
+function sanitizeShop(shop) {
+  // shop attendu: "xxx.myshopify.com"
+  const s = String(shop || "").trim().toLowerCase();
+  if (!s) return "default";
+  return s.replace(/[^a-z0-9._-]/g, "_");
 }
 
-function ensureDir(dir) {
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+function shopDir(shop) {
+  return path.join(DATA_DIR, sanitizeShop(shop));
+}
+
+function ensureDir(dirPath) {
+  if (!fs.existsSync(dirPath)) fs.mkdirSync(dirPath, { recursive: true });
+}
+
+function filePath(shop) {
+  const dir = shopDir(shop);
+  ensureDir(dir);
+  return path.join(dir, "categories.json");
 }
 
 function load(shop) {
-  const file = fileForShop(shop);
   try {
-    ensureDir(path.dirname(file));
+    const file = filePath(shop);
     if (!fs.existsSync(file)) return [];
     const raw = fs.readFileSync(file, "utf8");
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed : [];
   } catch (e) {
-    logEvent("categories_load_error", { shop: sanitizeShop(shop), message: e.message }, "error");
+    logEvent("categories_load_error", { message: e.message }, "error");
     return [];
   }
 }
 
 function save(shop, categories) {
-  const file = fileForShop(shop);
-  ensureDir(path.dirname(file));
+  const file = filePath(shop);
   const tmp = file + ".tmp";
   fs.writeFileSync(tmp, JSON.stringify(categories, null, 2), "utf8");
   fs.renameSync(tmp, file);
 }
 
-const cache = new Map();
+// Cache par shop (évite relire disque à chaque request)
+const cache = new Map(); // shopKey -> categories[]
 
 function getShopCategories(shop) {
   const key = sanitizeShop(shop);
-  if (!cache.has(key)) cache.set(key, load(key));
+  if (!cache.has(key)) cache.set(key, load(shop));
   return cache.get(key);
 }
 
-function listCategories(shop = "default") {
+function listCategories(shop) {
   return getShopCategories(shop).slice();
 }
 
-function createCategory(shop = "default", name) {
+function createCategory(shop, name) {
+  // compat: si appelé (name) sans shop
+  if (name === undefined) {
+    name = shop;
+    shop = "default";
+  }
+
+  const categories = getShopCategories(shop);
   const n = String(name || "").trim();
   if (!n) throw new Error("Nom de catégorie invalide");
 
-  const categories = getShopCategories(shop);
-  if (categories.some((c) => c.name.toLowerCase() === n.toLowerCase())) {
+  if (categories.some((c) => String(c.name).toLowerCase() === n.toLowerCase())) {
     throw new Error("Catégorie déjà existante");
   }
 
@@ -70,11 +83,18 @@ function createCategory(shop = "default", name) {
   return cat;
 }
 
-function renameCategory(shop = "default", id, name) {
+function renameCategory(shop, id, name) {
+  // compat: si appelé (id, name) sans shop
+  if (name === undefined) {
+    name = id;
+    id = shop;
+    shop = "default";
+  }
+
+  const categories = getShopCategories(shop);
   const n = String(name || "").trim();
   if (!n) throw new Error("Nom invalide");
 
-  const categories = getShopCategories(shop);
   const cat = categories.find((c) => c.id === id);
   if (!cat) throw new Error("Catégorie introuvable");
 
@@ -83,13 +103,28 @@ function renameCategory(shop = "default", id, name) {
   return cat;
 }
 
-function deleteCategory(shop = "default", id) {
-  const categories = getShopCategories(shop);
+function deleteCategory(shop, id) {
+  // compat: si appelé (id) sans shop
+  if (id === undefined) {
+    id = shop;
+    shop = "default";
+  }
+
+  let categories = getShopCategories(shop);
   const before = categories.length;
-  const next = categories.filter((c) => c.id !== id);
-  if (next.length === before) throw new Error("Catégorie introuvable");
-  cache.set(sanitizeShop(shop), next);
-  save(shop, next);
+  categories = categories.filter((c) => c.id !== id);
+
+  if (categories.length === before) throw new Error("Catégorie introuvable");
+
+  cache.set(sanitizeShop(shop), categories);
+  save(shop, categories);
 }
 
-module.exports = { listCategories, createCategory, renameCategory, deleteCategory };
+module.exports = {
+  sanitizeShop,
+  shopDir,
+  listCategories,
+  createCategory,
+  renameCategory,
+  deleteCategory,
+};

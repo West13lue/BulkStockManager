@@ -1,27 +1,30 @@
-// movementStore.js
-// ============================================
-// Persist movements to Render Disk (NDJSON/day)
-// - BASE_DIR: /var/data/shops/<shop>/movements
-// - Backward compatible:
-//     addMovement(movement)
-//     addMovement(shop, movement)
-// ============================================
-
+// movementStore.js — Multi-shop safe (NDJSON/day) sur /var/data/<shop>/movements
 const fs = require("fs");
 const path = require("path");
-const { sanitizeShop, shopDir } = require("./stockState");
 
-function baseDirForShop(shop) {
+const DATA_DIR = process.env.DATA_DIR || "/var/data";
+
+function sanitizeShop(shop) {
+  const s = String(shop || "").trim().toLowerCase();
+  if (!s) return "default";
+  return s.replace(/[^a-z0-9._-]/g, "_");
+}
+
+function shopDir(shop) {
+  return path.join(DATA_DIR, sanitizeShop(shop));
+}
+
+function movementsDir(shop) {
   return path.join(shopDir(shop), "movements");
 }
 
-function ensureDir(dir) {
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+function ensureDir(dirPath) {
+  if (!fs.existsSync(dirPath)) fs.mkdirSync(dirPath, { recursive: true });
 }
 
-function fileForDate(dir, date) {
+function fileForDate(shop, date) {
   const day = date.toISOString().slice(0, 10);
-  return path.join(dir, `${day}.ndjson`);
+  return path.join(movementsDir(shop), `${day}.ndjson`);
 }
 
 function safeJsonParse(line) {
@@ -32,37 +35,25 @@ function safeJsonParse(line) {
   }
 }
 
-// Backward compat signature handler
-function normalizeArgs(arg1, arg2) {
-  // addMovement(movementObject)
-  if (arg1 && typeof arg1 === "object" && !Array.isArray(arg1)) {
-    return { shop: "default", movement: arg1 };
-  }
-  // addMovement(shop, movementObject)
-  return { shop: arg1 || "default", movement: arg2 || {} };
-}
-
-function addMovement(arg1, arg2) {
-  const { shop, movement } = normalizeArgs(arg1, arg2);
-
-  const dir = baseDirForShop(shop);
-  ensureDir(dir);
+function addMovement(movement = {}, shop = movement.shop) {
+  const s = shop || "default";
+  ensureDir(movementsDir(s));
 
   const m = {
     id: movement.id || `${Date.now()}_${Math.random().toString(16).slice(2)}`,
     ts: movement.ts || new Date().toISOString(),
-    shop: sanitizeShop(shop),
     ...movement,
+    shop: sanitizeShop(s),
   };
 
-  const file = fileForDate(dir, new Date());
+  const file = fileForDate(s, new Date());
   fs.appendFileSync(file, JSON.stringify(m) + "\n", "utf8");
   return m;
 }
 
-function listMovements(shop = "default", { days = 7, limit = 2000 } = {}) {
-  const dir = baseDirForShop(shop);
-  ensureDir(dir);
+function listMovements({ shop = "default", days = 7, limit = 2000 } = {}) {
+  const s = shop || "default";
+  ensureDir(movementsDir(s));
 
   const now = new Date();
   const out = [];
@@ -74,7 +65,7 @@ function listMovements(shop = "default", { days = 7, limit = 2000 } = {}) {
     const d = new Date(now);
     d.setDate(now.getDate() - i);
 
-    const file = fileForDate(dir, d);
+    const file = fileForDate(s, d);
     if (!fs.existsSync(file)) continue;
 
     const content = fs.readFileSync(file, "utf8");
@@ -93,41 +84,6 @@ function listMovements(shop = "default", { days = 7, limit = 2000 } = {}) {
   return out.slice(0, max);
 }
 
-function purgeOld(shop = "default", daysToKeep = 14) {
-  const dir = baseDirForShop(shop);
-  ensureDir(dir);
-
-  const keep = Math.max(1, Math.min(Number(daysToKeep) || 14, 3650));
-  const files = fs.readdirSync(dir);
-
-  const limit = new Date();
-  limit.setDate(limit.getDate() - keep);
-
-  for (const f of files) {
-    if (!f.endsWith(".ndjson")) continue;
-    const dateStr = f.replace(".ndjson", "");
-    const d = new Date(dateStr);
-    if (Number.isNaN(d.getTime())) continue;
-    if (d < limit) {
-      try {
-        fs.unlinkSync(path.join(dir, f));
-      } catch {}
-    }
-  }
-}
-
-function clearMovements(shop = "default") {
-  const dir = baseDirForShop(shop);
-  ensureDir(dir);
-  const files = fs.readdirSync(dir);
-  for (const f of files) {
-    if (!f.endsWith(".ndjson")) continue;
-    try {
-      fs.unlinkSync(path.join(dir, f));
-    } catch {}
-  }
-}
-
 function csvEscape(v) {
   const s = v === null || v === undefined ? "" : String(v);
   if (/[,"\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
@@ -136,13 +92,18 @@ function csvEscape(v) {
 
 function toCSV(rows = []) {
   const cols = [
-    "ts","type","source","orderId","orderName","productId","productName",
-    "deltaGrams","gramsDelta","gramsBefore","gramsAfter","totalAfter",
-    "variantTitle","lineTitle","requestId","shop",
+    "ts",
+    "source",
+    "productId",
+    "productName",
+    "gramsDelta",
+    "gramsBefore",
+    "totalAfter",
+    "shop",
   ];
   const header = cols.join(",");
   const lines = rows.map((r) => cols.map((c) => csvEscape(r?.[c])).join(","));
   return [header, ...lines].join("\n");
 }
 
-module.exports = { addMovement, listMovements, purgeOld, clearMovements, toCSV };
+module.exports = { sanitizeShop, shopDir, addMovement, listMovements, toCSV };
