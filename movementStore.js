@@ -14,6 +14,18 @@ function fileForDate(date) {
 }
 
 function addMovement(movement) {
+  const m = {
+    id: movement.id || `${Date.now()}_${Math.random().toString(16).slice(2)}`,
+    ts: movement.ts || new Date().toISOString(), // ✅ date/heure
+    ...movement,
+  };
+
+  // push + persist comme tu fais déjà
+  movements.unshift(m); // ✅ dernier en haut (optionnel mais recommandé)
+  saveMovements();
+  return m;
+}
+
   ensureDir();
   const file = fileForDate(new Date());
   fs.appendFileSync(file, JSON.stringify(movement) + "\n", "utf8");
