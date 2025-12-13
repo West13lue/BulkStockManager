@@ -21,7 +21,7 @@ app.use(cors());
 app.use(bodyParser.json());
 
 // =====================
-// ROUTES API - CATEGORIES
+// API - CATEGORIES
 // =====================
 app.get("/api/categories", (req, res) => {
   try {
@@ -41,7 +41,7 @@ app.post("/api/categories", (req, res) => {
 
     const category = createCategory(name);
 
-    // movement NON bloquant
+    // mouvement NON bloquant
     try {
       addMovement({
         type: "CATEGORY_CREATE",
@@ -80,15 +80,16 @@ app.delete("/api/categories/:id", (req, res) => {
 });
 
 // =====================
-// FRONTEND
+// FRONTEND (IMPORTANT)
 // =====================
 app.use(express.static(path.join(__dirname)));
 
-app.get("*", (req, res) => {
+// ⚠️ FIX ICI : plus de "*"
+app.get("/*", (req, res) => {
   res.sendFile(path.join(__dirname, "index.html"));
 });
 
 // =====================
 app.listen(PORT, () => {
-  console.log("Server running on port", PORT);
+  console.log("✅ Server running on port", PORT);
 });
