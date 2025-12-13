@@ -1,0 +1,30 @@
+{
+  "types": [
+    {
+      "id": "3x-filtre",
+      "name": "3x filtré",
+      "description": "Produit filtré 3 fois",
+      "isActive": true,
+      "createdAt": "2024-12-13T00:00:00.000Z"
+    },
+    {
+      "id": "2x-filtre",
+      "name": "2x filtré",
+      "description": "Produit filtré 2 fois",
+      "isActive": true,
+      "createdAt": "2024-12-13T00:00:00.000Z"
+    },
+    {
+      "id": "brut",
+      "name": "Brut",
+      "description": "Produit non filtré",
+      "isActive": true,
+      "createdAt": "2024-12-13T00:00:00.000Z"
+    }
+  ]
+}
+EOF
+
+# Créer les fichiers vides pour produits et mouvements
+echo "[]" > data/products.json
+echo "[]" > data/movements.json
