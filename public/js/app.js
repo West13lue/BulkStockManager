@@ -9,27 +9,21 @@
 // - Suppression produit (config uniquement)
 // - Historique produit (date+heure, récent en haut)
 // - Historique global mouvements (refreshMovements)
+// ✅ Option 2B: UI Location Shopify par boutique (settingsStore)
+//   - GET /api/shopify/locations
+//   - GET /api/settings
+//   - POST /api/settings/location
 // ============================================
 
 (() => {
   // ---------------- SHOP CONTEXT (Shopify) ----------------
-  // Shopify App iframe URL contient généralement ?shop=xxx.myshopify.com
   const SHOP = new URLSearchParams(window.location.search).get("shop") || "";
 
   function apiPath(path) {
-    // path attendu: "/api/...." (ou déjà avec query)
     if (!SHOP) return path;
-
     const hasQuery = String(path).includes("?");
     const sep = hasQuery ? "&" : "?";
     return `${path}${sep}shop=${encodeURIComponent(SHOP)}`;
-  }
-
-  function apiUrl(path) {
-    // Retourne un "pathname + search" pour fetch
-    const u = new URL(window.location.origin + path);
-    if (SHOP) u.searchParams.set("shop", SHOP);
-    return u.pathname + u.search;
   }
 
   async function apiFetch(path, options) {
@@ -39,14 +33,18 @@
   // ---------------- DOM / state ----------------
   const result = document.getElementById("result");
 
-  let stockData = {};      // map { [productId]: {name,totalGrams,variants,categoryIds} }
-  let catalogData = null;  // { products:[], categories:[] }
+  let stockData = {};
+  let catalogData = null;
   let serverInfo = {};
   let currentProductId = null;
 
   let currentCategoryFilter = "";
   let sortAlpha = true;
-  let categories = []; // [{id,name}]
+  let categories = [];
+
+  // Location settings (Option 2B)
+  let shopifyLocations = [];
+  let currentLocationId = null;
 
   // ---------------- utils ----------------
   function el(id) { return document.getElementById(id); }
@@ -132,6 +130,15 @@
           </select>
         </div>
 
+        <!-- ✅ Option 2B: location selector -->
+        <div class="field" style="min-width:240px;">
+          <label>Location Shopify</label>
+          <select id="locationSelect">
+            <option value="">Chargement...</option>
+          </select>
+          <div class="hint muted" style="margin-top:4px;">Stock Shopify écrasé sur cette location.</div>
+        </div>
+
         <div class="catalog-actions">
           <button class="btn btn-secondary btn-sm" id="btnCategories" type="button">📁 Catégories</button>
           <button class="btn btn-primary btn-sm" id="btnImport" type="button">➕ Import Shopify</button>
@@ -155,9 +162,14 @@
     el("btnImport")?.addEventListener("click", openImportModal);
     el("btnCategories")?.addEventListener("click", openCategoriesModal);
 
-    // ✅ export avec shop
     el("btnExportStock")?.addEventListener("click", () => (window.location.href = apiPath("/api/stock.csv")));
     el("btnExportMovements")?.addEventListener("click", () => (window.location.href = apiPath("/api/movements.csv")));
+
+    el("locationSelect")?.addEventListener("change", async (e) => {
+      const v = Number(e.target.value || 0);
+      if (!v) return;
+      await saveLocationId(v);
+    });
   }
 
   // ---------------- server info ----------------
@@ -181,6 +193,84 @@
       if (count) count.textContent = serverInfo.productCount ?? "0";
     } catch (err) {
       log("❌ Impossible de récupérer les infos serveur: " + err.message, "error");
+    }
+  }
+
+  // ---------------- settings / locations (Option 2B) ----------------
+  function renderLocationSelect() {
+    const sel = el("locationSelect");
+    if (!sel) return;
+
+    const locs = Array.isArray(shopifyLocations) ? shopifyLocations.slice() : [];
+    locs.sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "fr", { sensitivity: "base" }));
+
+    if (!locs.length) {
+      sel.innerHTML = `<option value="">Aucune location</option>`;
+      return;
+    }
+
+    sel.innerHTML = locs
+      .map((l) => {
+        const id = Number(l.id);
+        const name = String(l.name || `Location ${id}`);
+        const active = l.active ? "" : " (inactive)";
+        return `<option value="${id}">${escapeHtml(name + active)} — ${id}</option>`;
+      })
+      .join("");
+
+    if (currentLocationId) {
+      sel.value = String(currentLocationId);
+    } else {
+      // ✅ si pas de setting enregistré, on sélectionne la 1ère location active (sinon la 1ère)
+      const firstActive = locs.find((l) => l.active)?.id || locs[0].id;
+      sel.value = String(firstActive);
+    }
+  }
+
+  async function loadShopifyLocations() {
+    try {
+      const res = await apiFetch("/api/shopify/locations");
+      const data = await safeJson(res);
+      if (!res.ok) throw new Error(data?.error || "Erreur /api/shopify/locations");
+      shopifyLocations = Array.isArray(data.locations) ? data.locations : [];
+      renderLocationSelect();
+    } catch (e) {
+      shopifyLocations = [];
+      renderLocationSelect();
+      log("❌ Erreur chargement locations Shopify: " + e.message, "error");
+    }
+  }
+
+  async function loadSettings() {
+    try {
+      const res = await apiFetch("/api/settings");
+      const data = await safeJson(res);
+      if (!res.ok) throw new Error(data?.error || "Erreur /api/settings");
+      currentLocationId = Number(data?.settings?.locationId || 0) || null;
+      renderLocationSelect();
+    } catch (e) {
+      currentLocationId = null;
+      renderLocationSelect();
+      // pas bloquant
+    }
+  }
+
+  async function saveLocationId(locationId) {
+    try {
+      const res = await apiFetch("/api/settings/location", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ locationId }),
+      });
+      const data = await safeJson(res);
+      if (!res.ok) throw new Error(data?.error || "Erreur save location");
+      currentLocationId = Number(data?.settings?.locationId || locationId) || locationId;
+      renderLocationSelect();
+      log(`✅ Location Shopify enregistrée: ${currentLocationId}`, "success");
+    } catch (e) {
+      log("❌ Erreur enregistrement location: " + e.message, "error");
+      alert("Erreur: " + e.message);
+      renderLocationSelect();
     }
   }
 
@@ -397,7 +487,6 @@
         return;
       }
 
-      // sécurité: tri récent en haut
       items = items.slice().sort((a, b) => {
         const ta = new Date(a.ts || 0).getTime();
         const tb = new Date(b.ts || 0).getTime();
@@ -494,7 +583,6 @@
     ensureProductControlsUI();
     ensureProductCategoriesUI();
 
-    // apply categories selection
     const catSelect = el("productCategoriesSelect");
     if (catSelect) {
       const ids = Array.isArray(product.categoryIds) ? product.categoryIds.map(String) : [];
@@ -629,7 +717,6 @@
     }
   }
 
-  // ---------------- categories in product modal ----------------
   function ensureProductCategoriesUI() {
     const modalContent = document.querySelector("#productModal .modal-content");
     if (!modalContent) return;
@@ -692,7 +779,6 @@
     }
   }
 
-  // ---------------- product history ----------------
   async function loadProductHistory(productId) {
     const modalContent = document.querySelector("#productModal .modal-content");
     if (!modalContent) return;
@@ -1013,9 +1099,13 @@
   window.addEventListener("load", async () => {
     document.body.classList.add("full-width");
 
-    await getServerInfo();
-    await loadCategories();
     ensureCatalogControls();
+
+    await getServerInfo();
+    await loadSettings();
+    await loadShopifyLocations();
+    await loadCategories();
+
     await refreshStock();
     await refreshMovements();
 
@@ -1026,5 +1116,8 @@
     window.closeProductModal = closeProductModal;
     window.testOrder = testOrder;
     window.refreshMovements = refreshMovements;
+
+    // ✅ IMPORTANT: expose refreshStock to avoid reloads (restock glue, etc.)
+    window.refreshStock = refreshStock;
   });
 })();
