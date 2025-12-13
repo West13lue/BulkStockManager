@@ -605,3 +605,9 @@ select:focus {
   border-color: rgba(99, 102, 241, 0.8);
   box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
 }
+.product-name,
+.category-title,
+.product-item,
+.variant-label {
+  color: #ffffff !important;
+}

@@ -13,6 +13,7 @@ const path = require("path");
 
 const BASE_DIR = process.env.MOVEMENTS_DIR || "/var/data/movements";
 
+// ---------------- utils ----------------
 function ensureDir() {
   if (!fs.existsSync(BASE_DIR)) fs.mkdirSync(BASE_DIR, { recursive: true });
 }
@@ -30,6 +31,7 @@ function safeJsonParse(line) {
   }
 }
 
+// ---------------- write ----------------
 function addMovement(movement = {}) {
   ensureDir();
 
@@ -44,15 +46,17 @@ function addMovement(movement = {}) {
   return m;
 }
 
-// Retourne les mouvements (newest first)
+// ---------------- read ----------------
+// Returns newest first
 // Options:
-// - days: nombre de jours à remonter
-// - limit: max items retournés
+// - days: how many days back to read
+// - limit: max items returned
 function listMovements({ days = 7, limit = 2000 } = {}) {
   ensureDir();
 
   const now = new Date();
   const out = [];
+
   const max = Math.max(1, Math.min(Number(limit) || 2000, 10000));
   const maxDays = Math.max(1, Math.min(Number(days) || 7, 365));
 
@@ -67,21 +71,28 @@ function listMovements({ days = 7, limit = 2000 } = {}) {
     if (!content) continue;
 
     const lines = content.split("\n").filter(Boolean);
-    for (const l of lines) {
-      const obj = safeJsonParse(l);
+    for (const line of lines) {
+      const obj = safeJsonParse(line);
       if (obj) out.push(obj);
     }
 
-    // on peut arrêter tôt si on a déjà beaucoup de données
-    if (out.length >= max * 2) break;
+    // Early stop: we already have more than needed (sorting later)
+    if (out.length >= max * 3) break;
   }
 
-  // ✅ tri par ts DESC => dernier en haut
-  out.sort((a, b) => String(b.ts || "").localeCompare(String(a.ts || "")));
+  // ✅ Sort by timestamp DESC (newest first)
+  out.sort((a, b) => {
+    const ta = Date.parse(a?.ts || "");
+    const tb = Date.parse(b?.ts || "");
+    if (Number.isFinite(tb) && Number.isFinite(ta)) return tb - ta;
+    // fallback if ts is missing/invalid
+    return String(b?.ts || "").localeCompare(String(a?.ts || ""));
+  });
 
   return out.slice(0, max);
 }
 
+// ---------------- maintenance ----------------
 function purgeOld(daysToKeep = 14) {
   ensureDir();
 
@@ -93,21 +104,29 @@ function purgeOld(daysToKeep = 14) {
 
   for (const f of files) {
     if (!f.endsWith(".ndjson")) continue;
+
     const dateStr = f.replace(".ndjson", "");
     const d = new Date(dateStr);
+
     if (Number.isNaN(d.getTime())) continue;
-    if (d < limit) fs.unlinkSync(path.join(BASE_DIR, f));
+    if (d < limit) {
+      try {
+        fs.unlinkSync(path.join(BASE_DIR, f));
+      } catch {
+        // ignore
+      }
+    }
   }
 }
 
-// -------- CSV helpers --------
+// ---------------- CSV ----------------
 function csvEscape(v) {
   const s = v === null || v === undefined ? "" : String(v);
   if (/[,"\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
   return s;
 }
 
-// Supporte tes anciennes colonnes + tes nouvelles (gramsDelta / totalAfter)
+// Supports old + new fields (gramsDelta / totalAfter, etc.)
 function toCSV(rows = []) {
   const cols = [
     "ts",
@@ -118,10 +137,10 @@ function toCSV(rows = []) {
     "productId",
     "productName",
     "deltaGrams",
-    "gramsDelta",     // ✅ au cas où tu utilises gramsDelta ailleurs
+    "gramsDelta",
     "gramsBefore",
     "gramsAfter",
-    "totalAfter",     // ✅ au cas où tu utilises totalAfter ailleurs
+    "totalAfter",
     "variantTitle",
     "lineTitle",
     "requestId",
