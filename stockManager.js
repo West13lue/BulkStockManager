@@ -7,9 +7,34 @@
 // - Support suppression persistée (deletedProductIds)
 // - ✅ FIX: produits BASE ne disparaissent plus à chaque deploy
 // - ✅ REVENTE: produits BASE désactivables via env
+// - ✅ FIX: compat exports stockState (loadState/saveState)
+// - ✅ FIX: upsertImportedProductConfig compatible (shop,payload) / (payload) / (args...)
 // ============================================
 
-const { loadState, saveState } = require("./stockState");
+// ---------- stockState import ROBUSTE ----------
+const stockStateMod = require("./stockState");
+
+// support:
+// - module.exports = { loadState, saveState }
+// - exports.loadState = ...
+// - module.exports = function loadState() { ... } (rare)
+const loadState =
+  typeof stockStateMod?.loadState === "function"
+    ? stockStateMod.loadState
+    : (typeof stockStateMod === "function" ? stockStateMod : null);
+
+const saveState =
+  typeof stockStateMod?.saveState === "function"
+    ? stockStateMod.saveState
+    : null;
+
+if (typeof loadState !== "function") {
+  throw new Error("stockState.loadState introuvable (vérifie stockState.js / exports)");
+}
+if (typeof saveState !== "function") {
+  throw new Error("stockState.saveState introuvable (vérifie stockState.js / exports)");
+}
+
 const { listCategories } = require("./catalogStore");
 
 // ✅ queue/logger dans /utils
@@ -106,6 +131,23 @@ function snapshotProduct(shop, productId) {
     categoryIds: normalizeCategoryIds(cfg.categoryIds),
     variants: buildProductView(cfg),
   };
+}
+
+// --------------------------------------------
+// Argument parsing (compat server)
+// --------------------------------------------
+function parseShopFirstArgs(shopOrProductId, maybeProductId, rest) {
+  // Cas A: (shop, productId, ...)
+  // Cas B: (productId, ...) => shop="default"
+  // Détection simple: un shop contient souvent ".myshopify.com"
+  const a = String(shopOrProductId ?? "");
+  const looksLikeShop = a.includes(".myshopify.com") || a === "default";
+
+  if (looksLikeShop) {
+    return { shop: a || "default", productId: String(maybeProductId ?? ""), rest };
+  }
+
+  return { shop: "default", productId: String(shopOrProductId ?? ""), rest: [maybeProductId, ...rest] };
 }
 
 // --------------------------------------------
@@ -219,16 +261,20 @@ function enqueue(fn) {
 // --------------------------------------------
 // API Stock (par shop) ✅
 // --------------------------------------------
-async function applyOrderToProduct(shop, productId, gramsToSubtract) {
-  const pid = String(productId);
-  const sh = String(shop || "default");
+
+// ✅ Compat:
+// applyOrderToProduct(shop, productId, gramsToSubtract)
+// applyOrderToProduct(productId, gramsToSubtract)
+async function applyOrderToProduct(shopOrProductId, maybeProductId, gramsToSubtract) {
+  const { shop: sh, productId: pid, rest } = parseShopFirstArgs(shopOrProductId, maybeProductId, [gramsToSubtract]);
+  const grams = rest.length ? rest[0] : gramsToSubtract;
 
   return enqueue(() => {
     const store = getStore(sh);
     const cfg = store[pid];
     if (!cfg) return null;
 
-    const g = clampMin0(gramsToSubtract);
+    const g = clampMin0(grams);
     cfg.totalGrams = clampMin0(clampMin0(cfg.totalGrams) - g);
 
     persistState(sh);
@@ -236,16 +282,19 @@ async function applyOrderToProduct(shop, productId, gramsToSubtract) {
   });
 }
 
-async function restockProduct(shop, productId, gramsDelta) {
-  const pid = String(productId);
-  const sh = String(shop || "default");
+// ✅ Compat:
+// restockProduct(shop, productId, gramsDelta)
+// restockProduct(productId, gramsDelta)
+async function restockProduct(shopOrProductId, maybeProductId, gramsDelta) {
+  const { shop: sh, productId: pid, rest } = parseShopFirstArgs(shopOrProductId, maybeProductId, [gramsDelta]);
+  const deltaRaw = rest.length ? rest[0] : gramsDelta;
 
   return enqueue(() => {
     const store = getStore(sh);
     const cfg = store[pid];
     if (!cfg) return null;
 
-    const delta = toNum(gramsDelta, 0);
+    const delta = toNum(deltaRaw, 0);
     cfg.totalGrams = clampMin0(clampMin0(cfg.totalGrams) + delta);
 
     persistState(sh);
@@ -257,19 +306,23 @@ function getStockSnapshot(shop = "default") {
   const sh = String(shop || "default");
   const store = getStore(sh);
 
-  const stock = {};
+  const out = {};
   for (const [pid] of Object.entries(store)) {
-    stock[pid] = snapshotProduct(sh, pid);
+    out[pid] = snapshotProduct(sh, pid);
   }
-  return stock;
+  return out;
 }
 
 // --------------------------------------------
 // Catégories (par shop) ✅
 // --------------------------------------------
-function setProductCategories(shop, productId, categoryIds) {
-  const sh = String(shop || "default");
-  const pid = String(productId);
+
+// ✅ Compat:
+// setProductCategories(shop, productId, categoryIds)
+// setProductCategories(productId, categoryIds)
+function setProductCategories(shopOrProductId, maybeProductId, categoryIdsMaybe) {
+  const { shop: sh, productId: pid, rest } = parseShopFirstArgs(shopOrProductId, maybeProductId, [categoryIdsMaybe]);
+  const categoryIds = rest.length ? rest[0] : categoryIdsMaybe;
 
   const store = getStore(sh);
   const cfg = store[pid];
@@ -286,30 +339,64 @@ function setProductCategories(shop, productId, categoryIds) {
 // --------------------------------------------
 // Import Shopify -> Upsert config (par shop) ✅
 // --------------------------------------------
-function upsertImportedProductConfig(shop, { productId, name, totalGrams, variants, categoryIds }) {
-  const sh = String(shop || "default");
-  const pid = String(productId);
+//
+// ✅ Support total:
+// A) upsertImportedProductConfig(shop, {productId,name,totalGrams,variants,categoryIds})
+// B) upsertImportedProductConfig({productId,name,totalGrams,variants,categoryIds})   // shop default
+// C) upsertImportedProductConfig(productId, name, totalGrams, variants, categoryIds) // shop default
+//
+function upsertImportedProductConfig(arg1, arg2, arg3, arg4, arg5, arg6) {
+  let sh = "default";
+  let payload = null;
 
+  // A) (shop, payload)
+  if (typeof arg1 === "string" && arg2 && typeof arg2 === "object") {
+    const looksLikeShop = arg1.includes(".myshopify.com") || arg1 === "default";
+    if (looksLikeShop) {
+      sh = arg1 || "default";
+      payload = arg2;
+    }
+  }
+
+  // B) (payload)
+  if (!payload && arg1 && typeof arg1 === "object") {
+    payload = arg1;
+    sh = "default";
+  }
+
+  // C) (productId, name, totalGrams, variants, categoryIds)
+  if (!payload) {
+    payload = { productId: arg1, name: arg2, totalGrams: arg3, variants: arg4, categoryIds: arg5 };
+    sh = "default";
+  }
+
+  const productId = payload?.productId;
+  if (!productId) {
+    throw new Error("Import: productId manquant (upsertImportedProductConfig)");
+  }
+
+  const pid = String(productId);
   const store = getStore(sh);
 
-  const safeVariants = normalizeVariants(variants);
+  const safeVariants = normalizeVariants(payload?.variants);
   if (!Object.keys(safeVariants).length) {
     throw new Error("Import: aucune variante valide (inventoryItemId/gramsPerUnit manquant)");
   }
 
   if (!store[pid]) {
     store[pid] = {
-      name: String(name || pid),
-      totalGrams: clampMin0(totalGrams),
-      categoryIds: normalizeCategoryIds(categoryIds),
+      name: String(payload?.name || pid),
+      totalGrams: clampMin0(payload?.totalGrams),
+      categoryIds: normalizeCategoryIds(payload?.categoryIds),
       variants: safeVariants,
     };
   } else {
     const cfg = store[pid];
-    cfg.name = String(name || cfg.name || pid);
+    cfg.name = String(payload?.name || cfg.name || pid);
     cfg.variants = safeVariants;
-    if (Number.isFinite(Number(totalGrams))) cfg.totalGrams = clampMin0(totalGrams);
-    if (Array.isArray(categoryIds)) cfg.categoryIds = normalizeCategoryIds(categoryIds);
+
+    if (Number.isFinite(Number(payload?.totalGrams))) cfg.totalGrams = clampMin0(payload.totalGrams);
+    if (Array.isArray(payload?.categoryIds)) cfg.categoryIds = normalizeCategoryIds(payload.categoryIds);
     if (!Array.isArray(cfg.categoryIds)) cfg.categoryIds = [];
   }
 
@@ -340,9 +427,12 @@ function getCatalogSnapshot(shop = "default") {
 // --------------------------------------------
 // Suppression produit (par shop) ✅
 // --------------------------------------------
-function removeProduct(shop, productId) {
-  const sh = String(shop || "default");
-  const pid = String(productId);
+
+// ✅ Compat:
+// removeProduct(shop, productId)
+// removeProduct(productId)
+function removeProduct(shopOrProductId, maybeProductId) {
+  const { shop: sh, productId: pid } = parseShopFirstArgs(shopOrProductId, maybeProductId, []);
 
   const store = getStore(sh);
   if (!store[pid]) return false;
