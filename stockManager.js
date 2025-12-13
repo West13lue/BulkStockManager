@@ -1,30 +1,28 @@
 // stockManager.js
 // ============================================
 // Bulk Stock Manager - Stock côté serveur
-// - Source de vérité = app (écrase Shopify)
-// - Persistance complète via stockState.js (Render disk /var/data)
+// - Source de vérité = app (elle écrase Shopify)
+// - Persistance Render Disk via stockState.js (multi-boutique)
 // - Queue pour éviter race conditions
 // - Support suppression persistée (deletedProductIds)
-// - ✅ FIX: les produits BASE ne disparaissent plus à chaque deploy
+// - ✅ FIX: produits BASE ne disparaissent plus à chaque deploy
 // - ✅ REVENTE: produits BASE désactivables via env
 // ============================================
 
 const { loadState, saveState } = require("./stockState");
 const { listCategories } = require("./catalogStore");
-// ✅ Dans ton repo, ces fichiers sont à la racine (pas /utils)
-const queueMod = require("./queue");
-const { logEvent } = require("./logger");
+
+// ✅ queue/logger dans /utils
+const queueMod = require("./utils/queue");
+const { logEvent } = require("./utils/logger");
 
 // Compat queue : supporte `module.exports = stockQueue` OU `{ stockQueue }`
 const stockQueue = queueMod?.add ? queueMod : queueMod?.stockQueue;
 
 // --------------------------------------------
 // CONFIG PRODUITS "BASE" (hardcodée)
-// ✅ Pour vendre l'app à d'autres boutiques :
-// - laisse ENABLE_BASE_PRODUCTS à false (par défaut)
-// - et fais importer les produits depuis Shopify dans l'UI
-// - si tu veux garder tes produits "base" pour TON shop uniquement,
-//   mets ENABLE_BASE_PRODUCTS=true dans Render.
+// ✅ Pour vendre l'app : laisse ENABLE_BASE_PRODUCTS=false (par défaut).
+// Pour TON shop : mets ENABLE_BASE_PRODUCTS=true dans Render.
 // --------------------------------------------
 const ENABLE_BASE_PRODUCTS = process.env.ENABLE_BASE_PRODUCTS === "true";
 
@@ -43,15 +41,15 @@ const BASE_PRODUCT_CONFIG = ENABLE_BASE_PRODUCTS
           "50": { gramsPerUnit: 50, inventoryItemId: 54088575746391 },
         },
       },
-
-      // ... ajoute ici tes autres produits base si besoin
+      // ... autres produits base si besoin
     }
   : {};
 
 // --------------------------------------------
-// STORE EN MÉMOIRE (source actuelle)
+// STORE EN MÉMOIRE (par shop) ✅
+// PRODUCT_CONFIG_BY_SHOP[shop] = { [productId]: config }
 // --------------------------------------------
-const PRODUCT_CONFIG = { ...BASE_PRODUCT_CONFIG };
+const PRODUCT_CONFIG_BY_SHOP = new Map();
 
 // --------------------------------------------
 // Helpers
@@ -60,29 +58,23 @@ function toNum(v, fallback = 0) {
   const n = Number(v);
   return Number.isFinite(n) ? n : fallback;
 }
-
 function clampMin0(n) {
   return Math.max(0, toNum(n, 0));
 }
-
 function normalizeVariants(variants) {
   const safe = {};
   for (const [label, v] of Object.entries(variants || {})) {
     const gramsPerUnit = toNum(v?.gramsPerUnit, 0);
     const inventoryItemId = toNum(v?.inventoryItemId, 0);
-
     if (!inventoryItemId) continue;
     if (!gramsPerUnit || gramsPerUnit <= 0) continue;
-
     safe[String(label)] = { gramsPerUnit, inventoryItemId };
   }
   return safe;
 }
-
 function normalizeCategoryIds(categoryIds) {
   return Array.isArray(categoryIds) ? categoryIds.map(String) : [];
 }
-
 function normalizeDeletedIds(arr) {
   return Array.isArray(arr) ? arr.map(String) : [];
 }
@@ -90,11 +82,9 @@ function normalizeDeletedIds(arr) {
 function buildProductView(config) {
   const total = clampMin0(config.totalGrams);
   const out = {};
-
   for (const [label, v] of Object.entries(config.variants || {})) {
     const gramsPer = toNum(v?.gramsPerUnit, 0);
     const canSell = gramsPer > 0 ? Math.floor(total / gramsPer) : 0;
-
     out[label] = {
       gramsPerUnit: gramsPer,
       inventoryItemId: v.inventoryItemId,
@@ -104,8 +94,9 @@ function buildProductView(config) {
   return out;
 }
 
-function snapshotProduct(productId) {
-  const cfg = PRODUCT_CONFIG[productId];
+function snapshotProduct(shop, productId) {
+  const store = getStore(shop);
+  const cfg = store[productId];
   if (!cfg) return null;
 
   return {
@@ -118,14 +109,40 @@ function snapshotProduct(productId) {
 }
 
 // --------------------------------------------
-// Persistance v2
+// STORE init/restore (par shop) ✅
 // --------------------------------------------
-function persistState(extra = {}) {
-  const prev = loadState() || {};
+function getStore(shop = "default") {
+  const key = String(shop || "default");
+
+  if (!PRODUCT_CONFIG_BY_SHOP.has(key)) {
+    // Base store clone
+    const base = {};
+    for (const [pid, p] of Object.entries(BASE_PRODUCT_CONFIG)) {
+      base[pid] = {
+        name: p.name,
+        totalGrams: p.totalGrams,
+        categoryIds: normalizeCategoryIds(p.categoryIds),
+        variants: normalizeVariants(p.variants),
+      };
+    }
+
+    PRODUCT_CONFIG_BY_SHOP.set(key, base);
+
+    // restore persisted
+    restoreStateForShop(key);
+  }
+
+  return PRODUCT_CONFIG_BY_SHOP.get(key);
+}
+
+function persistState(shop, extra = {}) {
+  const prev = loadState(shop) || {};
   const deletedProductIds = normalizeDeletedIds(extra.deletedProductIds ?? prev.deletedProductIds);
 
+  const store = getStore(shop);
+
   const products = {};
-  for (const [pid, p] of Object.entries(PRODUCT_CONFIG)) {
+  for (const [pid, p] of Object.entries(store)) {
     products[pid] = {
       name: String(p.name || pid),
       totalGrams: clampMin0(p.totalGrams),
@@ -134,7 +151,7 @@ function persistState(extra = {}) {
     };
   }
 
-  saveState({
+  saveState(shop, {
     version: 2,
     updatedAt: new Date().toISOString(),
     products,
@@ -142,16 +159,17 @@ function persistState(extra = {}) {
   });
 }
 
-(function restoreState() {
-  const saved = loadState() || {};
+function restoreStateForShop(shop) {
+  const store = PRODUCT_CONFIG_BY_SHOP.get(shop);
+  const saved = loadState(shop) || {};
 
   // v2
   if (saved.version === 2 && saved.products && typeof saved.products === "object") {
     const restoredIds = Object.keys(saved.products);
 
-    // 1) restore produits (remplace/ajoute)
+    // 1) restore products
     for (const [pid, p] of Object.entries(saved.products)) {
-      PRODUCT_CONFIG[pid] = {
+      store[pid] = {
         name: String(p?.name || pid),
         totalGrams: clampMin0(p?.totalGrams),
         categoryIds: normalizeCategoryIds(p?.categoryIds),
@@ -159,15 +177,15 @@ function persistState(extra = {}) {
       };
     }
 
-    // 2) applique les suppressions persistées (tombstones)
+    // 2) apply tombstones (sans supprimer les BASE)
     const deleted = normalizeDeletedIds(saved.deletedProductIds);
     for (const pid of deleted) {
-      // ✅ Ne "tombstone" pas les produits BASE : sinon ils disparaissent à chaque deploy.
-      if (BASE_PRODUCT_CONFIG[pid]) continue;
-      if (PRODUCT_CONFIG[pid]) delete PRODUCT_CONFIG[pid];
+      if (BASE_PRODUCT_CONFIG[pid]) continue; // ✅ base toujours visible
+      if (store[pid]) delete store[pid];
     }
 
     logEvent("stock_state_restore", {
+      shop,
       mode: "v2",
       products: restoredIds.length,
       deleted: deleted.length,
@@ -180,19 +198,15 @@ function persistState(extra = {}) {
   if (saved && typeof saved === "object") {
     let applied = 0;
     for (const [pid, data] of Object.entries(saved)) {
-      if (!PRODUCT_CONFIG[pid]) continue;
-      if (typeof data?.totalGrams === "number") PRODUCT_CONFIG[pid].totalGrams = clampMin0(data.totalGrams);
-      if (Array.isArray(data?.categoryIds)) PRODUCT_CONFIG[pid].categoryIds = normalizeCategoryIds(data.categoryIds);
+      if (!store[pid]) continue;
+      if (typeof data?.totalGrams === "number") store[pid].totalGrams = clampMin0(data.totalGrams);
+      if (Array.isArray(data?.categoryIds)) store[pid].categoryIds = normalizeCategoryIds(data.categoryIds);
       applied++;
     }
 
-    logEvent("stock_state_restore", {
-      mode: "legacy",
-      applied,
-      base: Object.keys(PRODUCT_CONFIG).length,
-    });
+    logEvent("stock_state_restore", { shop, mode: "legacy", applied });
   }
-})();
+}
 
 // --------------------------------------------
 // Queue wrapper (anti race conditions)
@@ -203,141 +217,156 @@ function enqueue(fn) {
 }
 
 // --------------------------------------------
-// API Stock
+// API Stock (par shop) ✅
 // --------------------------------------------
-async function applyOrderToProduct(productId, gramsToSubtract) {
+async function applyOrderToProduct(shop, productId, gramsToSubtract) {
   const pid = String(productId);
+  const sh = String(shop || "default");
 
   return enqueue(() => {
-    const cfg = PRODUCT_CONFIG[pid];
+    const store = getStore(sh);
+    const cfg = store[pid];
     if (!cfg) return null;
 
     const g = clampMin0(gramsToSubtract);
     cfg.totalGrams = clampMin0(clampMin0(cfg.totalGrams) - g);
 
-    persistState();
-    return snapshotProduct(pid);
+    persistState(sh);
+    return snapshotProduct(sh, pid);
   });
 }
 
-async function restockProduct(productId, gramsDelta) {
+async function restockProduct(shop, productId, gramsDelta) {
   const pid = String(productId);
+  const sh = String(shop || "default");
 
   return enqueue(() => {
-    const cfg = PRODUCT_CONFIG[pid];
+    const store = getStore(sh);
+    const cfg = store[pid];
     if (!cfg) return null;
 
     const delta = toNum(gramsDelta, 0);
     cfg.totalGrams = clampMin0(clampMin0(cfg.totalGrams) + delta);
 
-    persistState();
-    return snapshotProduct(pid);
+    persistState(sh);
+    return snapshotProduct(sh, pid);
   });
 }
 
-function getStockSnapshot() {
+function getStockSnapshot(shop = "default") {
+  const sh = String(shop || "default");
+  const store = getStore(sh);
+
   const stock = {};
-  for (const [pid] of Object.entries(PRODUCT_CONFIG)) {
-    stock[pid] = snapshotProduct(pid);
+  for (const [pid] of Object.entries(store)) {
+    stock[pid] = snapshotProduct(sh, pid);
   }
   return stock;
 }
 
 // --------------------------------------------
-// Catégories
+// Catégories (par shop) ✅
 // --------------------------------------------
-function setProductCategories(productId, categoryIds) {
+function setProductCategories(shop, productId, categoryIds) {
+  const sh = String(shop || "default");
   const pid = String(productId);
-  const cfg = PRODUCT_CONFIG[pid];
+
+  const store = getStore(sh);
+  const cfg = store[pid];
   if (!cfg) return false;
 
-  const existing = new Set((listCategories?.() || []).map((c) => String(c.id)));
-  const ids = normalizeCategoryIds(categoryIds).filter(
-    (id) => existing.size === 0 || existing.has(String(id))
-  );
+  const existing = new Set((listCategories?.(sh) || []).map((c) => String(c.id)));
+  const ids = normalizeCategoryIds(categoryIds).filter((id) => existing.size === 0 || existing.has(String(id)));
 
   cfg.categoryIds = ids;
-  persistState();
+  persistState(sh);
   return true;
 }
 
 // --------------------------------------------
-// Import Shopify -> Upsert config
+// Import Shopify -> Upsert config (par shop) ✅
 // --------------------------------------------
-function upsertImportedProductConfig({ productId, name, totalGrams, variants, categoryIds }) {
+function upsertImportedProductConfig(shop, { productId, name, totalGrams, variants, categoryIds }) {
+  const sh = String(shop || "default");
   const pid = String(productId);
+
+  const store = getStore(sh);
 
   const safeVariants = normalizeVariants(variants);
   if (!Object.keys(safeVariants).length) {
     throw new Error("Import: aucune variante valide (inventoryItemId/gramsPerUnit manquant)");
   }
 
-  if (!PRODUCT_CONFIG[pid]) {
-    PRODUCT_CONFIG[pid] = {
+  if (!store[pid]) {
+    store[pid] = {
       name: String(name || pid),
       totalGrams: clampMin0(totalGrams),
       categoryIds: normalizeCategoryIds(categoryIds),
       variants: safeVariants,
     };
   } else {
-    const cfg = PRODUCT_CONFIG[pid];
+    const cfg = store[pid];
     cfg.name = String(name || cfg.name || pid);
     cfg.variants = safeVariants;
-
     if (Number.isFinite(Number(totalGrams))) cfg.totalGrams = clampMin0(totalGrams);
     if (Array.isArray(categoryIds)) cfg.categoryIds = normalizeCategoryIds(categoryIds);
     if (!Array.isArray(cfg.categoryIds)) cfg.categoryIds = [];
   }
 
-  // ✅ Si le produit avait été "supprimé" dans l'UI, on le restaure lors d'un import.
-  const prev = loadState() || {};
+  // ✅ Si tombstone: on restaure à l'import
+  const prev = loadState(sh) || {};
   const deleted = new Set(normalizeDeletedIds(prev.deletedProductIds));
   if (deleted.has(pid)) {
     deleted.delete(pid);
-    persistState({ deletedProductIds: Array.from(deleted) });
+    persistState(sh, { deletedProductIds: Array.from(deleted) });
   } else {
-    persistState();
+    persistState(sh);
   }
 
-  return snapshotProduct(pid);
+  return snapshotProduct(sh, pid);
 }
 
 // --------------------------------------------
-// Catalog snapshot (UI)
+// Catalog snapshot (UI) ✅
 // --------------------------------------------
-function getCatalogSnapshot() {
-  const categories = listCategories ? listCategories() : [];
-  const products = Object.keys(PRODUCT_CONFIG).map((pid) => snapshotProduct(pid));
+function getCatalogSnapshot(shop = "default") {
+  const sh = String(shop || "default");
+  const categories = listCategories ? listCategories(sh) : [];
+  const store = getStore(sh);
+  const products = Object.keys(store).map((pid) => snapshotProduct(sh, pid));
   return { products, categories };
 }
 
 // --------------------------------------------
-// Suppression produit (config locale)
+// Suppression produit (par shop) ✅
 // --------------------------------------------
-function removeProduct(productId) {
+function removeProduct(shop, productId) {
+  const sh = String(shop || "default");
   const pid = String(productId);
-  if (!PRODUCT_CONFIG[pid]) return false;
 
-  delete PRODUCT_CONFIG[pid];
+  const store = getStore(sh);
+  if (!store[pid]) return false;
 
-  // ✅ Par défaut, on ne "tombstone" pas les produits BASE.
-  // (pour forcer une suppression persistée des produits base, mets ALLOW_DELETE_BASE_PRODUCTS=true)
+  delete store[pid];
+
   const allowDeleteBase = process.env.ALLOW_DELETE_BASE_PRODUCTS === "true";
   if (BASE_PRODUCT_CONFIG[pid] && !allowDeleteBase) {
-    persistState();
+    persistState(sh);
     return true;
   }
 
-  const prev = loadState() || {};
+  const prev = loadState(sh) || {};
   const deleted = new Set(normalizeDeletedIds(prev.deletedProductIds));
   deleted.add(pid);
 
-  persistState({ deletedProductIds: Array.from(deleted) });
+  persistState(sh, { deletedProductIds: Array.from(deleted) });
   return true;
 }
 
 module.exports = {
-  PRODUCT_CONFIG,
+  // exposé pour debug si besoin
+  PRODUCT_CONFIG_BY_SHOP,
+
   applyOrderToProduct,
   restockProduct,
   getStockSnapshot,

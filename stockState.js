@@ -12,7 +12,7 @@ const fs = require("fs");
 const fsp = fs.promises;
 const path = require("path");
 
-// ✅ FIX: ton logger est dans /utils/logger.js
+// ✅ logger dans /utils/logger.js
 const { logEvent } = require("./utils/logger");
 
 const DATA_DIR = process.env.DATA_DIR || "/var/data";
@@ -59,7 +59,6 @@ function safeParseJSON(raw) {
 
 function loadState(shop = "default") {
   const file = stateFile(shop);
-
   try {
     ensureDirSync(path.dirname(file));
 
@@ -74,25 +73,18 @@ function loadState(shop = "default") {
     logEvent("stock_state_loaded", {
       shop: sanitizeShop(shop),
       file,
-      products: parsed?.products
-        ? Object.keys(parsed.products).length
-        : Object.keys(parsed || {}).length,
+      products: parsed?.products ? Object.keys(parsed.products).length : Object.keys(parsed || {}).length,
     });
 
     return parsed;
   } catch (e) {
-    logEvent(
-      "stock_state_load_error",
-      { shop: sanitizeShop(shop), file, message: e.message },
-      "error"
-    );
+    logEvent("stock_state_load_error", { shop: sanitizeShop(shop), file, message: e.message }, "error");
     return {};
   }
 }
 
 async function saveState(shop = "default", state = {}) {
   const file = stateFile(shop);
-
   try {
     await ensureDir(path.dirname(file));
 
@@ -110,11 +102,7 @@ async function saveState(shop = "default", state = {}) {
 
     return true;
   } catch (e) {
-    logEvent(
-      "stock_state_save_error",
-      { shop: sanitizeShop(shop), file, message: e.message },
-      "error"
-    );
+    logEvent("stock_state_save_error", { shop: sanitizeShop(shop), file, message: e.message }, "error");
     return false;
   }
 }
