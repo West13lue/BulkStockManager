@@ -1,3 +1,4 @@
+// public/js/app.js
 // ============================================
 // BULK STOCK MANAGER - Front (Admin UI)
 // - Produits groupés par catégorie
@@ -6,6 +7,7 @@
 // - Ajustement stock TOTAL (+ / - en grammes)
 // - Suppression produit (config uniquement)
 // - Historique produit (date+heure, récent en haut)
+// - Historique global mouvements (refreshMovements)
 // ============================================
 
 (() => {
@@ -43,16 +45,15 @@
     if (!ts) return "";
     const d = new Date(ts);
     if (Number.isNaN(d.getTime())) return "";
-    return d.toLocaleString("fr-FR"); // date + heure
+    return d.toLocaleString("fr-FR");
   }
 
   async function safeJson(res) {
-    // évite les crash si le serveur renvoie HTML
     const ct = res.headers.get("content-type") || "";
     if (!ct.includes("application/json")) {
       const txt = await res.text().catch(() => "");
       const err = new Error("Réponse non-JSON du serveur");
-      err._raw = txt?.slice?.(0, 5000);
+      err._raw = txt?.slice?.(0, 1000);
       throw err;
     }
     return res.json();
@@ -66,8 +67,6 @@
     const backdrop = document.createElement("div");
     backdrop.className = "modal-backdrop";
     backdrop.addEventListener("click", () => modalEl.classList.remove("active"));
-
-    // backdrop derrière le panel
     modalEl.prepend(backdrop);
   }
 
@@ -236,13 +235,11 @@
         return;
       }
 
-      // fallback legacy
       stockData = data || {};
       displayProductsGrouped(stockData);
       updateStats(stockData);
       log("✅ Stock actualisé", "success");
     } catch (err) {
-      // si le serveur renvoie HTML, err._raw contiendra un extrait
       log("❌ ERREUR: " + err.message, "error");
       const list = el("productList");
       if (list) {
@@ -280,7 +277,6 @@
       return;
     }
 
-    // Group by first category or "Sans catégorie"
     const groups = new Map();
 
     for (const [id, p] of entries) {
@@ -293,7 +289,9 @@
       groups.get(groupName).push([id, p]);
     }
 
-    const groupNames = Array.from(groups.keys()).sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }));
+    const groupNames = Array.from(groups.keys()).sort((a, b) =>
+      a.localeCompare(b, "fr", { sensitivity: "base" })
+    );
 
     productList.innerHTML = groupNames
       .map((gName) => {
@@ -339,13 +337,66 @@
       })
       .join("");
 
-    // Bind open product events (no inline onclick)
     productList.querySelectorAll("[data-open-product]").forEach((btn) => {
       btn.addEventListener("click", () => {
         const id = btn.getAttribute("data-open-product");
         openProductModal(String(id));
       });
     });
+  }
+
+  // ---------------- mouvements (global) ----------------
+  async function refreshMovements() {
+    const box = el("movementsList");
+    if (!box) return;
+
+    const days = Number(el("movementsDays")?.value || 7);
+
+    box.innerHTML = `<div class="muted" style="padding:10px;">Chargement...</div>`;
+
+    try {
+      const url = new URL(window.location.origin + "/api/movements");
+      url.searchParams.set("limit", "300");
+      url.searchParams.set("days", String(days));
+
+      const res = await fetch(url.pathname + url.search);
+      const data = await safeJson(res);
+      if (!res.ok) throw new Error(data?.error || "Erreur /api/movements");
+
+      let items = Array.isArray(data.data) ? data.data : [];
+      if (!items.length) {
+        box.innerHTML = `<div class="muted" style="padding:10px;">Aucun mouvement.</div>`;
+        return;
+      }
+
+      // sécurité: tri récent en haut
+      items = items.slice().sort((a, b) => {
+        const ta = new Date(a.ts || 0).getTime();
+        const tb = new Date(b.ts || 0).getTime();
+        return tb - ta;
+      });
+
+      box.innerHTML = items.map((m) => {
+        const when = formatDateTime(m.ts);
+        const delta = Number(m.gramsDelta ?? m.deltaGrams ?? 0);
+        const sign = delta > 0 ? "+" : "";
+        const source = m.source || m.type || "movement";
+        const pname = m.productName ? ` • ${escapeHtml(m.productName)}` : "";
+        const after = Number.isFinite(Number(m.totalAfter)) ? ` → ${Number(m.totalAfter)}g` : "";
+
+        return `
+          <div class="history-item">
+            <div class="h-left">
+              <div class="h-title">${escapeHtml(source)}${pname}</div>
+              <div class="h-sub">${escapeHtml(when)}</div>
+            </div>
+            <div class="h-delta">${sign}${delta}g${after}</div>
+          </div>
+        `;
+      }).join("");
+    } catch (e) {
+      box.innerHTML = `<div style="color:#fca5a5; padding:10px;">Erreur mouvements: ${escapeHtml(e.message)}</div>`;
+    }
   }
 
   // ---------------- test order ----------------
@@ -358,13 +409,14 @@
 
       log("✅ COMMANDE TEST OK\n\n" + JSON.stringify(data, null, 2), "success");
       await refreshStock();
+      await refreshMovements();
     } catch (err) {
       log("❌ ERREUR: " + err.message, "error");
       alert("Erreur: " + err.message);
     }
   }
 
-  // ---------------- restock modal (total grams) ----------------
+  // ---------------- restock modal ----------------
   function openRestockModal() {
     const modal = el("restockModal");
     const select = el("productSelect");
@@ -375,7 +427,9 @@
     select.innerHTML =
       '<option value="">Sélectionnez un produit...</option>' +
       Object.entries(stockData)
-        .sort((a, b) => String(a[1]?.name || "").localeCompare(String(b[1]?.name || ""), "fr", { sensitivity: "base" }))
+        .sort((a, b) =>
+          String(a[1]?.name || "").localeCompare(String(b[1]?.name || ""), "fr", { sensitivity: "base" })
+        )
         .map(([id, product]) =>
           `<option value="${escapeHtml(id)}">${escapeHtml(product.name)} (Stock: ${Number(product.totalGrams || 0)}g)</option>`
         )
@@ -412,7 +466,7 @@
     ensureProductControlsUI();
     ensureProductCategoriesUI();
 
-    // apply current categories selection
+    // apply categories selection
     const catSelect = el("productCategoriesSelect");
     if (catSelect) {
       const ids = Array.isArray(product.categoryIds) ? product.categoryIds.map(String) : [];
@@ -421,9 +475,7 @@
       }
     }
 
-    // load history (recent first)
     loadProductHistory(pid);
-
     openModal(modal);
   }
 
@@ -443,7 +495,6 @@
       return;
     }
 
-    // tri par grammes si label numérique
     arr.sort((a, b) => Number(a[0]) - Number(b[0]));
 
     variantsList.innerHTML = arr
@@ -474,11 +525,11 @@
     block.className = "form-group";
     block.innerHTML = `
       <label>Stock total (ajouter / enlever en grammes)</label>
-      <div class="product-adjust-row">
-        <input id="adjustTotalGrams" type="number" min="1" step="1" placeholder="Ex: 50" />
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+        <input id="adjustTotalGrams" type="number" min="1" step="1" placeholder="Ex: 50" style="max-width:180px;" />
         <button type="button" class="btn btn-primary btn-sm" id="btnAddTotal">➕ Ajouter</button>
         <button type="button" class="btn btn-secondary btn-sm" id="btnRemoveTotal">➖ Enlever</button>
-        <div class="spacer"></div>
+        <div style="flex:1"></div>
         <button type="button" class="btn btn-secondary btn-sm" id="btnDeleteProduct">🗑️ Supprimer produit</button>
       </div>
       <div class="hint muted">Ici on ajuste directement le stock total (pas par variante).</div>
@@ -512,8 +563,8 @@
       log(`✅ Stock total mis à jour (${gramsDelta > 0 ? "+" : ""}${gramsDelta}g)`, "success");
 
       await refreshStock();
+      await refreshMovements();
 
-      // refresh modal content
       const updated = stockData[currentProductId];
       if (updated) {
         const totalInput = el("totalGramsInput");
@@ -543,6 +594,7 @@
       log(`✅ Produit supprimé: ${name}`, "success");
       closeProductModal();
       await refreshStock();
+      await refreshMovements();
     } catch (e) {
       log("❌ Erreur suppression produit: " + e.message, "error");
       alert("Erreur: " + e.message);
@@ -561,7 +613,7 @@
       <label>Catégories</label>
       <select id="productCategoriesSelect" multiple size="6"></select>
       <div class="hint muted">Ctrl (Windows) / Cmd (Mac) pour sélectionner plusieurs. (Aucune sélection = Sans catégorie)</div>
-      <div class="row" style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;">
+      <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:10px;">
         <button type="button" class="btn btn-secondary btn-sm" id="btnClearCategories">🧹 Tout enlever</button>
         <button type="button" class="btn btn-primary btn-sm" id="btnSaveCategories">💾 Enregistrer</button>
       </div>
@@ -597,8 +649,8 @@
 
       log("✅ Catégories enregistrées", "success");
       await refreshStock();
+      await refreshMovements();
 
-      // reselection based on updated
       const updated = stockData[currentProductId];
       if (updated) {
         const ids = Array.isArray(updated.categoryIds) ? updated.categoryIds.map(String) : [];
@@ -640,23 +692,22 @@
       const data = await safeJson(res);
       if (!res.ok) throw new Error(data?.error || "Erreur history");
 
-      let items = Array.isArray(data.data) ? data.data : (Array.isArray(data.movements) ? data.movements : []);
+      let items = Array.isArray(data.data) ? data.data : [];
       if (!items.length) {
         list.innerHTML = `<div class="muted" style="padding:10px;">Aucun mouvement.</div>`;
         return;
       }
 
-      // ✅ tri récent en haut (au cas où l'API ne trie pas)
       items = items.slice().sort((a, b) => {
-        const ta = new Date(a.ts || a.createdAt || 0).getTime();
-        const tb = new Date(b.ts || b.createdAt || 0).getTime();
+        const ta = new Date(a.ts || 0).getTime();
+        const tb = new Date(b.ts || 0).getTime();
         return tb - ta;
       });
 
       list.innerHTML = items
         .map((m) => {
-          const when = formatDateTime(m.ts || m.createdAt);
-          const delta = Number(m.gramsDelta || 0);
+          const when = formatDateTime(m.ts);
+          const delta = Number(m.gramsDelta ?? 0);
           const sign = delta > 0 ? "+" : "";
           const source = m.source || "movement";
           const totalAfter = Number(m.totalAfter ?? NaN);
@@ -696,8 +747,8 @@
               Crée des catégories pour trier tes produits (ex: Fleurs, Résines, Gummies…).
             </div>
 
-            <div class="catalog-modal-row">
-              <input id="newCategoryName" placeholder="Nom de catégorie (ex: Fleurs)" />
+            <div style="display:flex; gap:10px; margin-top:12px; flex-wrap:wrap;">
+              <input id="newCategoryName" placeholder="Nom de catégorie (ex: Fleurs)" style="flex:1; min-width:220px;" />
               <button class="btn btn-primary btn-sm" id="btnAddCategory" type="button">Ajouter</button>
             </div>
 
@@ -727,6 +778,7 @@
           await loadCategories();
           await refreshStock();
           renderCategoriesList();
+          await refreshMovements();
         } catch (e) {
           log("❌ Erreur création catégorie: " + e.message, "error");
           alert("Erreur: " + e.message);
@@ -742,7 +794,10 @@
     const list = el("categoriesList");
     if (!list) return;
 
-    const sorted = categories.slice().sort((a, b) => String(a.name).localeCompare(String(b.name), "fr", { sensitivity: "base" }));
+    const sorted = categories.slice().sort((a, b) =>
+      String(a.name).localeCompare(String(b.name), "fr", { sensitivity: "base" })
+    );
+
     if (!sorted.length) {
       list.innerHTML = `<div class="muted" style="padding:10px;">Aucune catégorie</div>`;
       return;
@@ -790,6 +845,7 @@
           await loadCategories();
           await refreshStock();
           renderCategoriesList();
+          await refreshMovements();
         } catch (e) {
           log("❌ Erreur catégorie: " + e.message, "error");
           alert("Erreur: " + e.message);
@@ -813,11 +869,11 @@
               <button class="btn btn-close" type="button" id="btnCloseImport">✖</button>
             </div>
 
-            <div class="import-toolbar">
-              <input id="importQuery" placeholder="Rechercher un produit (ex: amnesia)" />
+            <div class="import-toolbar" style="display:flex;gap:10px;flex-wrap:wrap;">
+              <input id="importQuery" placeholder="Rechercher un produit (ex: amnesia)" style="flex:1;min-width:260px;" />
               <button class="btn btn-info btn-sm" id="btnSearchShopify" type="button">Rechercher</button>
 
-              <div class="field">
+              <div class="field" style="min-width:220px;">
                 <label>Catégorie (optionnel)</label>
                 <select id="importCategory">
                   <option value="">Aucune</option>
@@ -917,6 +973,7 @@
 
       log("✅ Produit importé", "success");
       await refreshStock();
+      await refreshMovements();
     } catch (e) {
       log("❌ Import échoué: " + e.message, "error");
       alert("Erreur: " + e.message);
@@ -925,13 +982,13 @@
 
   // ---------------- init ----------------
   window.addEventListener("load", async () => {
-    // Affichage pleine largeur via CSS si tu gères body.full-width
     document.body.classList.add("full-width");
 
     await getServerInfo();
     await loadCategories();
     ensureCatalogControls();
     await refreshStock();
+    await refreshMovements();
 
     // expose functions used by index.html buttons
     window.openProductModal = openProductModal;
@@ -939,5 +996,6 @@
     window.closeRestockModal = closeRestockModal;
     window.closeProductModal = closeProductModal;
     window.testOrder = testOrder;
+    window.refreshMovements = refreshMovements;
   });
 })();

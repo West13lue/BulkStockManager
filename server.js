@@ -445,7 +445,9 @@ app.get("/api/products/:productId/history", (req, res) => {
 app.get("/api/movements", (req, res) => {
   safeJson(res, () => {
     const limit = Math.min(Number(req.query.limit || 200), 2000);
-    const data = listMovements({ limit });
+    const days = Math.min(Math.max(Number(req.query.days || 7), 1), 365); // ✅ support app.js
+
+    const data = listMovements({ limit, days });
     res.json({ count: data.length, data });
   });
 });
@@ -453,7 +455,9 @@ app.get("/api/movements", (req, res) => {
 app.get("/api/movements.csv", (req, res) => {
   safeJson(res, () => {
     const limit = Math.min(Number(req.query.limit || 2000), 10000);
-    const data = listMovements({ limit });
+    const days = Math.min(Math.max(Number(req.query.days || 30), 1), 365); // (optionnel) filtre export
+
+    const data = listMovements({ limit, days });
     const csv = toCSV(data);
 
     res.setHeader("Content-Type", "text/csv; charset=utf-8");
@@ -468,6 +472,7 @@ app.delete("/api/movements", (req, res) => {
     res.json({ success: true });
   });
 });
+
 
 // ======== Export stock CSV ========
 app.get("/api/stock.csv", (req, res) => {
