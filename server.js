@@ -21,7 +21,7 @@ try {
 }
 
 // --- Shopify client (✅ par shop)
-const { getShopifyClient, normalizeShopDomain } = require("./shopifyClient");
+const { getShopifyClient, normalizeShopDomain, testShopifyConnection } = require("./shopifyClient");
 
 // --- Stock (source de vérité app)
 const stock = require("./stockManager");
@@ -43,9 +43,6 @@ try {
   };
 }
 
-// =====================================================
-// App + Paths
-// =====================================================
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -67,6 +64,14 @@ const INDEX_HTML = fileExists(path.join(PUBLIC_DIR, "index.html"))
 // =====================================================
 // Helpers
 // =====================================================
+
+// ✅ On n'autorise plus "default" => ça peut appeler default.myshopify.com => 403 garanti
+function resolveShopFallback() {
+  const envShopName = String(process.env.SHOP_NAME || "").trim();
+  const envShop = envShopName ? normalizeShopDomain(envShopName) : "";
+  return envShop;
+}
+
 function getShop(req) {
   const q = String(req.query?.shop || "").trim();
   if (q) return normalizeShopDomain(q);
@@ -74,10 +79,11 @@ function getShop(req) {
   const h = String(req.get("X-Shopify-Shop-Domain") || "").trim();
   if (h) return normalizeShopDomain(h);
 
-  const envShopName = String(process.env.SHOP_NAME || "").trim();
-  if (envShopName) return normalizeShopDomain(envShopName);
+  const envShop = resolveShopFallback();
+  if (envShop) return envShop;
 
-  return "default";
+  // pas de shop => on échoue proprement
+  return "";
 }
 
 function verifyShopifyWebhook(rawBodyBuffer, hmacHeader) {
@@ -91,19 +97,37 @@ function apiError(res, code, message, extra) {
   return res.status(code).json({ error: message, ...(extra ? { extra } : {}) });
 }
 
+function extractShopifyError(e) {
+  // shopify-api-node met souvent statusCode + response
+  const statusCode = e?.statusCode || e?.response?.statusCode;
+  const requestId = e?.response?.headers?.["x-request-id"] || e?.response?.headers?.["x-requestid"];
+  const retryAfter = e?.response?.headers?.["retry-after"];
+  const body = e?.response?.body;
+
+  return {
+    message: e?.message,
+    statusCode,
+    requestId,
+    retryAfter,
+    body: body && typeof body === "object" ? body : undefined,
+  };
+}
+
 function safeJson(res, fn) {
   try {
     const out = fn();
     if (out && typeof out.then === "function") {
       return out.catch((e) => {
-        logEvent("api_error", { message: e?.message }, "error");
-        return apiError(res, 500, e?.message || "Erreur serveur");
+        const info = extractShopifyError(e);
+        logEvent("api_error", info, "error");
+        return apiError(res, info.statusCode || 500, info.message || "Erreur serveur", info);
       });
     }
     return out;
   } catch (e) {
-    logEvent("api_error", { message: e?.message }, "error");
-    return apiError(res, 500, e?.message || "Erreur serveur");
+    const info = extractShopifyError(e);
+    logEvent("api_error", info, "error");
+    return apiError(res, info.statusCode || 500, info.message || "Erreur serveur", info);
   }
 }
 
@@ -118,7 +142,7 @@ function parseGramsFromVariant(v) {
   return null;
 }
 
-// ✅ Helper Shopify par shop (le point clé du 403)
+// ✅ Helper Shopify par shop
 function shopifyFor(shop) {
   return getShopifyClient(shop);
 }
@@ -129,7 +153,8 @@ function shopifyFor(shop) {
 const _cachedLocationIdByShop = new Map(); // shopKey -> locationId
 
 async function getLocationIdForShop(shop) {
-  const sh = String(shop || "default").trim().toLowerCase();
+  const sh = String(shop || "").trim().toLowerCase();
+  if (!sh) throw new Error("Shop introuvable (location)");
 
   if (_cachedLocationIdByShop.has(sh)) return _cachedLocationIdByShop.get(sh);
 
@@ -201,10 +226,6 @@ function findGramsPerUnitByInventoryItemId(productView, inventoryItemId) {
 // =====================================================
 const router = express.Router();
 
-// =========================
-// 1) MIDDLEWARES (router)
-// =========================
-
 // JSON API
 router.use("/api", express.json({ limit: "2mb" }));
 
@@ -230,12 +251,8 @@ router.use((req, res, next) => {
 
 router.get("/health", (req, res) => res.status(200).send("ok"));
 
-// =========================
 // ✅ STATIC (prefix-safe)
-// =========================
-if (fileExists(PUBLIC_DIR)) {
-  router.use(express.static(PUBLIC_DIR));
-}
+if (fileExists(PUBLIC_DIR)) router.use(express.static(PUBLIC_DIR));
 router.use(express.static(ROOT_DIR, { index: false }));
 
 router.get("/css/style.css", (req, res) => {
@@ -254,13 +271,45 @@ router.get("/js/app.js", (req, res) => {
   res.type("application/javascript").sendFile(target);
 });
 
-// =========================
-// 3) API (TOUJOURS JSON)
-// =========================
+// =====================================================
+// API
+// =====================================================
+
+// ✅ Debug Shopify: te dit EXACTEMENT quel shop est utilisé + teste shop.get + liste locations
+router.get("/api/debug/shopify", (req, res) => {
+  safeJson(res, async () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable. Passe ?shop=xxx.myshopify.com ou configure SHOP_NAME.");
+
+    const envShop = resolveShopFallback();
+    const client = shopifyFor(shop);
+
+    const conn = await testShopifyConnection(shop);
+    let locations = [];
+    try {
+      const locs = await client.location.list({ limit: 10 });
+      locations = (locs || []).map((l) => ({ id: Number(l.id), name: String(l.name || ""), active: !!l.active }));
+    } catch (e) {
+      // on ne bloque pas
+      logEvent("debug_locations_error", extractShopifyError(e), "error");
+    }
+
+    res.json({
+      ok: true,
+      resolvedShop: shop,
+      envShop,
+      hasToken: Boolean(String(process.env.SHOPIFY_ADMIN_TOKEN || "").trim()),
+      apiVersion: process.env.SHOPIFY_API_VERSION || "2025-10",
+      connection: conn,
+      locations,
+    });
+  });
+});
 
 router.get("/api/settings", (req, res) => {
   safeJson(res, () => {
     const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
     const settings = (settingsStore?.loadSettings && settingsStore.loadSettings(shop)) || {};
     res.json({ shop, settings });
   });
@@ -269,6 +318,7 @@ router.get("/api/settings", (req, res) => {
 router.get("/api/shopify/locations", (req, res) => {
   safeJson(res, async () => {
     const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
     const client = shopifyFor(shop);
 
     const locations = await client.location.list({ limit: 50 });
@@ -287,17 +337,15 @@ router.get("/api/shopify/locations", (req, res) => {
 router.post("/api/settings/location", (req, res) => {
   safeJson(res, () => {
     const shop = getShop(req);
-    const locationId = Number(req.body?.locationId);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
 
-    if (!Number.isFinite(locationId) || locationId <= 0) {
-      return apiError(res, 400, "locationId invalide");
-    }
+    const locationId = Number(req.body?.locationId);
+    if (!Number.isFinite(locationId) || locationId <= 0) return apiError(res, 400, "locationId invalide");
 
     const saved =
       (settingsStore?.setLocationId && settingsStore.setLocationId(shop, locationId)) || { locationId };
 
-    _cachedLocationIdByShop.delete(String(shop || "default").trim().toLowerCase());
-
+    _cachedLocationIdByShop.delete(String(shop).trim().toLowerCase());
     res.json({ success: true, shop, settings: saved });
   });
 });
@@ -305,8 +353,9 @@ router.post("/api/settings/location", (req, res) => {
 router.get("/api/server-info", (req, res) => {
   safeJson(res, () => {
     const shop = getShop(req);
-    const snap = stock.getCatalogSnapshot ? stock.getCatalogSnapshot(shop) : { products: [], categories: [] };
+    if (!shop) return apiError(res, 400, "Shop introuvable");
 
+    const snap = stock.getCatalogSnapshot ? stock.getCatalogSnapshot(shop) : { products: [], categories: [] };
     res.json({
       mode: process.env.NODE_ENV || "development",
       port: PORT,
@@ -320,10 +369,11 @@ router.get("/api/server-info", (req, res) => {
 router.get("/api/stock", (req, res) => {
   safeJson(res, () => {
     const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+
     const { sort = "alpha", category = "" } = req.query;
 
     const snapshot = stock.getCatalogSnapshot ? stock.getCatalogSnapshot(shop) : { products: [], categories: [] };
-
     const categories = catalogStore.listCategories ? catalogStore.listCategories(shop) : [];
     let products = Array.isArray(snapshot.products) ? snapshot.products.slice() : [];
 
@@ -341,32 +391,10 @@ router.get("/api/stock", (req, res) => {
   });
 });
 
-router.get("/api/stock.csv", (req, res) => {
-  safeJson(res, () => {
-    const shop = getShop(req);
-    const snapshot = stock.getCatalogSnapshot ? stock.getCatalogSnapshot(shop) : { products: [], categories: [] };
-    const products = Array.isArray(snapshot.products) ? snapshot.products : [];
-
-    const header = ["productId", "name", "totalGrams", "categoryIds"].join(",");
-    const lines = products.map((p) => {
-      const cat = Array.isArray(p.categoryIds) ? p.categoryIds.join("|") : "";
-      const esc = (v) => {
-        const s = v === null || v === undefined ? "" : String(v);
-        return /[,"\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-      };
-      return [esc(p.productId), esc(p.name), esc(p.totalGrams), esc(cat)].join(",");
-    });
-
-    res.setHeader("Content-Type", "text/csv; charset=utf-8");
-    res.setHeader("Content-Disposition", 'attachment; filename="stock.csv"');
-    res.send([header, ...lines].join("\n"));
-  });
-});
-
-// ---- Catégories
 router.get("/api/categories", (req, res) => {
   safeJson(res, () => {
     const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
     const categories = catalogStore.listCategories ? catalogStore.listCategories(shop) : [];
     res.json({ categories });
   });
@@ -375,11 +403,12 @@ router.get("/api/categories", (req, res) => {
 router.post("/api/categories", (req, res) => {
   safeJson(res, () => {
     const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+
     const name = String(req.body?.name ?? req.body?.categoryName ?? "").trim();
     if (!name) return apiError(res, 400, "Nom de catégorie invalide");
 
     const created = catalogStore.createCategory(shop, name);
-
     if (movementStore.addMovement) {
       movementStore.addMovement(
         { source: "category_create", gramsDelta: 0, meta: { categoryId: created.id, name: created.name }, shop },
@@ -394,12 +423,13 @@ router.post("/api/categories", (req, res) => {
 router.put("/api/categories/:id", (req, res) => {
   safeJson(res, () => {
     const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+
     const id = String(req.params.id);
     const name = String(req.body?.name || "").trim();
     if (!name) return apiError(res, 400, "Nom invalide");
 
     const updated = catalogStore.renameCategory(shop, id, name);
-
     if (movementStore.addMovement) {
       movementStore.addMovement(
         { source: "category_rename", gramsDelta: 0, meta: { categoryId: id, name }, shop },
@@ -414,8 +444,9 @@ router.put("/api/categories/:id", (req, res) => {
 router.delete("/api/categories/:id", (req, res) => {
   safeJson(res, () => {
     const shop = getShop(req);
-    const id = String(req.params.id);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
 
+    const id = String(req.params.id);
     catalogStore.deleteCategory(shop, id);
 
     if (movementStore.addMovement) {
@@ -426,10 +457,11 @@ router.delete("/api/categories/:id", (req, res) => {
   });
 });
 
-// ---- Mouvements
 router.get("/api/movements", (req, res) => {
   safeJson(res, () => {
     const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+
     const limit = Math.min(Number(req.query.limit || 200), 2000);
     const days = Math.min(Math.max(Number(req.query.days || 7), 1), 365);
 
@@ -438,122 +470,10 @@ router.get("/api/movements", (req, res) => {
   });
 });
 
-router.get("/api/movements.csv", (req, res) => {
-  safeJson(res, () => {
-    const shop = getShop(req);
-    const limit = Math.min(Number(req.query.limit || 2000), 10000);
-    const days = Math.min(Math.max(Number(req.query.days || 30), 1), 365);
-
-    const rows = movementStore.listMovements ? movementStore.listMovements({ shop, days, limit }) : [];
-    const csv = movementStore.toCSV ? movementStore.toCSV(rows) : "ts,source,productId\n";
-
-    res.setHeader("Content-Type", "text/csv; charset=utf-8");
-    res.setHeader("Content-Disposition", 'attachment; filename="stock-movements.csv"');
-    res.send(csv);
-  });
-});
-
-router.get("/api/products/:productId/history", (req, res) => {
-  safeJson(res, () => {
-    const shop = getShop(req);
-    const productId = String(req.params.productId || "");
-    const limit = Math.min(Number(req.query.limit || 200), 2000);
-
-    if (!productId) return apiError(res, 400, "productId manquant");
-
-    const rows = movementStore.listMovements ? movementStore.listMovements({ shop, days: 365, limit: 10000 }) : [];
-    const filtered = (rows || []).filter((m) => String(m.productId || "") === productId).slice(0, limit);
-    return res.json({ data: filtered });
-  });
-});
-
-router.post("/api/products/:productId/adjust-total", (req, res) => {
-  safeJson(res, async () => {
-    const shop = getShop(req);
-    const productId = String(req.params.productId);
-    const gramsDelta = Number(req.body?.gramsDelta);
-
-    if (!Number.isFinite(gramsDelta) || gramsDelta === 0) {
-      return apiError(res, 400, "gramsDelta invalide (ex: 50 ou -50)");
-    }
-    if (typeof stock.restockProduct !== "function") {
-      return apiError(res, 500, "stock.restockProduct introuvable");
-    }
-
-    const updated = await stock.restockProduct(shop, productId, gramsDelta);
-    if (!updated) return apiError(res, 404, "Produit introuvable");
-
-    try {
-      await pushProductInventoryToShopify(shop, updated);
-    } catch (e) {
-      logEvent("inventory_push_error", { shop, productId, message: e?.message }, "error");
-    }
-
-    if (movementStore.addMovement) {
-      movementStore.addMovement(
-        {
-          source: "adjust_total",
-          productId,
-          productName: updated.name,
-          gramsDelta,
-          totalAfter: updated.totalGrams,
-          shop,
-        },
-        shop
-      );
-    }
-
-    res.json({ success: true, product: updated });
-  });
-});
-
-router.post("/api/products/:productId/categories", (req, res) => {
-  safeJson(res, () => {
-    const shop = getShop(req);
-    const productId = String(req.params.productId);
-    const categoryIds = Array.isArray(req.body?.categoryIds) ? req.body.categoryIds.map(String) : [];
-
-    if (typeof stock.setProductCategories !== "function") {
-      return apiError(res, 500, "stock.setProductCategories introuvable");
-    }
-
-    const ok = stock.setProductCategories(shop, productId, categoryIds);
-    if (!ok) return apiError(res, 404, "Produit introuvable (non configuré)");
-
-    if (movementStore.addMovement) {
-      movementStore.addMovement(
-        { source: "product_set_categories", productId, gramsDelta: 0, meta: { categoryIds }, shop },
-        shop
-      );
-    }
-
-    res.json({ success: true, productId, categoryIds });
-  });
-});
-
-router.delete("/api/products/:productId", (req, res) => {
-  safeJson(res, () => {
-    const shop = getShop(req);
-    const productId = String(req.params.productId);
-
-    if (typeof stock.removeProduct !== "function") {
-      return apiError(res, 500, "stock.removeProduct introuvable");
-    }
-
-    const ok = stock.removeProduct(shop, productId);
-    if (!ok) return apiError(res, 404, "Produit introuvable");
-
-    if (movementStore.addMovement) {
-      movementStore.addMovement({ source: "product_deleted", productId, gramsDelta: 0, shop }, shop);
-    }
-
-    res.json({ success: true });
-  });
-});
-
 router.get("/api/shopify/products", (req, res) => {
   safeJson(res, async () => {
     const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
     const client = shopifyFor(shop);
 
     const limit = Math.min(Number(req.query.limit || 50), 250);
@@ -576,11 +496,11 @@ router.get("/api/shopify/products", (req, res) => {
 router.post("/api/import/product", (req, res) => {
   safeJson(res, async () => {
     const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
     const client = shopifyFor(shop);
 
     const productId = req.body?.productId ?? req.body?.id;
     const categoryIds = Array.isArray(req.body?.categoryIds) ? req.body.categoryIds : [];
-
     if (!productId) return apiError(res, 400, "productId manquant");
 
     const p = await client.product.get(Number(productId));
@@ -590,17 +510,12 @@ router.post("/api/import/product", (req, res) => {
     for (const v of p.variants || []) {
       const grams = parseGramsFromVariant(v);
       if (!grams) continue;
-
-      variants[String(grams)] = {
-        gramsPerUnit: grams,
-        inventoryItemId: Number(v.inventory_item_id),
-      };
+      variants[String(grams)] = { gramsPerUnit: grams, inventoryItemId: Number(v.inventory_item_id) };
     }
 
     if (!Object.keys(variants).length) {
       return apiError(res, 400, "Aucune variante avec grammage détecté (option/title/sku).");
     }
-
     if (typeof stock.upsertImportedProductConfig !== "function") {
       return apiError(res, 500, "stock.upsertImportedProductConfig introuvable");
     }
@@ -612,11 +527,7 @@ router.post("/api/import/product", (req, res) => {
       categoryIds,
     });
 
-    try {
-      await pushProductInventoryToShopify(shop, imported);
-    } catch (e) {
-      logEvent("inventory_push_error", { shop, productId: String(p.id), message: e?.message }, "error");
-    }
+    await pushProductInventoryToShopify(shop, imported);
 
     if (movementStore.addMovement) {
       movementStore.addMovement(
@@ -636,66 +547,25 @@ router.post("/api/import/product", (req, res) => {
   });
 });
 
-router.post("/api/test-order", (req, res) => {
-  safeJson(res, async () => {
-    const shop = getShop(req);
-    const grams = Number(req.body?.grams || 10);
-    let productId = String(req.body?.productId || "");
-
-    if (!productId) {
-      const snap = stock.getCatalogSnapshot ? stock.getCatalogSnapshot(shop) : { products: [] };
-      const first = Array.isArray(snap.products) ? snap.products[0] : null;
-      if (!first?.productId) return apiError(res, 400, "Aucun produit configuré pour test");
-      productId = String(first.productId);
-    }
-
-    if (!Number.isFinite(grams) || grams <= 0) return apiError(res, 400, "grams invalide");
-
-    const updated = await stock.applyOrderToProduct(shop, productId, grams);
-    if (!updated) return apiError(res, 404, "Produit introuvable");
-
-    try {
-      await pushProductInventoryToShopify(shop, updated);
-    } catch (e) {
-      logEvent("inventory_push_error", { shop, productId, message: e?.message }, "error");
-    }
-
-    if (movementStore.addMovement) {
-      movementStore.addMovement(
-        {
-          source: "test_order",
-          productId,
-          productName: updated.name,
-          gramsDelta: -Math.abs(grams),
-          totalAfter: updated.totalGrams,
-          shop,
-        },
-        shop
-      );
-    }
-
-    res.json({ success: true, tested: { productId, grams }, product: updated });
-  });
-});
-
+// ✅ JSON 404
 router.use("/api", (req, res) => apiError(res, 404, "Route API non trouvée"));
 
+// ✅ handler erreurs => JSON
 router.use((err, req, res, next) => {
   if (req.path.startsWith("/api")) {
-    logEvent("api_uncaught_error", { message: err?.message }, "error");
+    logEvent("api_uncaught_error", extractShopifyError(err), "error");
     return apiError(res, 500, "Erreur serveur API");
   }
   next(err);
 });
 
-// =========================
-// 4) FRONT (prefix-safe)
-// =========================
+// FRONT
 router.get("/", (req, res) => res.sendFile(INDEX_HTML));
 router.get(/^\/(?!api\/|webhooks\/|health|css\/|js\/).*/, (req, res) => res.sendFile(INDEX_HTML));
 
 // =====================================================
 // WEBHOOKS (RAW BODY) — à la racine
+// ✅ On utilise PRIORITAIREMENT le header "X-Shopify-Shop-Domain"
 // =====================================================
 app.post("/webhooks/orders/create", express.raw({ type: "application/json" }), async (req, res) => {
   try {
@@ -705,10 +575,15 @@ app.post("/webhooks/orders/create", express.raw({ type: "application/json" }), a
       if (!hmac || !verifyShopifyWebhook(req.body, hmac)) return res.sendStatus(401);
     }
 
+    const headerShop = String(req.get("X-Shopify-Shop-Domain") || "").trim();
     const payload = JSON.parse(req.body.toString("utf8") || "{}");
-    const shop = normalizeShopDomain(
-      String(payload?.myshopify_domain || payload?.domain || payload?.shop_domain || "").trim().toLowerCase()
-    ) || "default";
+    const payloadShop = String(payload?.myshopify_domain || payload?.domain || payload?.shop_domain || "").trim();
+
+    const shop = normalizeShopDomain(headerShop || payloadShop || resolveShopFallback());
+    if (!shop) {
+      logEvent("webhook_no_shop", { headerShop, payloadShop }, "error");
+      return res.sendStatus(200);
+    }
 
     const lineItems = Array.isArray(payload?.line_items) ? payload.line_items : [];
     if (!lineItems.length) return res.sendStatus(200);
@@ -735,11 +610,7 @@ app.post("/webhooks/orders/create", express.raw({ type: "application/json" }), a
 
       const updated = await stock.applyOrderToProduct(shop, productId, gramsToSubtract);
       if (updated) {
-        try {
-          await pushProductInventoryToShopify(shop, updated);
-        } catch (e) {
-          logEvent("inventory_push_error", { shop, productId, message: e?.message }, "error");
-        }
+        await pushProductInventoryToShopify(shop, updated);
 
         if (movementStore.addMovement) {
           movementStore.addMovement(
@@ -759,18 +630,15 @@ app.post("/webhooks/orders/create", express.raw({ type: "application/json" }), a
 
     return res.sendStatus(200);
   } catch (e) {
-    logEvent("webhook_error", { message: e.message }, "error");
+    logEvent("webhook_error", extractShopifyError(e), "error");
     return res.sendStatus(500);
   }
 });
 
-// =====================================================
 // Mount router sur / et sur /apps/:appSlug
-// =====================================================
 app.use("/", router);
 app.use("/apps/:appSlug", router);
 
-// =====================================================
 app.listen(PORT, "0.0.0.0", () => {
   logEvent("server_started", { port: PORT, indexHtml: INDEX_HTML });
   console.log("✅ Server running on port", PORT);

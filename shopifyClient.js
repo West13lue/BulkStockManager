@@ -9,7 +9,13 @@ function normalizeShopDomain(shop) {
   if (!raw) return "";
 
   // enlève protocole si jamais
-  const noProto = raw.replace(/^https?:\/\//i, "").trim();
+  let noProto = raw.replace(/^https?:\/\//i, "").trim();
+
+  // enlève path éventuel (ex: xxx.myshopify.com/admin)
+  noProto = noProto.split("/")[0].trim();
+
+  // enlève espaces / trailing dots
+  noProto = noProto.replace(/\.+$/, "").trim();
 
   // si déjà en .myshopify.com => ok
   if (noProto.includes(".myshopify.com")) return noProto;
@@ -18,9 +24,13 @@ function normalizeShopDomain(shop) {
   return `${noProto}.myshopify.com`;
 }
 
+function getAdminToken() {
+  return String(process.env.SHOPIFY_ADMIN_TOKEN || "").trim();
+}
+
 function createShopifyClient(shopDomain, accessToken) {
   return new Shopify({
-    shopName: shopDomain, // accepte "xxx.myshopify.com"
+    shopName: shopDomain, // "xxx.myshopify.com" (sans https)
     accessToken,
     apiVersion: process.env.SHOPIFY_API_VERSION || "2025-10",
   });
@@ -32,7 +42,7 @@ function createShopifyClient(shopDomain, accessToken) {
  * sinon fallback sur SHOP_NAME.
  */
 function getShopifyClient(shop) {
-  const token = process.env.SHOPIFY_ADMIN_TOKEN;
+  const token = getAdminToken();
 
   // SHOP_NAME peut être "xxx" ou "xxx.myshopify.com"
   const envShop = normalizeShopDomain(process.env.SHOP_NAME || "");
@@ -42,8 +52,11 @@ function getShopifyClient(shop) {
 
   const shopDomain = reqShop || envShop;
 
-  if (!shopDomain || !token) {
-    throw new Error("SHOP_NAME/SHOPIFY_ADMIN_TOKEN manquant, ou shop introuvable");
+  if (!shopDomain) {
+    throw new Error("SHOP_NAME manquant, ou shop introuvable");
+  }
+  if (!token) {
+    throw new Error("SHOPIFY_ADMIN_TOKEN manquant");
   }
 
   const key = shopDomain.toLowerCase();
@@ -78,10 +91,25 @@ async function fetchProduct(shop, productId) {
   return client.product.get(Number(productId));
 }
 
+/**
+ * ✅ Debug connexion
+ */
+async function testShopifyConnection(shop) {
+  const client = getShopifyClient(shop);
+  const shopInfo = await client.shop.get();
+  return {
+    ok: true,
+    shop: String(shopInfo?.myshopify_domain || shopInfo?.domain || ""),
+    name: String(shopInfo?.name || ""),
+    plan: String(shopInfo?.plan_name || ""),
+  };
+}
+
 module.exports = {
   createShopifyClient,
   getShopifyClient,
   searchProducts,
   fetchProduct,
   normalizeShopDomain,
+  testShopifyConnection,
 };
