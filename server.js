@@ -20,9 +20,8 @@ try {
   } catch {}
 }
 
-// --- Shopify
-const { getShopifyClient } = require("./shopifyClient");
-const shopify = getShopifyClient();
+// --- Shopify client (✅ par shop)
+const { getShopifyClient, normalizeShopDomain } = require("./shopifyClient");
 
 // --- Stock (source de vérité app)
 const stock = require("./stockManager");
@@ -38,7 +37,6 @@ let settingsStore = null;
 try {
   settingsStore = require("./settingsStore");
 } catch (e) {
-  // Optionnel: si pas présent, on ne bloque pas l’app
   settingsStore = {
     loadSettings: () => ({}),
     setLocationId: (_shop, locationId) => ({ locationId }),
@@ -71,14 +69,13 @@ const INDEX_HTML = fileExists(path.join(PUBLIC_DIR, "index.html"))
 // =====================================================
 function getShop(req) {
   const q = String(req.query?.shop || "").trim();
-  if (q) return q;
+  if (q) return normalizeShopDomain(q);
 
   const h = String(req.get("X-Shopify-Shop-Domain") || "").trim();
-  if (h) return h;
+  if (h) return normalizeShopDomain(h);
 
   const envShopName = String(process.env.SHOP_NAME || "").trim();
-  if (envShopName && envShopName.includes(".myshopify.com")) return envShopName;
-  if (envShopName) return `${envShopName}.myshopify.com`;
+  if (envShopName) return normalizeShopDomain(envShopName);
 
   return "default";
 }
@@ -121,6 +118,11 @@ function parseGramsFromVariant(v) {
   return null;
 }
 
+// ✅ Helper Shopify par shop (le point clé du 403)
+function shopifyFor(shop) {
+  return getShopifyClient(shop);
+}
+
 // =====================================================
 // Shopify inventory sync (Option 2B)
 // =====================================================
@@ -152,7 +154,8 @@ async function getLocationIdForShop(shop) {
   }
 
   // 3) fallback: première location Shopify
-  const locations = await shopify.location.list({ limit: 10 });
+  const client = shopifyFor(shop);
+  const locations = await client.location.list({ limit: 10 });
   const first = Array.isArray(locations) ? locations[0] : null;
   if (!first?.id) throw new Error("Aucune location Shopify trouvée (location.list)");
 
@@ -164,6 +167,7 @@ async function getLocationIdForShop(shop) {
 async function pushProductInventoryToShopify(shop, productView) {
   if (!productView?.variants) return;
 
+  const client = shopifyFor(shop);
   const locationId = await getLocationIdForShop(shop);
 
   for (const [, v] of Object.entries(productView.variants)) {
@@ -171,7 +175,7 @@ async function pushProductInventoryToShopify(shop, productView) {
     const unitsAvailable = Math.max(0, Number(v.canSell || 0));
     if (!inventoryItemId) continue;
 
-    await shopify.inventoryLevel.set({
+    await client.inventoryLevel.set({
       location_id: locationId,
       inventory_item_id: inventoryItemId,
       available: unitsAvailable,
@@ -194,10 +198,6 @@ function findGramsPerUnitByInventoryItemId(productView, inventoryItemId) {
 
 // =====================================================
 // ROUTER “prefix-safe”
-// - On le monte à:
-//   1) "/" (normal)
-//   2) "/apps/:appSlug" (Shopify Admin /apps/...)
-// Ainsi: /apps/<slug>/api/... /apps/<slug>/css/... fonctionnent.
 // =====================================================
 const router = express.Router();
 
@@ -223,12 +223,7 @@ router.use((req, res, next) => {
 // CSP Shopify iframe
 router.use((req, res, next) => {
   const envShopName = String(process.env.SHOP_NAME || "").trim();
-  const shopDomain = envShopName
-    ? envShopName.includes(".myshopify.com")
-      ? `https://${envShopName}`
-      : `https://${envShopName}.myshopify.com`
-    : "*";
-
+  const shopDomain = envShopName ? `https://${normalizeShopDomain(envShopName)}` : "*";
   res.setHeader("Content-Security-Policy", `frame-ancestors https://admin.shopify.com ${shopDomain};`);
   next();
 });
@@ -241,10 +236,8 @@ router.get("/health", (req, res) => res.status(200).send("ok"));
 if (fileExists(PUBLIC_DIR)) {
   router.use(express.static(PUBLIC_DIR));
 }
-// Sert aussi les fichiers racine si besoin (index:false)
 router.use(express.static(ROOT_DIR, { index: false }));
 
-// Alias CSS : /css/style.css -> (public/css/style.css) ou (root/style.css)
 router.get("/css/style.css", (req, res) => {
   const p1 = path.join(PUBLIC_DIR, "css", "style.css");
   const p2 = path.join(ROOT_DIR, "style.css");
@@ -253,7 +246,6 @@ router.get("/css/style.css", (req, res) => {
   res.type("text/css").sendFile(target);
 });
 
-// Alias JS : /js/app.js -> (public/js/app.js) ou (root/app.js)
 router.get("/js/app.js", (req, res) => {
   const p1 = path.join(PUBLIC_DIR, "js", "app.js");
   const p2 = path.join(ROOT_DIR, "app.js");
@@ -266,7 +258,6 @@ router.get("/js/app.js", (req, res) => {
 // 3) API (TOUJOURS JSON)
 // =========================
 
-// ---- Settings (Option 2B)
 router.get("/api/settings", (req, res) => {
   safeJson(res, () => {
     const shop = getShop(req);
@@ -275,10 +266,12 @@ router.get("/api/settings", (req, res) => {
   });
 });
 
-// ---- Lister les locations Shopify
 router.get("/api/shopify/locations", (req, res) => {
   safeJson(res, async () => {
-    const locations = await shopify.location.list({ limit: 50 });
+    const shop = getShop(req);
+    const client = shopifyFor(shop);
+
+    const locations = await client.location.list({ limit: 50 });
     const out = (locations || []).map((l) => ({
       id: Number(l.id),
       name: String(l.name || ""),
@@ -291,7 +284,6 @@ router.get("/api/shopify/locations", (req, res) => {
   });
 });
 
-// ---- Enregistrer locationId par shop
 router.post("/api/settings/location", (req, res) => {
   safeJson(res, () => {
     const shop = getShop(req);
@@ -325,7 +317,6 @@ router.get("/api/server-info", (req, res) => {
   });
 });
 
-// ---- Stock
 router.get("/api/stock", (req, res) => {
   safeJson(res, () => {
     const shop = getShop(req);
@@ -350,7 +341,6 @@ router.get("/api/stock", (req, res) => {
   });
 });
 
-// ---- Export stock CSV
 router.get("/api/stock.csv", (req, res) => {
   safeJson(res, () => {
     const shop = getShop(req);
@@ -463,7 +453,6 @@ router.get("/api/movements.csv", (req, res) => {
   });
 });
 
-// ---- Historique d’un produit
 router.get("/api/products/:productId/history", (req, res) => {
   safeJson(res, () => {
     const shop = getShop(req);
@@ -478,7 +467,6 @@ router.get("/api/products/:productId/history", (req, res) => {
   });
 });
 
-// ---- Ajuster total
 router.post("/api/products/:productId/adjust-total", (req, res) => {
   safeJson(res, async () => {
     const shop = getShop(req);
@@ -519,7 +507,6 @@ router.post("/api/products/:productId/adjust-total", (req, res) => {
   });
 });
 
-// ---- Assigner catégories produit
 router.post("/api/products/:productId/categories", (req, res) => {
   safeJson(res, () => {
     const shop = getShop(req);
@@ -544,7 +531,6 @@ router.post("/api/products/:productId/categories", (req, res) => {
   });
 });
 
-// ---- Supprimer un produit côté app
 router.delete("/api/products/:productId", (req, res) => {
   safeJson(res, () => {
     const shop = getShop(req);
@@ -565,13 +551,15 @@ router.delete("/api/products/:productId", (req, res) => {
   });
 });
 
-// ---- Shopify : lister produits
 router.get("/api/shopify/products", (req, res) => {
   safeJson(res, async () => {
+    const shop = getShop(req);
+    const client = shopifyFor(shop);
+
     const limit = Math.min(Number(req.query.limit || 50), 250);
     const q = String(req.query.query || "").trim().toLowerCase();
 
-    const products = await shopify.product.list({ limit });
+    const products = await client.product.list({ limit });
     let out = (products || []).map((p) => ({
       id: String(p.id),
       title: String(p.title || ""),
@@ -585,17 +573,17 @@ router.get("/api/shopify/products", (req, res) => {
   });
 });
 
-// ---- Import 1 produit Shopify
 router.post("/api/import/product", (req, res) => {
   safeJson(res, async () => {
     const shop = getShop(req);
+    const client = shopifyFor(shop);
 
     const productId = req.body?.productId ?? req.body?.id;
     const categoryIds = Array.isArray(req.body?.categoryIds) ? req.body.categoryIds : [];
 
     if (!productId) return apiError(res, 400, "productId manquant");
 
-    const p = await shopify.product.get(Number(productId));
+    const p = await client.product.get(Number(productId));
     if (!p?.id) return apiError(res, 404, "Produit Shopify introuvable");
 
     const variants = {};
@@ -648,7 +636,6 @@ router.post("/api/import/product", (req, res) => {
   });
 });
 
-// ---- TEST ORDER
 router.post("/api/test-order", (req, res) => {
   safeJson(res, async () => {
     const shop = getShop(req);
@@ -691,10 +678,8 @@ router.post("/api/test-order", (req, res) => {
   });
 });
 
-// ✅ si une route /api n’existe pas => JSON 404
 router.use("/api", (req, res) => apiError(res, 404, "Route API non trouvée"));
 
-// ✅ handler erreurs => JSON
 router.use((err, req, res, next) => {
   if (req.path.startsWith("/api")) {
     logEvent("api_uncaught_error", { message: err?.message }, "error");
@@ -707,12 +692,10 @@ router.use((err, req, res, next) => {
 // 4) FRONT (prefix-safe)
 // =========================
 router.get("/", (req, res) => res.sendFile(INDEX_HTML));
-
-// Catch-all SPA : EXCLUT /api et /webhooks et /health et /css et /js
 router.get(/^\/(?!api\/|webhooks\/|health|css\/|js\/).*/, (req, res) => res.sendFile(INDEX_HTML));
 
 // =====================================================
-// WEBHOOKS (RAW BODY) — à la racine (Shopify appelle ton domaine)
+// WEBHOOKS (RAW BODY) — à la racine
 // =====================================================
 app.post("/webhooks/orders/create", express.raw({ type: "application/json" }), async (req, res) => {
   try {
@@ -723,12 +706,14 @@ app.post("/webhooks/orders/create", express.raw({ type: "application/json" }), a
     }
 
     const payload = JSON.parse(req.body.toString("utf8") || "{}");
-    const shop =
-      String(payload?.myshopify_domain || payload?.domain || payload?.shop_domain || "").trim().toLowerCase() ||
-      "default";
+    const shop = normalizeShopDomain(
+      String(payload?.myshopify_domain || payload?.domain || payload?.shop_domain || "").trim().toLowerCase()
+    ) || "default";
 
     const lineItems = Array.isArray(payload?.line_items) ? payload.line_items : [];
     if (!lineItems.length) return res.sendStatus(200);
+
+    const client = shopifyFor(shop);
 
     for (const li of lineItems) {
       const productId = String(li?.product_id || "");
@@ -739,7 +724,7 @@ app.post("/webhooks/orders/create", express.raw({ type: "application/json" }), a
       const currentSnap = stock.getStockSnapshot ? stock.getStockSnapshot(shop)?.[productId] : null;
       if (!currentSnap) continue;
 
-      const variant = await shopify.productVariant.get(variantId);
+      const variant = await client.productVariant.get(variantId);
       const inventoryItemId = Number(variant?.inventory_item_id || 0);
       if (!inventoryItemId) continue;
 
