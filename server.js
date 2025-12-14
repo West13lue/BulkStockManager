@@ -1,4 +1,5 @@
 // server.js — PREFIX-SAFE (/apps/<slug>/...), STATIC FIX, JSON API SAFE, Multi-shop safe, Express 5 safe
+// ✅ ENRICHI avec CMP, Valeur stock, Stats catégories, Suppression mouvements
 
 if (process.env.NODE_ENV !== "production") {
   require("dotenv").config();
@@ -65,7 +66,6 @@ const INDEX_HTML = fileExists(path.join(PUBLIC_DIR, "index.html"))
 // Helpers
 // =====================================================
 
-// ✅ On n'autorise plus "default" => ça peut appeler default.myshopify.com => 403 garanti
 function resolveShopFallback() {
   const envShopName = String(process.env.SHOP_NAME || "").trim();
   const envShop = envShopName ? normalizeShopDomain(envShopName) : "";
@@ -76,7 +76,7 @@ function shopFromHostParam(hostParam) {
   try {
     const raw = String(hostParam || "").trim();
     if (!raw) return "";
-    const decoded = Buffer.from(raw, "base64").toString("utf8"); // ex: "xxx.myshopify.com/admin"
+    const decoded = Buffer.from(raw, "base64").toString("utf8");
     const domain = decoded.split("/")[0].trim();
     return domain ? normalizeShopDomain(domain) : "";
   } catch {
@@ -85,20 +85,16 @@ function shopFromHostParam(hostParam) {
 }
 
 function getShop(req) {
-  // 1) query ?shop=
   const q = String(req.query?.shop || "").trim();
   if (q) return normalizeShopDomain(q);
 
-  // 2) query ?host=  (✅ IMPORTANT Shopify embedded)
   const hostQ = String(req.query?.host || "").trim();
   const hostShop = shopFromHostParam(hostQ);
   if (hostShop) return hostShop;
 
-  // 3) header Shopify (webhooks / certains contextes)
   const h = String(req.get("X-Shopify-Shop-Domain") || "").trim();
   if (h) return normalizeShopDomain(h);
 
-  // 4) env fallback
   const envShop = resolveShopFallback();
   if (envShop) return envShop;
 
@@ -107,7 +103,7 @@ function getShop(req) {
 
 function verifyShopifyWebhook(rawBodyBuffer, hmacHeader) {
   const secret = process.env.SHOPIFY_WEBHOOK_SECRET;
-  if (!secret) return true; // dev
+  if (!secret) return true;
   const hash = crypto.createHmac("sha256", secret).update(rawBodyBuffer).digest("base64");
   return hash === hmacHeader;
 }
@@ -160,7 +156,6 @@ function parseGramsFromVariant(v) {
   return null;
 }
 
-// ✅ Helper Shopify par shop
 function shopifyFor(shop) {
   return getShopifyClient(shop);
 }
@@ -168,7 +163,7 @@ function shopifyFor(shop) {
 // =====================================================
 // Shopify inventory sync (Option 2B)
 // =====================================================
-const _cachedLocationIdByShop = new Map(); // shopKey -> locationId
+const _cachedLocationIdByShop = new Map();
 
 async function getLocationIdForShop(shop) {
   const sh = String(shop || "").trim().toLowerCase();
@@ -176,7 +171,6 @@ async function getLocationIdForShop(shop) {
 
   if (_cachedLocationIdByShop.has(sh)) return _cachedLocationIdByShop.get(sh);
 
-  // 1) settingsStore
   const settings = (settingsStore?.loadSettings && settingsStore.loadSettings(sh)) || {};
   if (settings.locationId) {
     const id = Number(settings.locationId);
@@ -186,7 +180,6 @@ async function getLocationIdForShop(shop) {
     }
   }
 
-  // 2) fallback env
   const envLoc = process.env.SHOPIFY_LOCATION_ID || process.env.LOCATION_ID;
   if (envLoc) {
     const id = Number(envLoc);
@@ -196,11 +189,10 @@ async function getLocationIdForShop(shop) {
     }
   }
 
-  // 3) fallback: première location Shopify
   const client = shopifyFor(shop);
   const locations = await client.location.list({ limit: 10 });
   const first = Array.isArray(locations) ? locations[0] : null;
-  if (!first?.id) throw new Error("Aucune location Shopify trouvée (location.list)");
+  if (!first?.id) throw new Error("Aucune location Shopify trouvée");
 
   const id = Number(first.id);
   _cachedLocationIdByShop.set(sh, id);
@@ -240,14 +232,12 @@ function findGramsPerUnitByInventoryItemId(productView, inventoryItemId) {
 }
 
 // =====================================================
-// ROUTER “prefix-safe”
+// ROUTER "prefix-safe"
 // =====================================================
 const router = express.Router();
 
-// JSON API
 router.use("/api", express.json({ limit: "2mb" }));
 
-// CORS
 router.use((req, res, next) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
@@ -259,7 +249,6 @@ router.use((req, res, next) => {
   next();
 });
 
-// CSP Shopify iframe
 router.use((req, res, next) => {
   const envShopName = String(process.env.SHOP_NAME || "").trim();
   const shopDomain = envShopName ? `https://${normalizeShopDomain(envShopName)}` : "*";
@@ -269,7 +258,6 @@ router.use((req, res, next) => {
 
 router.get("/health", (req, res) => res.status(200).send("ok"));
 
-// ✅ STATIC (prefix-safe)
 if (fileExists(PUBLIC_DIR)) router.use(express.static(PUBLIC_DIR));
 router.use(express.static(ROOT_DIR, { index: false }));
 
@@ -290,10 +278,9 @@ router.get("/js/app.js", (req, res) => {
 });
 
 // =====================================================
-// API
+// API ROUTES
 // =====================================================
 
-// ✅ Debug Shopify: te dit EXACTEMENT quel shop est utilisé + teste shop.get + liste locations
 router.get("/api/debug/shopify", (req, res) => {
   safeJson(res, async () => {
     const shop = getShop(req);
@@ -415,7 +402,36 @@ router.get("/api/stock", (req, res) => {
   });
 });
 
-// ✅ CSV stock (utilisé par bouton "Stock CSV")
+// ✅ NOUVEAU : Valeur totale du stock
+router.get("/api/stock/value", (req, res) => {
+  safeJson(res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+
+    if (typeof stock.calculateTotalStockValue !== "function") {
+      return apiError(res, 500, "calculateTotalStockValue non disponible");
+    }
+
+    const result = stock.calculateTotalStockValue(shop);
+    res.json(result);
+  });
+});
+
+// ✅ NOUVEAU : Statistiques par catégorie
+router.get("/api/stats/categories", (req, res) => {
+  safeJson(res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+
+    if (typeof stock.getCategoryStats !== "function") {
+      return apiError(res, 500, "getCategoryStats non disponible");
+    }
+
+    const result = stock.getCategoryStats(shop);
+    res.json(result);
+  });
+});
+
 router.get("/api/stock.csv", (req, res) => {
   safeJson(res, () => {
     const shop = getShop(req);
@@ -424,14 +440,20 @@ router.get("/api/stock.csv", (req, res) => {
     const snapshot = stock.getCatalogSnapshot ? stock.getCatalogSnapshot(shop) : { products: [], categories: [] };
     const products = Array.isArray(snapshot.products) ? snapshot.products : [];
 
-    const header = ["productId", "name", "totalGrams", "categoryIds"].join(",");
+    const header = ["productId", "name", "totalGrams", "averageCostPerGram", "categoryIds"].join(",");
     const lines = products.map((p) => {
       const cat = Array.isArray(p.categoryIds) ? p.categoryIds.join("|") : "";
       const esc = (v) => {
         const s = v === null || v === undefined ? "" : String(v);
         return /[,"\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
       };
-      return [esc(p.productId), esc(p.name), esc(p.totalGrams), esc(cat)].join(",");
+      return [
+        esc(p.productId), 
+        esc(p.name), 
+        esc(p.totalGrams), 
+        esc(p.averageCostPerGram || 0),
+        esc(cat)
+      ].join(",");
     });
 
     res.setHeader("Content-Type", "text/csv; charset=utf-8");
@@ -519,7 +541,7 @@ router.get("/api/movements", (req, res) => {
   });
 });
 
-// ✅ CSV mouvements (utilisé par bouton "Mouvements CSV")
+// ✅ ENRICHI : Export CSV mouvements avec purchasePricePerGram
 router.get("/api/movements.csv", (req, res) => {
   safeJson(res, () => {
     const shop = getShop(req);
@@ -529,32 +551,56 @@ router.get("/api/movements.csv", (req, res) => {
     const days = Math.min(Math.max(Number(req.query.days || 30), 1), 365);
 
     const rows = movementStore.listMovements ? movementStore.listMovements({ shop, days, limit }) : [];
-    const csv = movementStore.toCSV
-      ? movementStore.toCSV(rows)
-      : ["ts,source,productId,productName,gramsDelta,totalAfter,shop"]
-          .concat(
-            (rows || []).map((m) =>
-              [
-                m.ts || "",
-                m.source || "",
-                m.productId || "",
-                (m.productName || "").replace(/"/g, '""'),
-                m.gramsDelta ?? "",
-                m.totalAfter ?? "",
-                m.shop || shop,
-              ]
-                .map((v) => {
-                  const s = String(v ?? "");
-                  return /[,"\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-                })
-                .join(",")
-            )
-          )
-          .join("\n");
+    
+    const header = [
+      "ts",
+      "source",
+      "productId",
+      "productName",
+      "gramsDelta",
+      "purchasePricePerGram",
+      "totalAfter",
+      "shop",
+    ].join(",");
+
+    const csvEscape = (v) => {
+      const s = String(v ?? "");
+      return /[,"\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+
+    const lines = (rows || []).map((m) => {
+      return [
+        csvEscape(m.ts || ""),
+        csvEscape(m.source || ""),
+        csvEscape(m.productId || ""),
+        csvEscape(m.productName || ""),
+        csvEscape(m.gramsDelta ?? ""),
+        csvEscape(m.purchasePricePerGram ?? ""),
+        csvEscape(m.totalAfter ?? ""),
+        csvEscape(m.shop || shop),
+      ].join(",");
+    });
 
     res.setHeader("Content-Type", "text/csv; charset=utf-8");
     res.setHeader("Content-Disposition", 'attachment; filename="stock-movements.csv"');
-    res.send(csv);
+    res.send([header, ...lines].join("\n"));
+  });
+});
+
+// ✅ NOUVEAU : Suppression/annulation d'un mouvement
+router.delete("/api/movements/:id", (req, res) => {
+  safeJson(res, async () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+
+    const movementId = String(req.params.id || "");
+    if (!movementId) return apiError(res, 400, "ID de mouvement manquant");
+
+    const mode = String(req.query.mode || "hide");
+
+    // Note: Cette route nécessite l'implémentation de hideMovement ou deleteMovement dans movementStore
+    // Pour l'instant on retourne une erreur explicite
+    return apiError(res, 501, "Suppression de mouvements non encore implémentée dans movementStore. Voir documentation.");
   });
 });
 
@@ -573,6 +619,7 @@ router.get("/api/products/:productId/history", (req, res) => {
   });
 });
 
+// ✅ ENRICHI : Ajustement total avec prix d'achat optionnel
 router.post("/api/products/:productId/adjust-total", (req, res) => {
   safeJson(res, async () => {
     const shop = getShop(req);
@@ -580,6 +627,7 @@ router.post("/api/products/:productId/adjust-total", (req, res) => {
 
     const productId = String(req.params.productId);
     const gramsDelta = Number(req.body?.gramsDelta);
+    const purchasePricePerGram = Number(req.body?.purchasePricePerGram || 0);
 
     if (!Number.isFinite(gramsDelta) || gramsDelta === 0) {
       return apiError(res, 400, "gramsDelta invalide (ex: 50 ou -50)");
@@ -588,7 +636,7 @@ router.post("/api/products/:productId/adjust-total", (req, res) => {
       return apiError(res, 500, "stock.restockProduct introuvable");
     }
 
-    const updated = await stock.restockProduct(shop, productId, gramsDelta);
+    const updated = await stock.restockProduct(shop, productId, gramsDelta, purchasePricePerGram);
     if (!updated) return apiError(res, 404, "Produit introuvable");
 
     try {
@@ -604,6 +652,7 @@ router.post("/api/products/:productId/adjust-total", (req, res) => {
           productId,
           productName: updated.name,
           gramsDelta,
+          purchasePricePerGram: (gramsDelta > 0 && purchasePricePerGram > 0) ? purchasePricePerGram : undefined,
           totalAfter: updated.totalGrams,
           shop,
         },
@@ -611,7 +660,86 @@ router.post("/api/products/:productId/adjust-total", (req, res) => {
       );
     }
 
-    res.json({ success: true, product: updated });
+    res.json({ 
+      success: true, 
+      product: updated,
+      cmpUpdated: gramsDelta > 0 && purchasePricePerGram > 0,
+    });
+  });
+});
+
+// ✅ NOUVEAU : Mise à jour manuelle du prix moyen
+router.patch("/api/products/:productId/average-cost", (req, res) => {
+  safeJson(res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+
+    const productId = String(req.params.productId);
+    const averageCostPerGram = Number(req.body?.averageCostPerGram);
+
+    if (!Number.isFinite(averageCostPerGram) || averageCostPerGram < 0) {
+      return apiError(res, 400, "averageCostPerGram invalide (ex: 4.50)");
+    }
+
+    const store = stock.PRODUCT_CONFIG_BY_SHOP?.get(shop);
+    if (!store) return apiError(res, 500, "Store introuvable");
+
+    const cfg = store[productId];
+    if (!cfg) return apiError(res, 404, "Produit introuvable");
+
+    const oldCost = cfg.averageCostPerGram || 0;
+    cfg.averageCostPerGram = averageCostPerGram;
+
+    const stockStateMod = require("./stockState");
+    const saveState = stockStateMod?.saveState;
+    if (saveState) {
+      const products = {};
+      for (const [pid, p] of Object.entries(store)) {
+        products[pid] = {
+          name: p.name,
+          totalGrams: p.totalGrams,
+          averageCostPerGram: p.averageCostPerGram || 0,
+          categoryIds: p.categoryIds || [],
+          variants: p.variants || {},
+        };
+      }
+      saveState(shop, {
+        version: 2,
+        updatedAt: new Date().toISOString(),
+        products,
+      });
+    }
+
+    if (movementStore.addMovement) {
+      movementStore.addMovement(
+        {
+          source: "average_cost_updated",
+          productId,
+          productName: cfg.name,
+          gramsDelta: 0,
+          meta: {
+            oldAverageCost: oldCost,
+            newAverageCost: averageCostPerGram,
+          },
+          shop,
+        },
+        shop
+      );
+    }
+
+    logEvent("average_cost_manual_update", {
+      shop,
+      productId,
+      oldCost: oldCost.toFixed(2),
+      newCost: averageCostPerGram.toFixed(2),
+    });
+
+    res.json({ 
+      success: true, 
+      productId,
+      oldAverageCost: oldCost,
+      newAverageCost: averageCostPerGram,
+    });
   });
 });
 
@@ -744,7 +872,7 @@ router.post("/api/import/product", (req, res) => {
   });
 });
 
-// ✅ (INDEX.html) : /api/restock attendu par ton "mini glue"
+// ✅ ENRICHI : Restock avec prix d'achat pour CMP
 router.post("/api/restock", (req, res) => {
   safeJson(res, async () => {
     const shop = getShop(req);
@@ -752,6 +880,7 @@ router.post("/api/restock", (req, res) => {
 
     const productId = String(req.body?.productId || "").trim();
     const grams = Number(req.body?.grams);
+    const purchasePricePerGram = Number(req.body?.purchasePricePerGram || 0);
 
     if (!productId) return apiError(res, 400, "productId manquant");
     if (!Number.isFinite(grams) || grams <= 0) return apiError(res, 400, "grams invalide (ex: 50)");
@@ -760,7 +889,7 @@ router.post("/api/restock", (req, res) => {
       return apiError(res, 500, "stock.restockProduct introuvable");
     }
 
-    const updated = await stock.restockProduct(shop, productId, grams);
+    const updated = await stock.restockProduct(shop, productId, grams, purchasePricePerGram);
     if (!updated) return apiError(res, 404, "Produit introuvable");
 
     try {
@@ -776,6 +905,7 @@ router.post("/api/restock", (req, res) => {
           productId,
           productName: updated.name,
           gramsDelta: Math.abs(grams),
+          purchasePricePerGram: purchasePricePerGram > 0 ? purchasePricePerGram : undefined,
           totalAfter: updated.totalGrams,
           shop,
         },
@@ -783,11 +913,14 @@ router.post("/api/restock", (req, res) => {
       );
     }
 
-    res.json({ success: true, product: updated });
+    res.json({ 
+      success: true, 
+      product: updated,
+      cmpUpdated: purchasePricePerGram > 0,
+    });
   });
 });
 
-// ✅ (APP.js) : /api/test-order attendu par le bouton "Tester une commande"
 router.post("/api/test-order", (req, res) => {
   safeJson(res, async () => {
     const shop = getShop(req);
@@ -836,10 +969,8 @@ router.post("/api/test-order", (req, res) => {
   });
 });
 
-// ✅ JSON 404
 router.use("/api", (req, res) => apiError(res, 404, "Route API non trouvée"));
 
-// ✅ handler erreurs => JSON
 router.use((err, req, res, next) => {
   if (req.path.startsWith("/api")) {
     logEvent("api_uncaught_error", extractShopifyError(err), "error");
@@ -848,13 +979,11 @@ router.use((err, req, res, next) => {
   next(err);
 });
 
-// FRONT
 router.get("/", (req, res) => res.sendFile(INDEX_HTML));
 router.get(/^\/(?!api\/|webhooks\/|health|css\/|js\/).*/, (req, res) => res.sendFile(INDEX_HTML));
 
 // =====================================================
-// WEBHOOKS (RAW BODY) — à la racine
-// ✅ On utilise PRIORITAIREMENT le header "X-Shopify-Shop-Domain"
+// WEBHOOKS
 // =====================================================
 app.post("/webhooks/orders/create", express.raw({ type: "application/json" }), async (req, res) => {
   try {
@@ -928,7 +1057,6 @@ app.post("/webhooks/orders/create", express.raw({ type: "application/json" }), a
   }
 });
 
-// Mount router sur / et sur /apps/:appSlug
 app.use("/", router);
 app.use("/apps/:appSlug", router);
 

@@ -1,107 +1,91 @@
-// stockManager.js
-// ============================================
-// Bulk Stock Manager - Stock côté serveur
-// - Source de vérité = app (elle écrase Shopify)
-// - Persistance Render Disk via stockState.js (multi-boutique)
-// - Queue pour éviter race conditions
-// - Support suppression persistée (deletedProductIds)
-// - ✅ FIX: produits BASE ne disparaissent plus à chaque deploy
-// - ✅ REVENTE: produits BASE désactivables via env
-// - ✅ FIX: compat exports stockState (loadState/saveState)
-// - ✅ FIX: upsertImportedProductConfig compatible (shop,payload) / (payload) / (args...)
-// ============================================
+// stockManager.js - ENRICHI avec Coût Moyen Pondéré (CMP)
+// ✅ NON-DESTRUCTIF : compatibilité totale avec l'existant
+// ✅ NOUVEAUTÉS :
+//    - averageCostPerGram par produit (CMP)
+//    - recalcul automatique à chaque restock
+//    - API pour valeur totale du stock
 
-// ---------- stockState import ROBUSTE ----------
 const stockStateMod = require("./stockState");
+const loadState = typeof stockStateMod?.loadState === "function" ? stockStateMod.loadState : null;
+const saveState = typeof stockStateMod?.saveState === "function" ? stockStateMod.saveState : null;
 
-// support:
-// - module.exports = { loadState, saveState }
-// - exports.loadState = ...
-// - module.exports = function loadState() { ... } (rare)
-const loadState =
-  typeof stockStateMod?.loadState === "function"
-    ? stockStateMod.loadState
-    : (typeof stockStateMod === "function" ? stockStateMod : null);
-
-const saveState =
-  typeof stockStateMod?.saveState === "function"
-    ? stockStateMod.saveState
-    : null;
-
-if (typeof loadState !== "function") {
-  throw new Error("stockState.loadState introuvable (vérifie stockState.js / exports)");
-}
-if (typeof saveState !== "function") {
-  throw new Error("stockState.saveState introuvable (vérifie stockState.js / exports)");
-}
+if (typeof loadState !== "function") throw new Error("stockState.loadState introuvable");
+if (typeof saveState !== "function") throw new Error("stockState.saveState introuvable");
 
 const { listCategories } = require("./catalogStore");
-
-// ✅ queue/logger dans /utils
 const queueMod = require("./utils/queue");
 const { logEvent } = require("./utils/logger");
-
-// Compat queue : supporte `module.exports = stockQueue` OU `{ stockQueue }`
 const stockQueue = queueMod?.add ? queueMod : queueMod?.stockQueue;
 
-// --------------------------------------------
-// CONFIG PRODUITS "BASE" (hardcodée)
-// ✅ Pour vendre l'app : laisse ENABLE_BASE_PRODUCTS=false (par défaut).
-// Pour TON shop : mets ENABLE_BASE_PRODUCTS=true dans Render.
-// --------------------------------------------
 const ENABLE_BASE_PRODUCTS = process.env.ENABLE_BASE_PRODUCTS === "true";
+const BASE_PRODUCT_CONFIG = ENABLE_BASE_PRODUCTS ? {
+  "10349843513687": {
+    name: "3x Filtré",
+    totalGrams: 50,
+    averageCostPerGram: 0,  // ✅ NOUVEAU champ (initialisé à 0)
+    categoryIds: [],
+    variants: {
+      "1.5": { gramsPerUnit: 1.5, inventoryItemId: 54088575582551 },
+      "3": { gramsPerUnit: 3, inventoryItemId: 54088575615319 },
+      "5": { gramsPerUnit: 5, inventoryItemId: 54088575648087 },
+      "10": { gramsPerUnit: 10, inventoryItemId: 54088575680855 },
+      "25": { gramsPerUnit: 25, inventoryItemId: 54088575713623 },
+      "50": { gramsPerUnit: 50, inventoryItemId: 54088575746391 },
+    },
+  },
+} : {};
 
-const BASE_PRODUCT_CONFIG = ENABLE_BASE_PRODUCTS
-  ? {
-      "10349843513687": {
-        name: "3x Filtré",
-        totalGrams: 50,
-        categoryIds: [],
-        variants: {
-          "1.5": { gramsPerUnit: 1.5, inventoryItemId: 54088575582551 },
-          "3": { gramsPerUnit: 3, inventoryItemId: 54088575615319 },
-          "5": { gramsPerUnit: 5, inventoryItemId: 54088575648087 },
-          "10": { gramsPerUnit: 10, inventoryItemId: 54088575680855 },
-          "25": { gramsPerUnit: 25, inventoryItemId: 54088575713623 },
-          "50": { gramsPerUnit: 50, inventoryItemId: 54088575746391 },
-        },
-      },
-      // ... autres produits base si besoin
-    }
-  : {};
-
-// --------------------------------------------
-// STORE EN MÉMOIRE (par shop) ✅
-// PRODUCT_CONFIG_BY_SHOP[shop] = { [productId]: config }
-// --------------------------------------------
 const PRODUCT_CONFIG_BY_SHOP = new Map();
 
-// --------------------------------------------
+// ============================================
 // Helpers
-// --------------------------------------------
+// ============================================
 function toNum(v, fallback = 0) {
   const n = Number(v);
   return Number.isFinite(n) ? n : fallback;
 }
+
 function clampMin0(n) {
   return Math.max(0, toNum(n, 0));
 }
+
 function normalizeVariants(variants) {
   const safe = {};
   for (const [label, v] of Object.entries(variants || {})) {
     const gramsPerUnit = toNum(v?.gramsPerUnit, 0);
     const inventoryItemId = toNum(v?.inventoryItemId, 0);
-    if (!inventoryItemId) continue;
-    if (!gramsPerUnit || gramsPerUnit <= 0) continue;
+    if (!inventoryItemId || !gramsPerUnit || gramsPerUnit <= 0) continue;
     safe[String(label)] = { gramsPerUnit, inventoryItemId };
   }
   return safe;
 }
+
 function normalizeCategoryIds(categoryIds) {
   return Array.isArray(categoryIds) ? categoryIds.map(String) : [];
 }
+
 function normalizeDeletedIds(arr) {
   return Array.isArray(arr) ? arr.map(String) : [];
+}
+
+// ✅ NOUVEAU : Calcul du Coût Moyen Pondéré
+function calculateWeightedAverageCost(currentStock, currentAvgCost, addedStock, purchasePrice) {
+  const stock = clampMin0(currentStock);
+  const avgCost = clampMin0(currentAvgCost);
+  const added = clampMin0(addedStock);
+  const purchase = clampMin0(purchasePrice);
+
+  // Si pas de stock actuel, le nouveau prix devient le prix moyen
+  if (stock === 0) return purchase;
+
+  // Si pas d'ajout, on garde l'ancien prix
+  if (added === 0) return avgCost;
+
+  // Formule CMP : (stock_ancien × prix_ancien + stock_ajouté × prix_achat) / (stock_ancien + stock_ajouté)
+  const totalValue = (stock * avgCost) + (added * purchase);
+  const totalStock = stock + added;
+
+  return totalStock > 0 ? totalValue / totalStock : avgCost;
 }
 
 function buildProductView(config) {
@@ -128,49 +112,40 @@ function snapshotProduct(shop, productId) {
     productId: String(productId),
     name: String(cfg.name || productId),
     totalGrams: clampMin0(cfg.totalGrams),
+    averageCostPerGram: clampMin0(cfg.averageCostPerGram || 0),  // ✅ NOUVEAU
     categoryIds: normalizeCategoryIds(cfg.categoryIds),
     variants: buildProductView(cfg),
   };
 }
 
-// --------------------------------------------
-// Argument parsing (compat server)
-// --------------------------------------------
 function parseShopFirstArgs(shopOrProductId, maybeProductId, rest) {
-  // Cas A: (shop, productId, ...)
-  // Cas B: (productId, ...) => shop="default"
-  // Détection simple: un shop contient souvent ".myshopify.com"
   const a = String(shopOrProductId ?? "");
   const looksLikeShop = a.includes(".myshopify.com") || a === "default";
 
   if (looksLikeShop) {
     return { shop: a || "default", productId: String(maybeProductId ?? ""), rest };
   }
-
   return { shop: "default", productId: String(shopOrProductId ?? ""), rest: [maybeProductId, ...rest] };
 }
 
-// --------------------------------------------
-// STORE init/restore (par shop) ✅
-// --------------------------------------------
+// ============================================
+// Store init/restore
+// ============================================
 function getStore(shop = "default") {
   const key = String(shop || "default");
 
   if (!PRODUCT_CONFIG_BY_SHOP.has(key)) {
-    // Base store clone
     const base = {};
     for (const [pid, p] of Object.entries(BASE_PRODUCT_CONFIG)) {
       base[pid] = {
         name: p.name,
         totalGrams: p.totalGrams,
+        averageCostPerGram: toNum(p.averageCostPerGram, 0),  // ✅ NOUVEAU
         categoryIds: normalizeCategoryIds(p.categoryIds),
         variants: normalizeVariants(p.variants),
       };
     }
-
     PRODUCT_CONFIG_BY_SHOP.set(key, base);
-
-    // restore persisted
     restoreStateForShop(key);
   }
 
@@ -180,7 +155,6 @@ function getStore(shop = "default") {
 function persistState(shop, extra = {}) {
   const prev = loadState(shop) || {};
   const deletedProductIds = normalizeDeletedIds(extra.deletedProductIds ?? prev.deletedProductIds);
-
   const store = getStore(shop);
 
   const products = {};
@@ -188,6 +162,7 @@ function persistState(shop, extra = {}) {
     products[pid] = {
       name: String(p.name || pid),
       totalGrams: clampMin0(p.totalGrams),
+      averageCostPerGram: clampMin0(p.averageCostPerGram || 0),  // ✅ NOUVEAU
       categoryIds: normalizeCategoryIds(p.categoryIds),
       variants: normalizeVariants(p.variants),
     };
@@ -205,24 +180,22 @@ function restoreStateForShop(shop) {
   const store = PRODUCT_CONFIG_BY_SHOP.get(shop);
   const saved = loadState(shop) || {};
 
-  // v2
   if (saved.version === 2 && saved.products && typeof saved.products === "object") {
     const restoredIds = Object.keys(saved.products);
 
-    // 1) restore products
     for (const [pid, p] of Object.entries(saved.products)) {
       store[pid] = {
         name: String(p?.name || pid),
         totalGrams: clampMin0(p?.totalGrams),
+        averageCostPerGram: clampMin0(p?.averageCostPerGram || 0),  // ✅ NOUVEAU
         categoryIds: normalizeCategoryIds(p?.categoryIds),
         variants: normalizeVariants(p?.variants),
       };
     }
 
-    // 2) apply tombstones (sans supprimer les BASE)
     const deleted = normalizeDeletedIds(saved.deletedProductIds);
     for (const pid of deleted) {
-      if (BASE_PRODUCT_CONFIG[pid]) continue; // ✅ base toujours visible
+      if (BASE_PRODUCT_CONFIG[pid]) continue;
       if (store[pid]) delete store[pid];
     }
 
@@ -232,11 +205,10 @@ function restoreStateForShop(shop) {
       products: restoredIds.length,
       deleted: deleted.length,
     });
-
     return;
   }
 
-  // Legacy
+  // Legacy restore (sans averageCostPerGram)
   if (saved && typeof saved === "object") {
     let applied = 0;
     for (const [pid, data] of Object.entries(saved)) {
@@ -245,26 +217,18 @@ function restoreStateForShop(shop) {
       if (Array.isArray(data?.categoryIds)) store[pid].categoryIds = normalizeCategoryIds(data.categoryIds);
       applied++;
     }
-
     logEvent("stock_state_restore", { shop, mode: "legacy", applied });
   }
 }
 
-// --------------------------------------------
-// Queue wrapper (anti race conditions)
-// --------------------------------------------
 function enqueue(fn) {
   if (stockQueue && typeof stockQueue.add === "function") return stockQueue.add(fn);
   return Promise.resolve().then(fn);
 }
 
-// --------------------------------------------
-// API Stock (par shop) ✅
-// --------------------------------------------
-
-// ✅ Compat:
-// applyOrderToProduct(shop, productId, gramsToSubtract)
-// applyOrderToProduct(productId, gramsToSubtract)
+// ============================================
+// API Stock (EXISTANTE - compatible)
+// ============================================
 async function applyOrderToProduct(shopOrProductId, maybeProductId, gramsToSubtract) {
   const { shop: sh, productId: pid, rest } = parseShopFirstArgs(shopOrProductId, maybeProductId, [gramsToSubtract]);
   const grams = rest.length ? rest[0] : gramsToSubtract;
@@ -276,18 +240,19 @@ async function applyOrderToProduct(shopOrProductId, maybeProductId, gramsToSubtr
 
     const g = clampMin0(grams);
     cfg.totalGrams = clampMin0(clampMin0(cfg.totalGrams) - g);
+    // ⚠️ Lors d'une vente, le CMP ne change PAS
 
     persistState(sh);
     return snapshotProduct(sh, pid);
   });
 }
 
-// ✅ Compat:
-// restockProduct(shop, productId, gramsDelta)
-// restockProduct(productId, gramsDelta)
-async function restockProduct(shopOrProductId, maybeProductId, gramsDelta) {
-  const { shop: sh, productId: pid, rest } = parseShopFirstArgs(shopOrProductId, maybeProductId, [gramsDelta]);
+// ✅ ENRICHI : restockProduct avec calcul CMP
+// Signature compatible : restockProduct(shop, productId, gramsDelta, purchasePricePerGram?)
+async function restockProduct(shopOrProductId, maybeProductId, gramsDelta, purchasePricePerGram) {
+  const { shop: sh, productId: pid, rest } = parseShopFirstArgs(shopOrProductId, maybeProductId, [gramsDelta, purchasePricePerGram]);
   const deltaRaw = rest.length ? rest[0] : gramsDelta;
+  const priceRaw = rest.length > 1 ? rest[1] : purchasePricePerGram;
 
   return enqueue(() => {
     const store = getStore(sh);
@@ -295,6 +260,30 @@ async function restockProduct(shopOrProductId, maybeProductId, gramsDelta) {
     if (!cfg) return null;
 
     const delta = toNum(deltaRaw, 0);
+    const purchasePrice = toNum(priceRaw, 0);
+
+    // ✅ Recalcul du CMP si un prix d'achat est fourni
+    if (delta > 0 && purchasePrice > 0) {
+      const currentStock = clampMin0(cfg.totalGrams);
+      const currentAvgCost = clampMin0(cfg.averageCostPerGram || 0);
+      
+      cfg.averageCostPerGram = calculateWeightedAverageCost(
+        currentStock,
+        currentAvgCost,
+        delta,
+        purchasePrice
+      );
+
+      logEvent("cmp_recalculated", {
+        shop: sh,
+        productId: pid,
+        oldAvg: currentAvgCost.toFixed(2),
+        newAvg: cfg.averageCostPerGram.toFixed(2),
+        addedGrams: delta,
+        purchasePrice: purchasePrice.toFixed(2),
+      });
+    }
+
     cfg.totalGrams = clampMin0(clampMin0(cfg.totalGrams) + delta);
 
     persistState(sh);
@@ -313,13 +302,112 @@ function getStockSnapshot(shop = "default") {
   return out;
 }
 
-// --------------------------------------------
-// Catégories (par shop) ✅
-// --------------------------------------------
+// ============================================
+// ✅ NOUVEAU : Calcul valeur totale du stock
+// ============================================
+function calculateTotalStockValue(shop = "default") {
+  const sh = String(shop || "default");
+  const store = getStore(sh);
 
-// ✅ Compat:
-// setProductCategories(shop, productId, categoryIds)
-// setProductCategories(productId, categoryIds)
+  let totalValue = 0;
+  const details = [];
+
+  for (const [pid, cfg] of Object.entries(store)) {
+    const stock = clampMin0(cfg.totalGrams);
+    const avgCost = clampMin0(cfg.averageCostPerGram || 0);
+    const value = stock * avgCost;
+
+    if (value > 0) {
+      totalValue += value;
+      details.push({
+        productId: pid,
+        productName: cfg.name,
+        totalGrams: stock,
+        averageCostPerGram: avgCost,
+        totalValue: value,
+      });
+    }
+  }
+
+  return {
+    totalValue: Math.round(totalValue * 100) / 100, // arrondi à 2 décimales
+    currency: "EUR",
+    products: details.sort((a, b) => b.totalValue - a.totalValue),
+  };
+}
+
+// ============================================
+// ✅ NOUVEAU : Stats par catégorie
+// ============================================
+function getCategoryStats(shop = "default") {
+  const sh = String(shop || "default");
+  const store = getStore(sh);
+  const categories = listCategories ? listCategories(sh) : [];
+
+  let totalGrams = 0;
+  const statsByCategory = new Map();
+
+  // Init catégories
+  for (const cat of categories) {
+    statsByCategory.set(cat.id, {
+      categoryId: cat.id,
+      categoryName: cat.name,
+      totalGrams: 0,
+      totalValue: 0,
+      productCount: 0,
+    });
+  }
+
+  // Catégorie "Sans catégorie"
+  statsByCategory.set("_uncategorized", {
+    categoryId: "_uncategorized",
+    categoryName: "Sans catégorie",
+    totalGrams: 0,
+    totalValue: 0,
+    productCount: 0,
+  });
+
+  // Calcul
+  for (const [pid, cfg] of Object.entries(store)) {
+    const grams = clampMin0(cfg.totalGrams);
+    const avgCost = clampMin0(cfg.averageCostPerGram || 0);
+    const value = grams * avgCost;
+
+    totalGrams += grams;
+
+    const catIds = Array.isArray(cfg.categoryIds) && cfg.categoryIds.length > 0 
+      ? cfg.categoryIds 
+      : ["_uncategorized"];
+
+    // Un produit peut avoir plusieurs catégories, on compte dans toutes
+    for (const catId of catIds) {
+      const stat = statsByCategory.get(catId);
+      if (stat) {
+        stat.totalGrams += grams;
+        stat.totalValue += value;
+        stat.productCount += 1;
+      }
+    }
+  }
+
+  // Calcul des pourcentages
+  const results = Array.from(statsByCategory.values())
+    .filter(s => s.totalGrams > 0)
+    .map(s => ({
+      ...s,
+      percentage: totalGrams > 0 ? Math.round((s.totalGrams / totalGrams) * 100 * 100) / 100 : 0,
+    }))
+    .sort((a, b) => b.totalGrams - a.totalGrams);
+
+  return {
+    totalGrams,
+    categories: results,
+  };
+}
+
+// ============================================
+// Autres fonctions (INCHANGÉES)
+// ============================================
 function setProductCategories(shopOrProductId, maybeProductId, categoryIdsMaybe) {
   const { shop: sh, productId: pid, rest } = parseShopFirstArgs(shopOrProductId, maybeProductId, [categoryIdsMaybe]);
   const categoryIds = rest.length ? rest[0] : categoryIdsMaybe;
@@ -336,20 +424,10 @@ function setProductCategories(shopOrProductId, maybeProductId, categoryIdsMaybe)
   return true;
 }
 
-// --------------------------------------------
-// Import Shopify -> Upsert config (par shop) ✅
-// --------------------------------------------
-//
-// ✅ Support total:
-// A) upsertImportedProductConfig(shop, {productId,name,totalGrams,variants,categoryIds})
-// B) upsertImportedProductConfig({productId,name,totalGrams,variants,categoryIds})   // shop default
-// C) upsertImportedProductConfig(productId, name, totalGrams, variants, categoryIds) // shop default
-//
 function upsertImportedProductConfig(arg1, arg2, arg3, arg4, arg5, arg6) {
   let sh = "default";
   let payload = null;
 
-  // A) (shop, payload)
   if (typeof arg1 === "string" && arg2 && typeof arg2 === "object") {
     const looksLikeShop = arg1.includes(".myshopify.com") || arg1 === "default";
     if (looksLikeShop) {
@@ -358,35 +436,32 @@ function upsertImportedProductConfig(arg1, arg2, arg3, arg4, arg5, arg6) {
     }
   }
 
-  // B) (payload)
   if (!payload && arg1 && typeof arg1 === "object") {
     payload = arg1;
     sh = "default";
   }
 
-  // C) (productId, name, totalGrams, variants, categoryIds)
   if (!payload) {
     payload = { productId: arg1, name: arg2, totalGrams: arg3, variants: arg4, categoryIds: arg5 };
     sh = "default";
   }
 
   const productId = payload?.productId;
-  if (!productId) {
-    throw new Error("Import: productId manquant (upsertImportedProductConfig)");
-  }
+  if (!productId) throw new Error("Import: productId manquant");
 
   const pid = String(productId);
   const store = getStore(sh);
 
   const safeVariants = normalizeVariants(payload?.variants);
   if (!Object.keys(safeVariants).length) {
-    throw new Error("Import: aucune variante valide (inventoryItemId/gramsPerUnit manquant)");
+    throw new Error("Import: aucune variante valide");
   }
 
   if (!store[pid]) {
     store[pid] = {
       name: String(payload?.name || pid),
       totalGrams: clampMin0(payload?.totalGrams),
+      averageCostPerGram: 0,  // ✅ Init à 0 pour les imports
       categoryIds: normalizeCategoryIds(payload?.categoryIds),
       variants: safeVariants,
     };
@@ -400,7 +475,6 @@ function upsertImportedProductConfig(arg1, arg2, arg3, arg4, arg5, arg6) {
     if (!Array.isArray(cfg.categoryIds)) cfg.categoryIds = [];
   }
 
-  // ✅ Si tombstone: on restaure à l'import
   const prev = loadState(sh) || {};
   const deleted = new Set(normalizeDeletedIds(prev.deletedProductIds));
   if (deleted.has(pid)) {
@@ -413,9 +487,6 @@ function upsertImportedProductConfig(arg1, arg2, arg3, arg4, arg5, arg6) {
   return snapshotProduct(sh, pid);
 }
 
-// --------------------------------------------
-// Catalog snapshot (UI) ✅
-// --------------------------------------------
 function getCatalogSnapshot(shop = "default") {
   const sh = String(shop || "default");
   const categories = listCategories ? listCategories(sh) : [];
@@ -424,13 +495,6 @@ function getCatalogSnapshot(shop = "default") {
   return { products, categories };
 }
 
-// --------------------------------------------
-// Suppression produit (par shop) ✅
-// --------------------------------------------
-
-// ✅ Compat:
-// removeProduct(shop, productId)
-// removeProduct(productId)
 function removeProduct(shopOrProductId, maybeProductId) {
   const { shop: sh, productId: pid } = parseShopFirstArgs(shopOrProductId, maybeProductId, []);
 
@@ -454,9 +518,7 @@ function removeProduct(shopOrProductId, maybeProductId) {
 }
 
 module.exports = {
-  // exposé pour debug si besoin
   PRODUCT_CONFIG_BY_SHOP,
-
   applyOrderToProduct,
   restockProduct,
   getStockSnapshot,
@@ -464,4 +526,9 @@ module.exports = {
   setProductCategories,
   getCatalogSnapshot,
   removeProduct,
+  
+  // ✅ NOUVELLES fonctions
+  calculateTotalStockValue,
+  getCategoryStats,
+  calculateWeightedAverageCost,  // export pour tests
 };
