@@ -573,3 +573,10 @@ select option:checked {
 }
 .category-name { font-weight: 800; }
 .category-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* Import modal: inputs/select full width dans les blocks */
+#importSearchForm input,
+#importSearchForm select {
+  width: 100%;
+}
+

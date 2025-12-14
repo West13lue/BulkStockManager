@@ -10,8 +10,9 @@
 // ✅ FIX CSS Shopify iframe:
 //   - Injecte le CSS via JS + href prefix-safe (APP_PREFIX)
 // ✅ FIX MODALS UI:
-//   - Empêche le contenu de "sortir du cadre" (scroll interne)
-//   - ESC pour fermer la modale active
+//   - Scroll interne (modal-body) + panel maxHeight
+//   - ESC ferme la modale active (topmost)
+//   - body.modal-open géré correctement
 // ============================================
 
 (() => {
@@ -59,7 +60,8 @@
   // ✅ FIX: injecte ton CSS même si Shopify “ignore” le <link> dans <head>
   function injectAppCss() {
     const ID = "bulk-stock-manager-css";
-    if (document.getElementById(ID)) return;
+    const existing = document.getElementById(ID);
+    if (existing) return;
 
     const link = document.createElement("link");
     link.id = ID;
@@ -70,15 +72,22 @@
 
     link.addEventListener("error", () => {
       console.error(
-        "❌ Impossible de charger style.css. Vérifie: public/css/style.css + app.use(express.static(PUBLIC_DIR)) + chemins prefix-safe."
+        "❌ Impossible de charger style.css. Vérifie: public/css/style.css + static express + chemins prefix-safe."
       );
     });
 
     document.head.appendChild(link);
   }
 
-  // Inject tout de suite + au load (Shopify peut modifier le head)
-  injectAppCss();
+  // Shopify peut “remplacer” le head => on surveille et on ré-injecte si besoin
+  function keepCssAlive() {
+    injectAppCss();
+    const obs = new MutationObserver(() => injectAppCss());
+    obs.observe(document.documentElement, { childList: true, subtree: true });
+  }
+
+  // Inject tout de suite + keep-alive
+  keepCssAlive();
 
   // ---------------- DOM / state ----------------
   const result = document.getElementById("result");
@@ -136,35 +145,52 @@
     return res.json();
   }
 
+  // ---------------- modal helpers ----------------
+  function updateBodyModalOpen() {
+    const anyActive = document.querySelector(".modal.active");
+    document.body.classList.toggle("modal-open", !!anyActive);
+  }
+
   // ---------------- modal layout fix (NO overflow) ----------------
   function ensureModalLayout(modalEl) {
     if (!modalEl) return;
+
     const panel = modalEl.querySelector(".modal-panel");
     if (!panel) return;
 
     // Empêche le panel de dépasser l'écran (iframe Shopify inclus)
     panel.style.maxHeight = "92vh";
     panel.style.overflow = "hidden";
+    panel.style.display = "flex";
+    panel.style.flexDirection = "column";
 
-    // Rend le contenu scrollable (sinon ça pousse le HTML hors du cadre)
-    const content =
-      panel.querySelector(".modal-content") ||
-      panel.querySelector(".modal-body");
+    // ✅ IMPORTANT : ton CSS est basé sur .modal-body (scroll interne)
+    // On cible d'abord .modal-body, sinon fallback sur .modal-content
+    const body = modalEl.querySelector(".modal-body");
+    if (body) {
+      body.style.overflowY = "auto";
+      body.style.webkitOverflowScrolling = "touch";
+      body.style.minHeight = "0";
+      // on laisse respirer le head + actions
+      body.style.maxHeight = "calc(92vh - 120px)";
+      return;
+    }
 
+    const content = modalEl.querySelector(".modal-content");
     if (content) {
       content.style.overflowY = "auto";
       content.style.webkitOverflowScrolling = "touch";
-      // On laisse un peu de place aux headers/actions
+      content.style.minHeight = "0";
       content.style.maxHeight = "calc(92vh - 60px)";
     }
   }
 
   function closeTopmostModal() {
-    // ferme la dernière modale active trouvée
     const actives = Array.from(document.querySelectorAll(".modal.active"));
     if (!actives.length) return;
     const top = actives[actives.length - 1];
     top.classList.remove("active");
+    updateBodyModalOpen();
   }
 
   // ESC pour fermer une modale (utile en iframe)
@@ -179,20 +205,25 @@
 
     const backdrop = document.createElement("div");
     backdrop.className = "modal-backdrop";
-    backdrop.addEventListener("click", () => modalEl.classList.remove("active"));
+    backdrop.addEventListener("click", () => {
+      modalEl.classList.remove("active");
+      updateBodyModalOpen();
+    });
     modalEl.prepend(backdrop);
   }
 
   function openModal(modalEl) {
     if (!modalEl) return;
     ensureModalBackdrop(modalEl);
-    ensureModalLayout(modalEl); // ✅ FIX: pas de débordement
+    ensureModalLayout(modalEl);
     modalEl.classList.add("active");
+    updateBodyModalOpen();
   }
 
   function closeModal(modalEl) {
     if (!modalEl) return;
     modalEl.classList.remove("active");
+    updateBodyModalOpen();
   }
 
   // ---------------- header controls ----------------
@@ -947,22 +978,23 @@
               <button class="btn btn-close" type="button" id="btnCloseCategories">✖</button>
             </div>
 
-            <div class="info-box">
-              Crée des catégories pour trier tes produits (ex: Fleurs, Résines, Gummies…).
-            </div>
+            <div class="modal-body">
+              <div class="info-box">
+                Crée des catégories pour trier tes produits (ex: Fleurs, Résines, Gummies…).
+              </div>
 
-            <div style="display:flex; gap:10px; margin-top:12px; flex-wrap:wrap;">
-              <input id="newCategoryName" placeholder="Nom de catégorie (ex: Fleurs)" style="flex:1; min-width:220px;" />
-              <button class="btn btn-primary btn-sm" id="btnAddCategory" type="button">Ajouter</button>
-            </div>
+              <div style="display:flex; gap:10px; margin-top:12px; flex-wrap:wrap;">
+                <input id="newCategoryName" placeholder="Nom de catégorie (ex: Fleurs)" style="flex:1; min-width:220px;" />
+                <button class="btn btn-primary btn-sm" id="btnAddCategory" type="button">Ajouter</button>
+              </div>
 
-            <div id="categoriesList" class="categories-list"></div>
+              <div id="categoriesList" class="categories-list"></div>
+            </div>
           </div>
         </div>
       `;
       document.body.appendChild(modal);
       ensureModalBackdrop(modal);
-      ensureModalLayout(modal); // ✅ FIX
 
       el("btnCloseCategories")?.addEventListener("click", () => closeModal(modal));
       el("btnAddCategory")?.addEventListener("click", async () => {
@@ -1076,25 +1108,26 @@
               <button class="btn btn-close" type="button" id="btnCloseImport">✖</button>
             </div>
 
-            <div class="import-toolbar" style="display:flex;gap:10px;flex-wrap:wrap;">
-              <input id="importQuery" placeholder="Rechercher un produit (ex: amnesia)" style="flex:1;min-width:260px;" />
-              <button class="btn btn-info btn-sm" id="btnSearchShopify" type="button">Rechercher</button>
+            <div class="modal-body">
+              <div class="import-toolbar" style="display:flex;gap:10px;flex-wrap:wrap;">
+                <input id="importQuery" placeholder="Rechercher un produit (ex: amnesia)" style="flex:1;min-width:260px;" />
+                <button class="btn btn-info btn-sm" id="btnSearchShopify" type="button">Rechercher</button>
 
-              <div class="field" style="min-width:220px;">
-                <label>Catégorie (optionnel)</label>
-                <select id="importCategory">
-                  <option value="">Aucune</option>
-                </select>
+                <div class="field" style="min-width:220px;">
+                  <label>Catégorie (optionnel)</label>
+                  <select id="importCategory">
+                    <option value="">Aucune</option>
+                  </select>
+                </div>
               </div>
-            </div>
 
-            <div id="importResults" class="import-results"></div>
+              <div id="importResults" class="import-results"></div>
+            </div>
           </div>
         </div>
       `;
       document.body.appendChild(modal);
       ensureModalBackdrop(modal);
-      ensureModalLayout(modal); // ✅ FIX
 
       el("btnCloseImport")?.addEventListener("click", () => closeModal(modal));
       el("btnSearchShopify")?.addEventListener("click", () => searchShopifyProducts());
@@ -1195,7 +1228,7 @@
   window.addEventListener("load", async () => {
     document.body.classList.add("full-width");
 
-    // ✅ re-inject au load (au cas où Shopify remplace head tardivement)
+    // ✅ keep-alive déjà actif, mais on réassure au load
     injectAppCss();
 
     ensureCatalogControls();
