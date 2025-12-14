@@ -13,7 +13,20 @@
 
 (() => {
   // ---------------- SHOP CONTEXT (Shopify) ----------------
-  const SHOP = new URLSearchParams(window.location.search).get("shop") || "";
+function shopFromHost() {
+  try {
+    const host = new URLSearchParams(window.location.search).get("host") || "";
+    if (!host) return "";
+    const decoded = atob(host); // "xxx.myshopify.com/admin"
+    const domain = decoded.split("/")[0].trim();
+    return domain || "";
+  } catch {
+    return "";
+  }
+}
+
+const SHOP = new URLSearchParams(window.location.search).get("shop") || shopFromHost() || "";
+
 
   // ✅ Si la page tourne sous /apps/<nom-app>/..., on doit préfixer tous les chemins
   const APP_PREFIX = (() => {

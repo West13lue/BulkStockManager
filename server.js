@@ -72,17 +72,36 @@ function resolveShopFallback() {
   return envShop;
 }
 
+function shopFromHostParam(hostParam) {
+  try {
+    const raw = String(hostParam || "").trim();
+    if (!raw) return "";
+    const decoded = Buffer.from(raw, "base64").toString("utf8"); // ex: "xxx.myshopify.com/admin"
+    const domain = decoded.split("/")[0].trim();
+    return domain ? normalizeShopDomain(domain) : "";
+  } catch {
+    return "";
+  }
+}
+
 function getShop(req) {
+  // 1) query ?shop=
   const q = String(req.query?.shop || "").trim();
   if (q) return normalizeShopDomain(q);
 
+  // 2) query ?host=  (✅ IMPORTANT Shopify embedded)
+  const hostQ = String(req.query?.host || "").trim();
+  const hostShop = shopFromHostParam(hostQ);
+  if (hostShop) return hostShop;
+
+  // 3) header Shopify (webhooks / certains contextes)
   const h = String(req.get("X-Shopify-Shop-Domain") || "").trim();
   if (h) return normalizeShopDomain(h);
 
+  // 4) env fallback
   const envShop = resolveShopFallback();
   if (envShop) return envShop;
 
-  // pas de shop => on échoue proprement
   return "";
 }
 
