@@ -1101,8 +1101,8 @@
       modal.id = "importModal";
       modal.className = "modal";
       modal.innerHTML = `
-        <div class="modal-panel">
-          <div class="modal-content modal-wide">
+<div class="modal-panel modal-wide">
+  <div class="modal-content">
             <div class="modal-head">
               <div class="modal-title">➕ Import depuis Shopify</div>
               <button class="btn btn-close" type="button" id="btnCloseImport">✖</button>

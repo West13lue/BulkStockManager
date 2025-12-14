@@ -229,6 +229,11 @@ select:focus, input:focus { border-color: rgba(130,110,196,0.55); }
   z-index: 1;
 }
 
+/* ✅ Large modals (Import Shopify) */
+.modal-panel.modal-wide{
+  width: min(980px, 96vw);
+}
+
 /* ✅ le contenu d'une modale doit scroller dans le panneau, pas sortir du cadre */
 .modal-content {
   display: flex;
