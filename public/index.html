@@ -4,7 +4,9 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>CBD Stock Manager</title>
-  <link rel="stylesheet" href="/css/style.css" />
+
+  <!-- ✅ prefix-safe (Shopify /apps/xxx/) -->
+  <link rel="stylesheet" href="./css/style.css" />
 </head>
 
 <body>
@@ -108,7 +110,6 @@
   <!-- MODAL RESTOCK         -->
   <!-- ===================== -->
   <div id="restockModal" class="modal">
-    <!-- backdrop géré par app.js (mais on garde structure propre) -->
     <div class="modal-panel">
       <div class="modal-head">
         <div class="modal-title">♻️ Réapprovisionner</div>
@@ -169,20 +170,31 @@
     </div>
   </div>
 
-  <!-- JS principal -->
-  <script src="/js/app.js"></script>
+  <!-- ✅ prefix-safe (Shopify /apps/xxx/) -->
+  <script src="./js/app.js"></script>
 
-  <!-- Mini glue : submit restock (ton app.js ne gère pas le submit du formulaire restock) -->
+  <!-- Mini glue : submit restock -->
   <script>
     (function () {
       const form = document.getElementById("restockForm");
       if (!form) return;
 
       const SHOP = new URLSearchParams(window.location.search).get("shop") || "";
+
+      // ✅ prefix-safe : si page sous /apps/<nom>/..., on préfixe toutes les routes
+      const APP_PREFIX = (() => {
+        const m = window.location.pathname.match(/^(\/apps\/[^/]+)/);
+        return m ? m[1] : "";
+      })();
+
       function apiPath(path) {
-        if (!SHOP) return path;
-        const hasQuery = String(path).includes("?");
-        return path + (hasQuery ? "&" : "?") + "shop=" + encodeURIComponent(SHOP);
+        const p = String(path || "");
+        const normalized = p.startsWith("/") ? p : "/" + p;
+        const base = APP_PREFIX + normalized;
+
+        if (!SHOP) return base;
+        const hasQuery = base.includes("?");
+        return base + (hasQuery ? "&" : "?") + "shop=" + encodeURIComponent(SHOP);
       }
 
       form.addEventListener("submit", async (e) => {
@@ -207,10 +219,9 @@
 
           if (window.closeRestockModal) window.closeRestockModal();
 
-          // Refresh léger (si app.js expose ces fonctions)
           if (window.refreshMovements) window.refreshMovements();
-          // Pas de refreshStock exposé : on reload pour être sûr.
-          location.reload();
+          if (window.refreshStock) window.refreshStock();
+          else location.reload();
         } catch (err) {
           alert("Erreur: " + err.message);
         }

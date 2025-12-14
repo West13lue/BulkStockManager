@@ -2,30 +2,39 @@
 // ============================================
 // BULK STOCK MANAGER - Front (Admin UI)
 // ✅ FIX multi-shop: ajoute automatiquement ?shop=... à toutes les routes /api
-// - Produits groupés par catégorie
-// - Modals avec backdrop (lisibilité)
-// - Catégories : assignation produit OK
-// - Ajustement stock TOTAL (+ / - en grammes)
-// - Suppression produit (config uniquement)
-// - Historique produit (date+heure, récent en haut)
-// - Historique global mouvements (refreshMovements)
+// ✅ FIX Shopify iframe /apps/<app>/... : prefix-safe pour /api, /css, /js
 // ✅ Option 2B: UI Location Shopify par boutique (settingsStore)
 //   - GET /api/shopify/locations
 //   - GET /api/settings
 //   - POST /api/settings/location
 // ✅ FIX CSS Shopify iframe:
-//   - Injecte /css/style.css via JS pour garantir son chargement
+//   - Injecte le CSS via JS + href prefix-safe (APP_PREFIX)
 // ============================================
 
 (() => {
   // ---------------- SHOP CONTEXT (Shopify) ----------------
   const SHOP = new URLSearchParams(window.location.search).get("shop") || "";
 
+  // ✅ Si la page tourne sous /apps/<nom-app>/..., on doit préfixer tous les chemins
+  const APP_PREFIX = (() => {
+    const m = window.location.pathname.match(/^(\/apps\/[^/]+)/);
+    return m ? m[1] : "";
+  })();
+
+  function withPrefix(path) {
+    const p = String(path || "");
+    if (!p) return APP_PREFIX || "";
+    const normalized = p.startsWith("/") ? p : "/" + p;
+    return (APP_PREFIX || "") + normalized;
+  }
+
+  // Ajoute ?shop=... + préfixe /apps/<app>
   function apiPath(path) {
-    if (!SHOP) return path;
-    const hasQuery = String(path).includes("?");
+    const base = withPrefix(path);
+    if (!SHOP) return base;
+    const hasQuery = base.includes("?");
     const sep = hasQuery ? "&" : "?";
-    return `${path}${sep}shop=${encodeURIComponent(SHOP)}`;
+    return `${base}${sep}shop=${encodeURIComponent(SHOP)}`;
   }
 
   async function apiFetch(path, options) {
@@ -41,17 +50,19 @@
     link.id = ID;
     link.rel = "stylesheet";
     link.type = "text/css";
-    link.href = "/css/style.css";
+    link.href = withPrefix("/css/style.css");
     link.crossOrigin = "anonymous";
 
     link.addEventListener("error", () => {
-      console.error("❌ Impossible de charger /css/style.css (vérifie public/css/style.css + express.static)");
+      console.error(
+        "❌ Impossible de charger style.css. Vérifie: public/css/style.css + app.use(express.static(PUBLIC_DIR)) + chemins prefix-safe."
+      );
     });
 
     document.head.appendChild(link);
   }
 
-  // Inject tout de suite
+  // Inject tout de suite + au load (Shopify peut modifier le head)
   injectAppCss();
 
   // ---------------- DOM / state ----------------
@@ -158,7 +169,6 @@
           </select>
         </div>
 
-        <!-- ✅ Option 2B: location selector -->
         <div class="field" style="min-width:240px;">
           <label>Location Shopify</label>
           <select id="locationSelect">
@@ -348,13 +358,15 @@
     log("⏳ Actualisation du stock...", "info");
 
     try {
-      const u = new URL(window.location.origin + "/api/stock");
-      if (SHOP) u.searchParams.set("shop", SHOP);
-      if (sortAlpha) u.searchParams.set("sort", "alpha");
-      if (currentCategoryFilter) u.searchParams.set("category", currentCategoryFilter);
+      const qs = new URLSearchParams();
+      if (sortAlpha) qs.set("sort", "alpha");
+      if (currentCategoryFilter) qs.set("category", currentCategoryFilter);
 
-      const res = await fetch(u.pathname + u.search);
+      const path = "/api/stock" + (qs.toString() ? `?${qs.toString()}` : "");
+      const res = await fetch(apiPath(path));
       const data = await safeJson(res);
+
+      if (!res.ok) throw new Error(data?.error || "Erreur /api/stock");
 
       if (data && Array.isArray(data.products)) {
         catalogData = data;
@@ -496,12 +508,12 @@
     box.innerHTML = `<div class="muted" style="padding:10px;">Chargement...</div>`;
 
     try {
-      const u = new URL(window.location.origin + "/api/movements");
-      if (SHOP) u.searchParams.set("shop", SHOP);
-      u.searchParams.set("limit", "300");
-      u.searchParams.set("days", String(days));
+      const qs = new URLSearchParams();
+      qs.set("limit", "300");
+      qs.set("days", String(days));
 
-      const res = await fetch(u.pathname + u.search);
+      const path = "/api/movements" + (qs.toString() ? `?${qs.toString()}` : "");
+      const res = await fetch(apiPath(path));
       const data = await safeJson(res);
       if (!res.ok) throw new Error(data?.error || "Erreur /api/movements");
 
@@ -934,7 +946,9 @@
     const list = el("categoriesList");
     if (!list) return;
 
-    const sorted = categories.slice().sort((a, b) => String(a.name).localeCompare(String(b.name), "fr", { sensitivity: "base" }));
+    const sorted = categories
+      .slice()
+      .sort((a, b) => String(a.name).localeCompare(String(b.name), "fr", { sensitivity: "base" }));
 
     if (!sorted.length) {
       list.innerHTML = `<div class="muted" style="padding:10px;">Aucune catégorie</div>`;
@@ -1059,12 +1073,12 @@
     results.innerHTML = `<div class="muted" style="padding:10px;">⏳ Recherche en cours...</div>`;
 
     try {
-      const u = new URL(window.location.origin + "/api/shopify/products");
-      if (SHOP) u.searchParams.set("shop", SHOP);
-      u.searchParams.set("limit", "100");
-      if (q) u.searchParams.set("query", q);
+      const qs = new URLSearchParams();
+      qs.set("limit", "100");
+      if (q) qs.set("query", q);
 
-      const res = await fetch(u.pathname + u.search);
+      const path = "/api/shopify/products" + (qs.toString() ? `?${qs.toString()}` : "");
+      const res = await fetch(apiPath(path));
       const data = await safeJson(res);
       if (!res.ok) throw new Error(data?.error || "Erreur");
 
@@ -1148,7 +1162,7 @@
     window.testOrder = testOrder;
     window.refreshMovements = refreshMovements;
 
-    // ✅ IMPORTANT: expose refreshStock to avoid reloads (restock glue, etc.)
+    // expose refreshStock for glue
     window.refreshStock = refreshStock;
   });
 })();
