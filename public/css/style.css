@@ -371,3 +371,205 @@ body.modal-open {
 @media (max-width: 520px) {
   .catalog-actions .btn { flex: 1 1 auto; }
 }
+/* ============================
+   FIX UI (import + selects + product modal readability)
+   À coller en BAS du fichier
+============================ */
+
+/* 1) Fix dropdown blanc sur blanc (options) */
+select option {
+  background: #0f1115;
+  color: rgba(255,255,255,0.92);
+}
+
+/* fallback si certains navigateurs ignorent le background des options */
+select:focus option,
+select option:checked {
+  color: rgba(255,255,255,0.92);
+}
+
+/* 2) Rendre .field générique (Import modal utilise .field mais n'était pas stylé) */
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.field label {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* 3) Import modal: toolbar + items lisibles */
+.import-toolbar {
+  margin-top: 2px;
+}
+
+.import-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.import-item:last-child {
+  border-bottom: none;
+}
+.import-main { min-width: 0; }
+.import-title {
+  font-weight: 750;
+  font-size: 13px;
+  line-height: 1.2;
+}
+.import-sub {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--muted2);
+}
+
+/* 4) Produits: grille + cartes (si pas déjà présent ailleurs) */
+.category-section { margin-top: 10px; }
+.category-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 6px 8px;
+  font-weight: 750;
+}
+.category-count {
+  font-size: 12px;
+  color: var(--muted2);
+  font-weight: 650;
+}
+
+.product-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+@media (max-width: 980px) {
+  .product-grid { grid-template-columns: 1fr; }
+}
+
+.product-item {
+  text-align: left;
+  border: 1px solid var(--border);
+  background: rgba(255,255,255,0.04);
+  color: var(--text);
+  border-radius: 14px;
+  padding: 12px;
+  cursor: pointer;
+  box-shadow: 0 8px 22px rgba(0,0,0,0.28);
+}
+.product-item:hover { background: rgba(255,255,255,0.07); }
+.product-item.low { border-color: rgba(252,165,165,0.35); }
+
+.product-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.product-name {
+  font-weight: 800;
+  font-size: 14px;
+  line-height: 1.2;
+}
+.product-stock {
+  font-weight: 850;
+  font-size: 13px;
+  white-space: nowrap;
+  color: rgba(255,255,255,0.88);
+}
+
+.stock-bar {
+  margin-top: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.08);
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,0.08);
+}
+.stock-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, rgba(130,110,196,0.9), rgba(117,68,103,0.9));
+  width: 0%;
+}
+
+/* 5) Modal produit: rendre tout plus lisible */
+#productModal .modal-content.modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Variants list */
+.variants-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+@media (max-width: 640px) {
+  .variants-list { grid-template-columns: 1fr; }
+}
+.variant-item {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px;
+  background: rgba(0,0,0,0.18);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.variant-label { font-weight: 800; }
+.variant-stock { color: var(--muted); font-size: 12px; }
+
+.variant-item.low { border-color: rgba(252,165,165,0.35); }
+.variant-item.medium { border-color: rgba(251,191,36,0.30); }
+.variant-item.high { border-color: rgba(34,197,94,0.25); }
+
+/* Catégories multi-select plus propre */
+#productCategoriesSelect {
+  min-height: 140px;
+  padding: 10px;
+}
+
+/* Historique produit / global */
+.history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 10px;
+}
+.history-item {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(0,0,0,0.16);
+}
+.h-left { min-width: 0; }
+.h-title { font-weight: 800; font-size: 13px; }
+.h-sub { font-size: 12px; color: var(--muted2); margin-top: 2px; }
+.h-delta { font-weight: 850; white-space: nowrap; }
+
+/* 6) Catégories modal list */
+.categories-list { margin-top: 12px; }
+.category-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(0,0,0,0.14);
+  margin-bottom: 10px;
+}
+.category-name { font-weight: 800; }
+.category-actions { display: flex; gap: 8px; flex-wrap: wrap; }
