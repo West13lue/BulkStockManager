@@ -47,68 +47,84 @@
     return `${base}${sep}shop=${encodeURIComponent(SHOP)}`;
   }
 
-  // ---------------- AUTH (optional) ----------------
-  // Le server peut exiger un session token Shopify (Authorization Bearer).
-  // On ne peut pas le générer "magiquement" sans App Bridge, donc on supporte :
-  // - window.__SHOPIFY_SESSION_TOKEN__ (si tu l’injectes côté embedded)
-  // - sessionStorage "shopify_session_token"
-  function getSessionTokenMaybe() {
-    try {
-      const w = window;
-      const t1 = String(w.__SHOPIFY_SESSION_TOKEN__ || "").trim();
-      if (t1) return t1;
+// ---------------- AUTH (Shopify Session Token via App Bridge) ----------------
+let _appBridgeApp = null;
+let _cfg = null;
+let _tokenCache = { token: "", ts: 0 }; // cache ~20s
 
-      const t2 = String(sessionStorage.getItem("shopify_session_token") || "").trim();
-      if (t2) return t2;
+async function loadPublicConfig() {
+  if (_cfg) return _cfg;
+  try {
+    const res = await fetch(apiPath("/api/public/config"));
+    const data = await res.json();
+    _cfg = data || {};
+  } catch {
+    _cfg = { apiKey: "", apiAuthRequired: false };
+  }
+  return _cfg;
+}
 
-      // hooks possibles si tu ajoutes ton mécanisme plus tard
-      const t3 = typeof w.getShopifySessionToken === "function" ? String(w.getShopifySessionToken() || "").trim() : "";
-      if (t3) return t3;
-    } catch {}
-    return "";
+function getHostParam() {
+  return new URLSearchParams(window.location.search).get("host") || "";
+}
+
+function ensureAppBridge(apiKey) {
+  if (_appBridgeApp) return _appBridgeApp;
+
+  const host = getHostParam();
+  if (!apiKey || !host) return null;
+
+  const AB = window["app-bridge"];
+  if (!AB || typeof AB.createApp !== "function") return null;
+
+  _appBridgeApp = AB.createApp({ apiKey, host, forceRedirect: true });
+  return _appBridgeApp;
+}
+
+async function getSessionTokenStrict() {
+  // cache 20s
+  const now = Date.now();
+  if (_tokenCache.token && now - _tokenCache.ts < 20000) return _tokenCache.token;
+
+  // fallback si déjà injecté par toi
+  const t1 = String(window.__SHOPIFY_SESSION_TOKEN__ || "").trim();
+  if (t1) return (_tokenCache = { token: t1, ts: now }).token;
+
+  const t2 = String(sessionStorage.getItem("shopify_session_token") || "").trim();
+  if (t2) return (_tokenCache = { token: t2, ts: now }).token;
+
+  const cfg = await loadPublicConfig();
+  const apiKey = String(cfg.apiKey || "").trim();
+  const app = ensureAppBridge(apiKey);
+  if (!app) return "";
+
+  const Utils = window["app-bridge-utils"];
+  if (!Utils || typeof Utils.getSessionToken !== "function") return "";
+
+  const token = await Utils.getSessionToken(app);
+  if (token) _tokenCache = { token, ts: now };
+  return token || "";
+}
+
+async function apiFetch(path, options = {}) {
+  const opts = { ...options };
+  opts.headers = new Headers(options.headers || {});
+
+  if (opts.body && !opts.headers.has("Content-Type")) {
+    opts.headers.set("Content-Type", "application/json");
   }
 
-  async function apiFetch(path, options = {}) {
-    const opts = { ...options };
-    opts.headers = new Headers(options.headers || {});
-
-    // default JSON header si body JSON (sans casser les autres)
-    if (opts.body && !opts.headers.has("Content-Type")) {
-      opts.headers.set("Content-Type", "application/json");
+  // ✅ Ajout automatique du token
+  const token = await getSessionTokenStrict();
+  if (token && !opts.headers.has("Authorization")) {
+    opts.headers.set("Authorization", `Bearer ${token}`);
+    if (!opts.headers.has("X-Shopify-Session-Token")) {
+      opts.headers.set("X-Shopify-Session-Token", token);
     }
-
-    // Authorization auto si dispo
-    const token = getSessionTokenMaybe();
-    if (token && !opts.headers.has("Authorization")) {
-      opts.headers.set("Authorization", `Bearer ${token}`);
-      // fallback header utilisé aussi côté server.js
-      if (!opts.headers.has("X-Shopify-Session-Token")) {
-        opts.headers.set("X-Shopify-Session-Token", token);
-      }
-    }
-
-    return fetch(apiPath(path), opts);
   }
 
-  function injectAppCss() {
-    const ID = "bulk-stock-manager-css";
-    if (document.getElementById(ID)) return;
-
-    const link = document.createElement("link");
-    link.id = ID;
-    link.rel = "stylesheet";
-    link.type = "text/css";
-    link.href = withPrefix("/css/style.css");
-    link.crossOrigin = "anonymous";
-
-    link.addEventListener("error", () => {
-      console.error("❌ Impossible de charger style.css");
-    });
-
-    document.head.appendChild(link);
-  }
-
-  injectAppCss();
+  return fetch(apiPath(path), opts);
+}
 
   // ---------------- STATE ----------------
   const result = document.getElementById("result");

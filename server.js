@@ -260,6 +260,20 @@ function requireApiAuth(req, res, next) {
   // Bypass dev optionnel
   if (!API_AUTH_REQUIRED) return next();
 
+function requireApiAuth(req, res, next) {
+  if (!API_AUTH_REQUIRED) return next();
+
+  // Laisse passer l’OAuth install/callback
+  if (req.path === "/api/auth/start" || req.path === "/api/auth/callback") return next();
+
+  // ✅ NOUVEAU : config publique (permet au front d'init App Bridge)
+  if (req.path === "/api/public/config") return next();
+
+  const token = extractBearerToken(req);
+  if (!token) return apiError(res, 401, "Session token manquant");
+  ...
+}
+
   // Laisse passer l’OAuth install/callback
   if (req.path === "/api/auth/start" || req.path === "/api/auth/callback") return next();
 
@@ -425,6 +439,15 @@ router.use((req, res, next) => {
   res.setHeader("Content-Security-Policy", `frame-ancestors https://admin.shopify.com ${shopDomain};`);
   next();
 });
+
+// ✅ Public config (sans session token)
+router.get("/api/public/config", (req, res) => {
+  res.json({
+    apiKey: SHOPIFY_API_KEY || "",
+    apiAuthRequired: API_AUTH_REQUIRED,
+  });
+});
+
 
 // ✅ SECURE toutes les routes /api/*
 router.use("/api", requireApiAuth);
