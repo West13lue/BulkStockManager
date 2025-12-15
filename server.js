@@ -1,5 +1,5 @@
 // server.js — PREFIX-SAFE (/apps/<slug>/...), STATIC FIX, JSON API SAFE, Multi-shop safe, Express 5 safe
-// ✅ ENRICHI avec CMP, Valeur stock, Stats catégories, Suppression mouvements
+// ✅ ENRICHI avec CMP, Valeur stock, Stats catégories, Suppression mouvements (stub)
 // ✅ + OAuth Shopify (Partner) : /api/auth/start + /api/auth/callback
 // ✅ + SECURE /api/* (App Store) via Shopify Session Token (JWT HS256)
 
@@ -12,7 +12,7 @@ const path = require("path");
 const crypto = require("crypto");
 const fs = require("fs");
 
-// ✅ OAuth token store
+// ✅ OAuth token store (Render disk)
 const tokenStore = require("./utils/tokenStore");
 
 // --- logger (compat : ./utils/logger OU ./logger)
@@ -38,7 +38,7 @@ const catalogStore = require("./catalogStore");
 // --- Movements (multi-shop)
 const movementStore = require("./movementStore");
 
-// --- Settings (multi-shop) : locationId par boutique (Option 2B)
+// --- Settings (multi-shop) : locationId par boutique
 let settingsStore = null;
 try {
   settingsStore = require("./settingsStore");
@@ -146,10 +146,9 @@ function verifyOAuthHmac(query) {
     .join("&");
 
   const digest = crypto.createHmac("sha256", SHOPIFY_API_SECRET).update(message).digest("hex");
-
   const hmacStr = String(hmac);
-  if (hmacStr.length !== digest.length) return false;
 
+  if (hmacStr.length !== digest.length) return false;
   try {
     return crypto.timingSafeEqual(Buffer.from(digest, "utf8"), Buffer.from(hmacStr, "utf8"));
   } catch {
@@ -160,9 +159,10 @@ function verifyOAuthHmac(query) {
 function requireOAuthEnv(res) {
   if (!SHOPIFY_API_KEY) return apiError(res, 500, "SHOPIFY_API_KEY manquant");
   if (!SHOPIFY_API_SECRET) return apiError(res, 500, "SHOPIFY_API_SECRET manquant");
-  if (!OAUTH_SCOPES) return apiError(res, 500, "SHOPIFY_SCOPES manquant (ex: read_products,write_inventory,...)");
+  if (!OAUTH_SCOPES)
+    return apiError(res, 500, "SHOPIFY_SCOPES manquant (ex: read_products,write_inventory,...)");
   if (!process.env.RENDER_PUBLIC_URL) {
-    return apiError(res, 500, "RENDER_PUBLIC_URL manquant (ex: https://stock-cbd-manager-1.onrender.com)");
+    return apiError(res, 500, "RENDER_PUBLIC_URL manquant (ex: https://stock-cbd-manager.onrender.com)");
   }
   return null;
 }
@@ -179,12 +179,10 @@ function base64UrlToBuffer(str) {
 }
 
 function parseShopFromDestOrIss(payload) {
-  // dest: "https://xxx.myshopify.com"
-  const dest = String(payload?.dest || "").trim();
+  const dest = String(payload?.dest || "").trim(); // "https://xxx.myshopify.com"
   if (dest) return normalizeShopDomain(dest);
 
-  // iss: "https://xxx.myshopify.com/admin"
-  const iss = String(payload?.iss || "").trim();
+  const iss = String(payload?.iss || "").trim(); // "https://xxx.myshopify.com/admin"
   if (iss) {
     const noProto = iss.replace(/^https?:\/\//i, "");
     const domain = noProto.split("/")[0].trim();
@@ -211,12 +209,11 @@ function verifySessionToken(token) {
     return { ok: false, error: "JWT illisible" };
   }
 
-  // Shopify session tokens are HS256
   if (String(header?.alg || "") !== "HS256") return { ok: false, error: "JWT alg non supporté" };
 
-  // Signature check (HMAC SHA256)
+  // Signature check
   const signingInput = `${h64}.${p64}`;
-  const expected = crypto.createHmac("sha256", SHOPIFY_API_SECRET).update(signingInput).digest(); // Buffer (32)
+  const expected = crypto.createHmac("sha256", SHOPIFY_API_SECRET).update(signingInput).digest();
   const got = base64UrlToBuffer(s64);
 
   if (got.length !== expected.length) return { ok: false, error: "JWT signature invalide" };
@@ -226,7 +223,6 @@ function verifySessionToken(token) {
     return { ok: false, error: "JWT signature invalide" };
   }
 
-  // Basic claims checks
   const now = Math.floor(Date.now() / 1000);
 
   const exp = Number(payload?.exp);
@@ -249,7 +245,6 @@ function extractBearerToken(req) {
   const auth = String(req.get("Authorization") || "").trim();
   if (auth.toLowerCase().startsWith("bearer ")) return auth.slice(7).trim();
 
-  // fallback header (pratique côté fetch)
   const x = String(req.get("X-Shopify-Session-Token") || "").trim();
   if (x) return x;
 
@@ -257,25 +252,13 @@ function extractBearerToken(req) {
 }
 
 function requireApiAuth(req, res, next) {
-  // Bypass dev optionnel
-  if (!API_AUTH_REQUIRED) return next();
-
-function requireApiAuth(req, res, next) {
   if (!API_AUTH_REQUIRED) return next();
 
   // Laisse passer l’OAuth install/callback
-  if (req.path === "/api/auth/start" || req.path === "/api/auth/callback") return next();
+  if (req.path === "/auth/start" || req.path === "/auth/callback") return next();
 
-  // ✅ NOUVEAU : config publique (permet au front d'init App Bridge)
-  if (req.path === "/api/public/config") return next();
-
-  const token = extractBearerToken(req);
-  if (!token) return apiError(res, 401, "Session token manquant");
-  ...
-}
-
-  // Laisse passer l’OAuth install/callback
-  if (req.path === "/api/auth/start" || req.path === "/api/auth/callback") return next();
+  // ✅ config publique (front App Bridge)
+  if (req.path === "/public/config") return next();
 
   const token = extractBearerToken(req);
   if (!token) return apiError(res, 401, "Session token manquant");
@@ -286,7 +269,6 @@ function requireApiAuth(req, res, next) {
   const shop = parseShopFromDestOrIss(verified.payload);
   if (!shop) return apiError(res, 401, "Shop introuvable dans le session token");
 
-  // ✅ inject shop + payload (utile partout)
   req.shopDomain = shop;
   req.sessionTokenPayload = verified.payload;
 
@@ -448,7 +430,6 @@ router.get("/api/public/config", (req, res) => {
   });
 });
 
-
 // ✅ SECURE toutes les routes /api/*
 router.use("/api", requireApiAuth);
 
@@ -550,8 +531,7 @@ router.post("/api/settings/location", (req, res) => {
     const locationId = Number(req.body?.locationId);
     if (!Number.isFinite(locationId) || locationId <= 0) return apiError(res, 400, "locationId invalide");
 
-    const saved =
-      (settingsStore?.setLocationId && settingsStore.setLocationId(shop, locationId)) || { locationId };
+    const saved = (settingsStore?.setLocationId && settingsStore.setLocationId(shop, locationId)) || { locationId };
 
     _cachedLocationIdByShop.delete(String(shop).trim().toLowerCase());
     res.json({ success: true, shop, settings: saved });
@@ -693,10 +673,7 @@ router.put("/api/categories/:id", (req, res) => {
 
     const updated = catalogStore.renameCategory(shop, id, name);
     if (movementStore.addMovement) {
-      movementStore.addMovement(
-        { source: "category_rename", gramsDelta: 0, meta: { categoryId: id, name }, shop },
-        shop
-      );
+      movementStore.addMovement({ source: "category_rename", gramsDelta: 0, meta: { categoryId: id, name }, shop }, shop);
     }
 
     res.json({ success: true, category: updated });
@@ -770,16 +747,10 @@ router.get("/api/movements.csv", (req, res) => {
   });
 });
 
+// stub suppression mouvements
 router.delete("/api/movements/:id", (req, res) => {
-  safeJson(res, async () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-
-    const movementId = String(req.params.id || "");
-    if (!movementId) return apiError(res, 400, "ID de mouvement manquant");
-
-    const mode = String(req.query.mode || "hide");
-    return apiError(res, 501, "Suppression de mouvements non encore implémentée dans movementStore. Voir documentation.");
+  safeJson(res, () => {
+    return apiError(res, 501, "Suppression de mouvements non encore implémentée dans movementStore.");
   });
 });
 
@@ -858,20 +829,22 @@ router.patch("/api/products/:productId/average-cost", (req, res) => {
       return apiError(res, 400, "averageCostPerGram invalide (ex: 4.50)");
     }
 
-    const store = stock.PRODUCT_CONFIG_BY_SHOP?.get(shop);
-    if (!store) return apiError(res, 500, "Store introuvable");
+    // product config store (Map shop -> object)
+    const storeObj = stock.PRODUCT_CONFIG_BY_SHOP?.get(shop);
+    if (!storeObj) return apiError(res, 500, "Store introuvable");
 
-    const cfg = store[productId];
+    const cfg = storeObj[productId];
     if (!cfg) return apiError(res, 404, "Produit introuvable");
 
     const oldCost = cfg.averageCostPerGram || 0;
     cfg.averageCostPerGram = averageCostPerGram;
 
+    // persist (via stockState directly, comme tu avais)
     const stockStateMod = require("./stockState");
     const saveState = stockStateMod?.saveState;
     if (saveState) {
       const products = {};
-      for (const [pid, p] of Object.entries(store)) {
+      for (const [pid, p] of Object.entries(storeObj)) {
         products[pid] = {
           name: p.name,
           totalGrams: p.totalGrams,
@@ -880,11 +853,7 @@ router.patch("/api/products/:productId/average-cost", (req, res) => {
           variants: p.variants || {},
         };
       }
-      saveState(shop, {
-        version: 2,
-        updatedAt: new Date().toISOString(),
-        products,
-      });
+      saveState(shop, { version: 2, updatedAt: new Date().toISOString(), products });
     }
 
     if (movementStore.addMovement) {
@@ -894,10 +863,7 @@ router.patch("/api/products/:productId/average-cost", (req, res) => {
           productId,
           productName: cfg.name,
           gramsDelta: 0,
-          meta: {
-            oldAverageCost: oldCost,
-            newAverageCost: averageCostPerGram,
-          },
+          meta: { oldAverageCost: oldCost, newAverageCost: averageCostPerGram },
           shop,
         },
         shop
@@ -907,8 +873,8 @@ router.patch("/api/products/:productId/average-cost", (req, res) => {
     logEvent("average_cost_manual_update", {
       shop,
       productId,
-      oldCost: oldCost.toFixed(2),
-      newCost: averageCostPerGram.toFixed(2),
+      oldCost: Number(oldCost).toFixed(2),
+      newCost: Number(averageCostPerGram).toFixed(2),
     });
 
     res.json({
@@ -1033,14 +999,7 @@ router.post("/api/import/product", (req, res) => {
 
     if (movementStore.addMovement) {
       movementStore.addMovement(
-        {
-          source: "import_shopify_product",
-          productId: String(p.id),
-          productName: imported.name,
-          gramsDelta: 0,
-          meta: { categoryIds },
-          shop,
-        },
+        { source: "import_shopify_product", productId: String(p.id), productName: imported.name, gramsDelta: 0, meta: { categoryIds }, shop },
         shop
       );
     }
@@ -1089,11 +1048,7 @@ router.post("/api/restock", (req, res) => {
       );
     }
 
-    res.json({
-      success: true,
-      product: updated,
-      cmpUpdated: purchasePricePerGram > 0,
-    });
+    res.json({ success: true, product: updated, cmpUpdated: purchasePricePerGram > 0 });
   });
 });
 
@@ -1129,14 +1084,7 @@ router.post("/api/test-order", (req, res) => {
 
     if (movementStore.addMovement) {
       movementStore.addMovement(
-        {
-          source: "test_order",
-          productId,
-          productName: updated.name,
-          gramsDelta: -Math.abs(grams),
-          totalAfter: updated.totalGrams,
-          shop,
-        },
+        { source: "test_order", productId, productName: updated.name, gramsDelta: -Math.abs(grams), totalAfter: updated.totalGrams, shop },
         shop
       );
     }
@@ -1180,7 +1128,6 @@ router.get("/api/auth/callback", (req, res) => {
 
     const shop = getShop(req);
     if (!shop) return apiError(res, 400, "Shop introuvable (callback)");
-
     if (!verifyOAuthHmac(req.query)) return apiError(res, 401, "HMAC invalide");
 
     const expected = _oauthStateByShop.get(shop.toLowerCase());
@@ -1191,7 +1138,11 @@ router.get("/api/auth/callback", (req, res) => {
     const code = String(req.query?.code || "");
     if (!code) return apiError(res, 400, "Code OAuth manquant");
 
-    const tokenRes = await fetch(`https://${shop}/admin/oauth/access_token`, {
+    // Node 18+ : fetch global. Sinon, tu peux installer node-fetch.
+    const doFetch = typeof fetch === "function" ? fetch : null;
+    if (!doFetch) return apiError(res, 500, "fetch non disponible (Node < 18). Installe node-fetch ou upgrade Node.");
+
+    const tokenRes = await doFetch(`https://${shop}/admin/oauth/access_token`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -1228,6 +1179,7 @@ router.use((err, req, res, next) => {
   next(err);
 });
 
+// Front SPA
 router.get("/", (req, res) => res.sendFile(INDEX_HTML));
 router.get(/^\/(?!api\/|webhooks\/|health|css\/|js\/).*/, (req, res) => res.sendFile(INDEX_HTML));
 
@@ -1306,6 +1258,7 @@ app.post("/webhooks/orders/create", express.raw({ type: "application/json" }), a
   }
 });
 
+// Mount router en "prefix-safe"
 app.use("/", router);
 app.use("/apps/:appSlug", router);
 

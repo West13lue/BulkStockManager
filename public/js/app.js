@@ -74,10 +74,17 @@ function ensureAppBridge(apiKey) {
   const host = getHostParam();
   if (!apiKey || !host) return null;
 
-  const AB = window["app-bridge"];
-  if (!AB || typeof AB.createApp !== "function") return null;
+  // CDN UMD peut exposer plusieurs formes selon version/build
+  const ABGlobal = window["app-bridge"] || window.AppBridge || window.shopifyAppBridge || null;
 
-  _appBridgeApp = AB.createApp({ apiKey, host, forceRedirect: true });
+  const createApp =
+    (ABGlobal && typeof ABGlobal.createApp === "function" && ABGlobal.createApp) ||
+    (ABGlobal && ABGlobal.default && typeof ABGlobal.default.createApp === "function" && ABGlobal.default.createApp) ||
+    null;
+
+  if (!createApp) return null;
+
+  _appBridgeApp = createApp({ apiKey, host, forceRedirect: true });
   return _appBridgeApp;
 }
 
