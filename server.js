@@ -214,9 +214,9 @@ function verifySessionToken(token) {
   // Shopify session tokens are HS256
   if (String(header?.alg || "") !== "HS256") return { ok: false, error: "JWT alg non supporté" };
 
-  // Signature check
+  // Signature check (HMAC SHA256)
   const signingInput = `${h64}.${p64}`;
-  const expected = crypto.createHmac("sha256", SHOPIFY_API_SECRET).update(signingInput).digest(); // Buffer
+  const expected = crypto.createHmac("sha256", SHOPIFY_API_SECRET).update(signingInput).digest(); // Buffer (32)
   const got = base64UrlToBuffer(s64);
 
   if (got.length !== expected.length) return { ok: false, error: "JWT signature invalide" };
@@ -403,8 +403,10 @@ function findGramsPerUnitByInventoryItemId(productView, inventoryItemId) {
 // =====================================================
 const router = express.Router();
 
+// JSON (uniquement /api)
 router.use("/api", express.json({ limit: "2mb" }));
 
+// CORS (simple)
 router.use((req, res, next) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
@@ -416,6 +418,7 @@ router.use((req, res, next) => {
   next();
 });
 
+// CSP frame-ancestors (admin + shop)
 router.use((req, res, next) => {
   const envShopName = String(process.env.SHOP_NAME || "").trim();
   const shopDomain = envShopName ? `https://${normalizeShopDomain(envShopName)}` : "*";
@@ -423,11 +426,12 @@ router.use((req, res, next) => {
   next();
 });
 
-// ✅ SECURE TOUTES LES ROUTES /api/*
+// ✅ SECURE toutes les routes /api/*
 router.use("/api", requireApiAuth);
 
 router.get("/health", (req, res) => res.status(200).send("ok"));
 
+// Static
 if (fileExists(PUBLIC_DIR)) router.use(express.static(PUBLIC_DIR));
 router.use(express.static(ROOT_DIR, { index: false }));
 
@@ -572,7 +576,7 @@ router.get("/api/stock", (req, res) => {
   });
 });
 
-// ✅ NOUVEAU : Valeur totale du stock
+// ✅ Valeur totale du stock
 router.get("/api/stock/value", (req, res) => {
   safeJson(res, () => {
     const shop = getShop(req);
@@ -587,7 +591,7 @@ router.get("/api/stock/value", (req, res) => {
   });
 });
 
-// ✅ NOUVEAU : Statistiques par catégorie
+// ✅ Stats par catégorie
 router.get("/api/stats/categories", (req, res) => {
   safeJson(res, () => {
     const shop = getShop(req);
@@ -705,7 +709,6 @@ router.get("/api/movements", (req, res) => {
   });
 });
 
-// ✅ ENRICHI : Export CSV mouvements avec purchasePricePerGram
 router.get("/api/movements.csv", (req, res) => {
   safeJson(res, () => {
     const shop = getShop(req);
@@ -744,7 +747,6 @@ router.get("/api/movements.csv", (req, res) => {
   });
 });
 
-// ✅ NOUVEAU : Suppression/annulation d'un mouvement
 router.delete("/api/movements/:id", (req, res) => {
   safeJson(res, async () => {
     const shop = getShop(req);
@@ -754,9 +756,6 @@ router.delete("/api/movements/:id", (req, res) => {
     if (!movementId) return apiError(res, 400, "ID de mouvement manquant");
 
     const mode = String(req.query.mode || "hide");
-
-    // Note: Cette route nécessite l'implémentation de hideMovement ou deleteMovement dans movementStore
-    // Pour l'instant on retourne une erreur explicite
     return apiError(res, 501, "Suppression de mouvements non encore implémentée dans movementStore. Voir documentation.");
   });
 });
@@ -776,7 +775,6 @@ router.get("/api/products/:productId/history", (req, res) => {
   });
 });
 
-// ✅ ENRICHI : Ajustement total avec prix d'achat optionnel
 router.post("/api/products/:productId/adjust-total", (req, res) => {
   safeJson(res, async () => {
     const shop = getShop(req);
@@ -825,7 +823,6 @@ router.post("/api/products/:productId/adjust-total", (req, res) => {
   });
 });
 
-// ✅ NOUVEAU : Mise à jour manuelle du prix moyen
 router.patch("/api/products/:productId/average-cost", (req, res) => {
   safeJson(res, () => {
     const shop = getShop(req);
@@ -1029,7 +1026,6 @@ router.post("/api/import/product", (req, res) => {
   });
 });
 
-// ✅ ENRICHI : Restock avec prix d'achat pour CMP
 router.post("/api/restock", (req, res) => {
   safeJson(res, async () => {
     const shop = getShop(req);
@@ -1130,7 +1126,6 @@ router.post("/api/test-order", (req, res) => {
 // OAuth Shopify (Partner)
 // =====================
 
-// 1) Start install/auth
 router.get("/api/auth/start", (req, res) => {
   safeJson(res, () => {
     const missing = requireOAuthEnv(res);
@@ -1155,7 +1150,6 @@ router.get("/api/auth/start", (req, res) => {
   });
 });
 
-// 2) Callback
 router.get("/api/auth/callback", (req, res) => {
   safeJson(res, async () => {
     const missing = requireOAuthEnv(res);
@@ -1164,10 +1158,8 @@ router.get("/api/auth/callback", (req, res) => {
     const shop = getShop(req);
     if (!shop) return apiError(res, 400, "Shop introuvable (callback)");
 
-    // HMAC check (Shopify)
     if (!verifyOAuthHmac(req.query)) return apiError(res, 401, "HMAC invalide");
 
-    // State check
     const expected = _oauthStateByShop.get(shop.toLowerCase());
     const got = String(req.query?.state || "");
     if (!expected || got !== expected) return apiError(res, 401, "State invalide");
@@ -1176,7 +1168,6 @@ router.get("/api/auth/callback", (req, res) => {
     const code = String(req.query?.code || "");
     if (!code) return apiError(res, 400, "Code OAuth manquant");
 
-    // Exchange code -> access_token
     const tokenRes = await fetch(`https://${shop}/admin/oauth/access_token`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1194,7 +1185,6 @@ router.get("/api/auth/callback", (req, res) => {
 
     tokenStore.saveToken(shop, tokenJson.access_token, { scope: tokenJson.scope });
 
-    // Petit écran OK + lien retour
     res.type("html").send(`
       <div style="font-family:system-ui;padding:24px">
         <h2>✅ OAuth OK</h2>
@@ -1297,6 +1287,6 @@ app.use("/", router);
 app.use("/apps/:appSlug", router);
 
 app.listen(PORT, "0.0.0.0", () => {
-  logEvent("server_started", { port: PORT, indexHtml: INDEX_HTML });
+  logEvent("server_started", { port: PORT, indexHtml: INDEX_HTML, apiAuthRequired: API_AUTH_REQUIRED });
   console.log("✅ Server running on port", PORT);
 });

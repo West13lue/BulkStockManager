@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Bulk Stock Manager</title>
 
-  <!-- Lien vers le CSS optimisé -->
-  <link rel="stylesheet" href="./css/style.css" />
+  <!-- ✅ IMPORTANT : on met l’ID attendu par app.js pour éviter un double chargement -->
+  <link id="bulk-stock-manager-css" rel="stylesheet" href="./css/style.css" />
 </head>
 
 <body>
@@ -192,79 +192,7 @@
     </div>
   </div>
 
-  <!-- Lien vers app.js (prefix-safe pour Shopify) -->
-  <script src="./js/app.js"></script>
-
-  <!-- Mini glue : submit restock -->
-  <script>
-    (function () {
-      const form = document.getElementById("restockForm");
-      if (!form) return;
-
-      const SHOP = new URLSearchParams(window.location.search).get("shop") || "";
-
-      // Prefix-safe : si page sous /apps/<nom>/..., on préfixe toutes les routes
-      const APP_PREFIX = (() => {
-        const m = window.location.pathname.match(/^(\/apps\/[^/]+)/);
-        return m ? m[1] : "";
-      })();
-
-      function apiPath(path) {
-        const p = String(path || "");
-        const normalized = p.startsWith("/") ? p : "/" + p;
-        const base = APP_PREFIX + normalized;
-
-        if (!SHOP) return base;
-        const hasQuery = base.includes("?");
-        return base + (hasQuery ? "&" : "?") + "shop=" + encodeURIComponent(SHOP);
-      }
-
-      form.addEventListener("submit", async (e) => {
-        e.preventDefault();
-
-        const productId = document.getElementById("productSelect").value;
-        const grams = Number(document.getElementById("restockGrams").value);
-        const purchasePricePerGram = Number(document.getElementById("restockPurchasePrice")?.value || 0);
-
-        if (!productId || !grams || grams <= 0) return;
-
-        try {
-          const body = { productId, grams };
-          
-          // ✅ NOUVEAU : Inclure le prix d'achat si fourni
-          if (purchasePricePerGram > 0) {
-            body.purchasePricePerGram = purchasePricePerGram;
-          }
-
-          const res = await fetch(apiPath("/api/restock"), {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(body)
-          });
-
-          const ct = res.headers.get("content-type") || "";
-          const data = ct.includes("application/json") ? await res.json() : { error: await res.text() };
-
-          if (!res.ok) throw new Error(data?.error || "Erreur restock");
-
-          // ✅ NOUVEAU : Message de succès avec info CMP
-          const message = data.cmpUpdated 
-            ? `✅ Stock réapprovisionné (+${grams}g) - CMP mis à jour`
-            : `✅ Stock réapprovisionné (+${grams}g)`;
-          
-          if (window.log) window.log(message, "success");
-
-          if (window.closeRestockModal) window.closeRestockModal();
-
-          if (window.refreshMovements) window.refreshMovements();
-          if (window.refreshStock) window.refreshStock();
-          else location.reload();
-        } catch (err) {
-          alert("Erreur: " + err.message);
-          if (window.log) window.log("❌ Erreur restock: " + err.message, "error");
-        }
-      });
-    })();
-  </script>
+  <!-- ✅ defer pour être sûr que le DOM est prêt -->
+  <script src="./js/app.js" defer></script>
 </body>
 </html>

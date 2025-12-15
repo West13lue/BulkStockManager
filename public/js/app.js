@@ -1,10 +1,15 @@
-// public/js/app.js - ENRICHI
+// public/js/app.js - ENRICHI + FIXES
 // ✅ NOUVEAUTÉS :
 //    - Carte "Valeur totale du stock"
 //    - Barre de répartition par catégorie
 //    - Formulaire restock avec prix d'achat (CMP)
 //    - Feedback visuel coloré selon type de mouvement
 //    - Affichage du CMP dans les produits
+// ✅ FIXES :
+//    - window.log exposé (utilisé par le script inline index.html)
+//    - apiFetch centralisé + Authorization auto si token dispo
+//    - refreshMovements auto quand #movementsDays change
+//    - restockForm bind safe (n’empêche pas ton script inline)
 
 (() => {
   // ---------------- SHOP CONTEXT ----------------
@@ -42,8 +47,47 @@
     return `${base}${sep}shop=${encodeURIComponent(SHOP)}`;
   }
 
-  async function apiFetch(path, options) {
-    return fetch(apiPath(path), options);
+  // ---------------- AUTH (optional) ----------------
+  // Le server peut exiger un session token Shopify (Authorization Bearer).
+  // On ne peut pas le générer "magiquement" sans App Bridge, donc on supporte :
+  // - window.__SHOPIFY_SESSION_TOKEN__ (si tu l’injectes côté embedded)
+  // - sessionStorage "shopify_session_token"
+  function getSessionTokenMaybe() {
+    try {
+      const w = window;
+      const t1 = String(w.__SHOPIFY_SESSION_TOKEN__ || "").trim();
+      if (t1) return t1;
+
+      const t2 = String(sessionStorage.getItem("shopify_session_token") || "").trim();
+      if (t2) return t2;
+
+      // hooks possibles si tu ajoutes ton mécanisme plus tard
+      const t3 = typeof w.getShopifySessionToken === "function" ? String(w.getShopifySessionToken() || "").trim() : "";
+      if (t3) return t3;
+    } catch {}
+    return "";
+  }
+
+  async function apiFetch(path, options = {}) {
+    const opts = { ...options };
+    opts.headers = new Headers(options.headers || {});
+
+    // default JSON header si body JSON (sans casser les autres)
+    if (opts.body && !opts.headers.has("Content-Type")) {
+      opts.headers.set("Content-Type", "application/json");
+    }
+
+    // Authorization auto si dispo
+    const token = getSessionTokenMaybe();
+    if (token && !opts.headers.has("Authorization")) {
+      opts.headers.set("Authorization", `Bearer ${token}`);
+      // fallback header utilisé aussi côté server.js
+      if (!opts.headers.has("X-Shopify-Session-Token")) {
+        opts.headers.set("X-Shopify-Session-Token", token);
+      }
+    }
+
+    return fetch(apiPath(path), opts);
   }
 
   function injectAppCss() {
@@ -102,16 +146,20 @@
   function log(message, type = "info") {
     const timestamp = new Date().toLocaleTimeString("fr-FR");
     if (!result) return;
+
     result.textContent = `[${timestamp}] ${message}`;
-    
-    // ✅ NOUVEAU : Feedback visuel coloré
+
+    // ✅ Feedback visuel coloré
     result.className = "result-content";
     if (type === "success") result.classList.add("success");
     if (type === "error") result.classList.add("error");
     if (type === "info") result.classList.add("info");
-    
+
     result.scrollTop = result.scrollHeight;
   }
+
+  // ✅ IMPORTANT: exposé pour ton script inline index.html
+  window.log = log;
 
   function formatDateTime(ts) {
     if (!ts) return "";
@@ -121,10 +169,11 @@
   }
 
   function formatCurrency(value) {
+    const n = Number(value || 0);
     return new Intl.NumberFormat("fr-FR", {
       style: "currency",
       currency: "EUR",
-    }).format(value);
+    }).format(n);
   }
 
   async function safeJson(res) {
@@ -259,15 +308,17 @@
       if (!v) return;
       await saveLocationId(v);
     });
+
+    // ✅ refresh mouvements auto quand l’utilisateur change la période
+    el("movementsDays")?.addEventListener("change", () => refreshMovements());
   }
 
-  // ---------------- ✅ NOUVEAU : VALEUR TOTALE DU STOCK ----------------
+  // ---------------- ✅ VALEUR TOTALE DU STOCK ----------------
   async function refreshStockValue() {
     try {
       const res = await apiFetch("/api/stock/value");
       const data = await safeJson(res);
       if (!res.ok) throw new Error(data?.error || "Erreur /api/stock/value");
-
       stockValue = data || { totalValue: 0, currency: "EUR", products: [] };
       displayStockValue();
     } catch (e) {
@@ -277,37 +328,35 @@
 
   function displayStockValue() {
     let card = el("stockValueCard");
-    if (!card) {
-      const statsGrid = document.querySelector(".stats-grid");
-      if (!statsGrid) return;
+    const statsGrid = document.querySelector(".stats-grid");
+    if (!statsGrid) return;
 
+    if (!card) {
       card = document.createElement("div");
       card.id = "stockValueCard";
       card.className = "card";
-      card.style.gridColumn = "span 3"; // Prend toute la largeur
+      card.style.gridColumn = "span 3";
       statsGrid.appendChild(card);
     }
 
-    const value = stockValue.totalValue || 0;
-    const currency = stockValue.currency || "EUR";
+    const value = Number(stockValue.totalValue || 0);
 
     card.innerHTML = `
       <div class="card-title">💰 Valeur totale du stock</div>
       <div class="card-sub">Coût réel de l'inventaire (CMP)</div>
-      <div class="card-value" style="color: var(--success);">${formatCurrency(value)}</div>
+      <div class="card-value" style="color: var(--success); -webkit-text-fill-color: unset;">${formatCurrency(value)}</div>
       <div class="card-foot">
         Basé sur le coût moyen pondéré de ${stockValue.products?.length || 0} produit(s)
       </div>
     `;
   }
 
-  // ---------------- ✅ NOUVEAU : BARRE DE RÉPARTITION PAR CATÉGORIE ----------------
+  // ---------------- ✅ RÉPARTITION PAR CATÉGORIE ----------------
   async function refreshCategoryStats() {
     try {
       const res = await apiFetch("/api/stats/categories");
       const data = await safeJson(res);
       if (!res.ok) throw new Error(data?.error || "Erreur /api/stats/categories");
-
       categoryStats = data || { totalGrams: 0, categories: [] };
       displayCategoryBar();
     } catch (e) {
@@ -317,10 +366,10 @@
 
   function displayCategoryBar() {
     let container = el("categoryBarContainer");
-    if (!container) {
-      const statsGrid = document.querySelector(".stats-grid");
-      if (!statsGrid) return;
+    const statsGrid = document.querySelector(".stats-grid");
+    if (!statsGrid) return;
 
+    if (!container) {
       container = document.createElement("div");
       container.id = "categoryBarContainer";
       container.className = "card";
@@ -329,9 +378,9 @@
     }
 
     const cats = categoryStats.categories || [];
-    const total = categoryStats.totalGrams || 0;
+    const total = Number(categoryStats.totalGrams || 0);
 
-    if (!cats.length || total === 0) {
+    if (!cats.length || total <= 0) {
       container.innerHTML = `
         <div class="card-title">📊 Répartition du stock par catégorie</div>
         <div class="hint" style="margin-top: 12px;">Aucune donnée disponible</div>
@@ -339,27 +388,29 @@
       return;
     }
 
-    // Palette de couleurs pour les catégories
     const colors = [
-      "#8b7fc8", // violet
-      "#10b981", // vert
-      "#f59e0b", // orange
-      "#ef4444", // rouge
-      "#3b82f6", // bleu
-      "#ec4899", // rose
-      "#14b8a6", // turquoise
-      "#f97316", // orange foncé
+      "#8b7fc8",
+      "#10b981",
+      "#f59e0b",
+      "#ef4444",
+      "#3b82f6",
+      "#ec4899",
+      "#14b8a6",
+      "#f97316",
     ];
 
     const legend = cats
       .map((cat, i) => {
         const color = colors[i % colors.length];
-        const percent = cat.percentage || 0;
+        const percent = Number(cat.percentage || 0);
+        const grams = Number(cat.totalGrams || 0);
         return `
-          <div style="display: flex; align-items: center; gap: 8px;">
-            <div style="width: 16px; height: 16px; background: ${color}; border-radius: 4px;"></div>
-            <span style="font-size: 13px; font-weight: 600;">${escapeHtml(cat.categoryName)}</span>
-            <span style="font-size: 12px; color: var(--text-secondary); margin-left: auto;">${percent.toFixed(1)}% (${cat.totalGrams}g)</span>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <div style="width:16px; height:16px; background:${color}; border-radius:4px;"></div>
+            <span style="font-size:13px; font-weight:600;">${escapeHtml(cat.categoryName)}</span>
+            <span style="font-size:12px; color: var(--text-secondary); margin-left:auto;">${percent.toFixed(
+              1
+            )}% (${grams}g)</span>
           </div>
         `;
       })
@@ -368,22 +419,24 @@
     const barSegments = cats
       .map((cat, i) => {
         const color = colors[i % colors.length];
-        const percent = cat.percentage || 0;
-        return `<div style="width: ${percent}%; background: ${color}; height: 100%; transition: var(--transition);" title="${escapeHtml(cat.categoryName)}: ${percent.toFixed(1)}%"></div>`;
+        const percent = Number(cat.percentage || 0);
+        return `<div style="width:${percent}%; background:${color}; height:100%;" title="${escapeHtml(
+          cat.categoryName
+        )}: ${percent.toFixed(1)}%"></div>`;
       })
       .join("");
 
     container.innerHTML = `
       <div class="card-title">📊 Répartition du stock par catégorie</div>
       <div class="card-sub">Total: ${total}g répartis en ${cats.length} catégorie(s)</div>
-      
-      <div style="margin: 16px 0;">
-        <div style="height: 32px; border-radius: var(--radius-md); overflow: hidden; display: flex; background: var(--surface);">
+
+      <div style="margin:16px 0;">
+        <div style="height:32px; border-radius: var(--radius-md); overflow:hidden; display:flex; background: var(--surface); border: 1px solid var(--border);">
           ${barSegments}
         </div>
       </div>
 
-      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-top: 16px;">
+      <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:12px; margin-top:16px;">
         ${legend}
       </div>
     `;
@@ -464,7 +517,7 @@
       if (!res.ok) throw new Error(data?.error || "Erreur /api/settings");
       currentLocationId = Number(data?.settings?.locationId || 0) || null;
       renderLocationSelect();
-    } catch (e) {
+    } catch {
       currentLocationId = null;
       renderLocationSelect();
     }
@@ -474,7 +527,6 @@
     try {
       const res = await apiFetch("/api/settings/location", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ locationId }),
       });
       const data = await safeJson(res);
@@ -541,7 +593,7 @@
       if (currentCategoryFilter) qs.set("category", currentCategoryFilter);
 
       const path = "/api/stock" + (qs.toString() ? `?${qs.toString()}` : "");
-      const res = await fetch(apiPath(path));
+      const res = await apiFetch(path);
       const data = await safeJson(res);
 
       if (!res.ok) throw new Error(data?.error || "Erreur /api/stock");
@@ -555,7 +607,7 @@
           map[p.productId] = {
             name: p.name,
             totalGrams: p.totalGrams,
-            averageCostPerGram: p.averageCostPerGram || 0, // ✅ NOUVEAU
+            averageCostPerGram: p.averageCostPerGram || 0,
             variants: p.variants || {},
             categoryIds: p.categoryIds || [],
           };
@@ -566,7 +618,6 @@
         displayProductsGrouped(stockData);
         updateStats(stockData);
 
-        // ✅ NOUVEAU : Rafraîchir valeur et stats
         await refreshStockValue();
         await refreshCategoryStats();
 
@@ -577,10 +628,10 @@
       stockData = data || {};
       displayProductsGrouped(stockData);
       updateStats(stockData);
-      
+
       await refreshStockValue();
       await refreshCategoryStats();
-      
+
       log("✅ Stock actualisé", "success");
     } catch (err) {
       log("❌ ERREUR: " + err.message, "error");
@@ -650,10 +701,12 @@
             const percent = Math.max(0, Math.min(100, Math.round((total / 200) * 100)));
             const lowClass = total <= Number(serverInfo?.lowStockThreshold || 10) ? " low" : "";
 
-            // ✅ NOUVEAU : Affichage du CMP
-            const costBadge = avgCost > 0 
-              ? `<div style="font-size: 11px; color: var(--text-tertiary); margin-top: 4px;">CMP: ${avgCost.toFixed(2)}€/g</div>`
-              : "";
+            const costBadge =
+              avgCost > 0
+                ? `<div style="font-size: 11px; color: var(--text-tertiary); margin-top: 4px;">CMP: ${avgCost.toFixed(
+                    2
+                  )}€/g</div>`
+                : "";
 
             return `
               <button class="product-item${lowClass}" type="button" data-open-product="${escapeHtml(id)}">
@@ -698,7 +751,6 @@
     if (!box) return;
 
     const days = Number(el("movementsDays")?.value || 7);
-
     box.innerHTML = `<div class="muted" style="padding:10px;">Chargement...</div>`;
 
     try {
@@ -707,7 +759,7 @@
       qs.set("days", String(days));
 
       const path = "/api/movements" + (qs.toString() ? `?${qs.toString()}` : "");
-      const res = await fetch(apiPath(path));
+      const res = await apiFetch(path);
       const data = await safeJson(res);
       if (!res.ok) throw new Error(data?.error || "Erreur /api/movements");
 
@@ -732,7 +784,6 @@
           const pname = m.productName ? ` • ${escapeHtml(m.productName)}` : "";
           const after = Number.isFinite(Number(m.totalAfter)) ? ` → ${Number(m.totalAfter)}g` : "";
 
-          // ✅ NOUVEAU : Classe de couleur selon le delta
           const deltaClass = delta > 0 ? "positive" : "negative";
 
           return `
@@ -768,7 +819,7 @@
     }
   }
 
-  // ---------------- ✅ ENRICHI : RESTOCK MODAL AVEC PRIX D'ACHAT ----------------
+  // ---------------- RESTOCK MODAL ----------------
   function openRestockModal() {
     const modal = el("restockModal");
     const select = el("productSelect");
@@ -797,6 +848,53 @@
     if (m) closeModal(m);
     const f = el("restockForm");
     if (f) f.reset();
+  }
+
+  // ✅ bind safe : si tu gardes ton script inline, ça ne casse pas.
+  function bindRestockFormOnce() {
+    const form = el("restockForm");
+    if (!form) return;
+    if (form.dataset.bound === "1") return;
+    form.dataset.bound = "1";
+
+    form.addEventListener("submit", async (e) => {
+      // si ton inline script gère déjà, on laisse faire
+      // (il fait e.preventDefault() aussi) => ici on ne bloque pas si déjà preventDefault.
+      if (e.defaultPrevented) return;
+
+      e.preventDefault();
+
+      const productId = String(el("productSelect")?.value || "").trim();
+      const grams = Number(el("restockGrams")?.value || 0);
+      const purchasePricePerGram = Number(el("restockPurchasePrice")?.value || 0);
+
+      if (!productId || !Number.isFinite(grams) || grams <= 0) return;
+
+      try {
+        const body = { productId, grams };
+        if (purchasePricePerGram > 0) body.purchasePricePerGram = purchasePricePerGram;
+
+        const res = await apiFetch("/api/restock", {
+          method: "POST",
+          body: JSON.stringify(body),
+        });
+
+        const data = await safeJson(res);
+        if (!res.ok) throw new Error(data?.error || "Erreur restock");
+
+        const message = data.cmpUpdated
+          ? `✅ Stock réapprovisionné (+${grams}g) - CMP mis à jour`
+          : `✅ Stock réapprovisionné (+${grams}g)`;
+
+        log(message, "success");
+        closeRestockModal();
+        await refreshMovements();
+        await refreshStock();
+      } catch (err) {
+        log("❌ Erreur restock: " + err.message, "error");
+        alert("Erreur: " + err.message);
+      }
+    });
   }
 
   // ---------------- PRODUCT MODAL ----------------
@@ -914,24 +1012,20 @@
 
     try {
       const body = { gramsDelta };
-      
-      // ✅ NOUVEAU : Inclure le prix d'achat si fourni et ajout positif
-      if (sign > 0 && purchasePrice > 0) {
-        body.purchasePricePerGram = purchasePrice;
-      }
+      if (sign > 0 && purchasePrice > 0) body.purchasePricePerGram = purchasePrice;
 
       const res = await apiFetch(`/api/products/${encodeURIComponent(currentProductId)}/adjust-total`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
 
       const data = await safeJson(res);
       if (!res.ok) throw new Error(data?.error || "Erreur ajustement total");
 
-      // ✅ NOUVEAU : Message différent si CMP mis à jour
-      const message = data.cmpUpdated 
-        ? `✅ Stock mis à jour (${gramsDelta > 0 ? "+" : ""}${gramsDelta}g) - CMP recalculé: ${data.product.averageCostPerGram?.toFixed(2)}€/g`
+      const message = data.cmpUpdated
+        ? `✅ Stock mis à jour (${gramsDelta > 0 ? "+" : ""}${gramsDelta}g) - CMP recalculé: ${Number(
+            data.product?.averageCostPerGram || 0
+          ).toFixed(2)}€/g`
         : `✅ Stock mis à jour (${gramsDelta > 0 ? "+" : ""}${gramsDelta}g)`;
 
       log(message, "success");
@@ -947,12 +1041,8 @@
         loadProductHistory(currentProductId);
       }
 
-      // Reset les champs
-      const gramsInput = el("adjustTotalGrams");
-      const priceInput = el("adjustPurchasePrice");
-      if (gramsInput) gramsInput.value = "";
-      if (priceInput) priceInput.value = "";
-
+      if (el("adjustTotalGrams")) el("adjustTotalGrams").value = "";
+      if (el("adjustPurchasePrice")) el("adjustPurchasePrice").value = "";
     } catch (e) {
       log("❌ Erreur ajustement total: " + e.message, "error");
       alert("Erreur: " + e.message);
@@ -1020,7 +1110,6 @@
     try {
       const res = await apiFetch(`/api/products/${encodeURIComponent(currentProductId)}/categories`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ categoryIds }),
       });
 
@@ -1151,7 +1240,6 @@
         try {
           const res = await apiFetch("/api/categories", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ name }),
           });
           const data = await safeJson(res);
@@ -1213,7 +1301,6 @@
 
             const res = await apiFetch(`/api/categories/${encodeURIComponent(id)}`, {
               method: "PUT",
-              headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ name: name.trim() }),
             });
             const data = await safeJson(res);
@@ -1315,7 +1402,7 @@
       if (q) qs.set("query", q);
 
       const path = "/api/shopify/products" + (qs.toString() ? `?${qs.toString()}` : "");
-      const res = await fetch(apiPath(path));
+      const res = await apiFetch(path);
       const data = await safeJson(res);
       if (!res.ok) throw new Error(data?.error || "Erreur");
 
@@ -1359,7 +1446,6 @@
     try {
       const res = await apiFetch("/api/import/product", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ productId, categoryIds }),
       });
       const data = await safeJson(res);
@@ -1380,6 +1466,7 @@
 
     injectAppCss();
     ensureCatalogControls();
+    bindRestockFormOnce();
 
     await getServerInfo();
     await loadSettings();
@@ -1389,7 +1476,7 @@
     await refreshStock();
     await refreshMovements();
 
-    // Expose global functions
+    // Expose global functions (index.html boutons)
     window.openProductModal = openProductModal;
     window.openRestockModal = openRestockModal;
     window.closeRestockModal = closeRestockModal;
