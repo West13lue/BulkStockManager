@@ -1,5 +1,6 @@
 // shopifyClient.js
 const Shopify = require("shopify-api-node");
+const tokenStore = require("./utils/tokenStore");
 
 // Cache par shop pour éviter de recréer le client à chaque requête
 const _clientCache = new Map();
@@ -8,58 +9,78 @@ function normalizeShopDomain(shop) {
   const raw = String(shop || "").trim();
   if (!raw) return "";
 
-  // enlève protocole si jamais
   let noProto = raw.replace(/^https?:\/\//i, "").trim();
-
-  // enlève path éventuel (ex: xxx.myshopify.com/admin)
   noProto = noProto.split("/")[0].trim();
-
-  // enlève espaces / trailing dots
   noProto = noProto.replace(/\.+$/, "").trim();
 
-  // si déjà en .myshopify.com => ok
   if (noProto.includes(".myshopify.com")) return noProto;
-
-  // sinon on considère que c'est un "shop name" => on complète
   return `${noProto}.myshopify.com`;
 }
 
-function getAdminToken() {
+// ✅ shopify-api-node veut un "shopName" = slug (ex: "e4vkqa-ea"), pas le domaine complet.
+function shopDomainToSlug(shopDomain) {
+  const d = normalizeShopDomain(shopDomain);
+  if (!d) return "";
+  return d.replace(/\.myshopify\.com$/i, "");
+}
+
+function getEnvShopDomain() {
+  return normalizeShopDomain(process.env.SHOP_NAME || "");
+}
+
+function getEnvShopSlug() {
+  return shopDomainToSlug(process.env.SHOP_NAME || "");
+}
+
+function getEnvAdminToken() {
   return String(process.env.SHOPIFY_ADMIN_TOKEN || "").trim();
 }
 
+/**
+ * ✅ IMPORTANT
+ * - Si on a un token OAuth sauvegardé pour CE shop => on l'utilise
+ * - Sinon fallback sur SHOPIFY_ADMIN_TOKEN UNIQUEMENT si shop == SHOP_NAME
+ */
+function getAccessTokenForShop(shopDomain) {
+  const shop = normalizeShopDomain(shopDomain || "");
+  if (!shop) return "";
+
+  const oauthToken = tokenStore.loadToken(shop);
+  if (oauthToken) return oauthToken;
+
+  const envShop = getEnvShopDomain();
+  const envToken = getEnvAdminToken();
+  if (envToken && envShop && shop.toLowerCase() === envShop.toLowerCase()) return envToken;
+
+  return "";
+}
+
 function createShopifyClient(shopDomain, accessToken) {
+  const domain = normalizeShopDomain(shopDomain);
+  const shopName = shopDomainToSlug(domain); // ✅ slug attendu par shopify-api-node
+
+  if (!shopName) throw new Error("Shop invalide pour createShopifyClient");
+
   return new Shopify({
-    shopName: shopDomain, // "xxx.myshopify.com" (sans https)
+    shopName, // ✅ "xxx" (pas "xxx.myshopify.com")
     accessToken,
     apiVersion: process.env.SHOPIFY_API_VERSION || "2025-10",
   });
 }
 
-/**
- * ✅ IMPORTANT
- * Renvoie un client Shopify pour le shop demandé (query ?shop=...),
- * sinon fallback sur SHOP_NAME.
- */
 function getShopifyClient(shop) {
-  const token = getAdminToken();
+  const shopDomain = normalizeShopDomain(shop || "") || getEnvShopDomain();
+  if (!shopDomain) throw new Error("SHOP_NAME manquant, ou shop introuvable");
 
-  // SHOP_NAME peut être "xxx" ou "xxx.myshopify.com"
-  const envShop = normalizeShopDomain(process.env.SHOP_NAME || "");
-
-  // shop passé (ex: e4vkqa-ea.myshopify.com)
-  const reqShop = normalizeShopDomain(shop || "");
-
-  const shopDomain = reqShop || envShop;
-
-  if (!shopDomain) {
-    throw new Error("SHOP_NAME manquant, ou shop introuvable");
-  }
+  const token = getAccessTokenForShop(shopDomain);
   if (!token) {
-    throw new Error("SHOPIFY_ADMIN_TOKEN manquant");
+    throw new Error(
+      `Aucun token Shopify pour ${shopDomain}. Lance l'OAuth (/api/auth/start?shop=${shopDomain}) ou configure SHOPIFY_ADMIN_TOKEN + SHOP_NAME (fallback).`
+    );
   }
 
-  const key = shopDomain.toLowerCase();
+  // ✅ cache key = shop + token (au cas où tu changes de token)
+  const key = `${shopDomain.toLowerCase()}::${token.slice(0, 8)}`;
   if (_clientCache.has(key)) return _clientCache.get(key);
 
   const client = createShopifyClient(shopDomain, token);
@@ -67,9 +88,7 @@ function getShopifyClient(shop) {
   return client;
 }
 
-/**
- * Recherche simple de produits pour l'UI import
- */
+// --- utilitaires existants ---
 async function searchProducts(shop, opts = {}) {
   const client = getShopifyClient(shop);
   const query = String(opts.query || "").trim();
@@ -82,18 +101,12 @@ async function searchProducts(shop, opts = {}) {
   return products.filter((p) => String(p.title || "").toLowerCase().includes(q));
 }
 
-/**
- * Récupère un produit complet (variants inclus)
- */
 async function fetchProduct(shop, productId) {
   const client = getShopifyClient(shop);
   if (!productId) throw new Error("fetchProduct: productId manquant");
   return client.product.get(Number(productId));
 }
 
-/**
- * ✅ Debug connexion
- */
 async function testShopifyConnection(shop) {
   const client = getShopifyClient(shop);
   const shopInfo = await client.shop.get();

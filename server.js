@@ -1,5 +1,6 @@
 // server.js — PREFIX-SAFE (/apps/<slug>/...), STATIC FIX, JSON API SAFE, Multi-shop safe, Express 5 safe
 // ✅ ENRICHI avec CMP, Valeur stock, Stats catégories, Suppression mouvements
+// ✅ + OAuth Shopify (Partner) : /api/auth/start + /api/auth/callback
 
 if (process.env.NODE_ENV !== "production") {
   require("dotenv").config();
@@ -9,6 +10,9 @@ const express = require("express");
 const path = require("path");
 const crypto = require("crypto");
 const fs = require("fs");
+
+// ✅ OAuth token store
+const tokenStore = require("./utils/tokenStore");
 
 // --- logger (compat : ./utils/logger OU ./logger)
 let logEvent = (event, data = {}, level = "info") =>
@@ -43,6 +47,14 @@ try {
     setLocationId: (_shop, locationId) => ({ locationId }),
   };
 }
+
+// ✅ OAuth config
+const SHOPIFY_API_KEY = String(process.env.SHOPIFY_API_KEY || "").trim();
+const SHOPIFY_API_SECRET = String(process.env.SHOPIFY_API_SECRET || "").trim();
+const OAUTH_SCOPES = String(process.env.SHOPIFY_SCOPES || "").trim();
+
+// state anti-CSRF simple en mémoire (ok pour 1 instance Render)
+const _oauthStateByShop = new Map();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -110,6 +122,38 @@ function verifyShopifyWebhook(rawBodyBuffer, hmacHeader) {
 
 function apiError(res, code, message, extra) {
   return res.status(code).json({ error: message, ...(extra ? { extra } : {}) });
+}
+
+// ✅ OAuth helpers
+function verifyOAuthHmac(query) {
+  const { hmac, ...rest } = query || {};
+  if (!hmac || !SHOPIFY_API_SECRET) return false;
+
+  const message = Object.keys(rest)
+    .sort()
+    .map((k) => `${k}=${Array.isArray(rest[k]) ? rest[k].join(",") : rest[k]}`)
+    .join("&");
+
+  const digest = crypto.createHmac("sha256", SHOPIFY_API_SECRET).update(message).digest("hex");
+
+  const hmacStr = String(hmac);
+  if (hmacStr.length !== digest.length) return false;
+
+  try {
+    return crypto.timingSafeEqual(Buffer.from(digest, "utf8"), Buffer.from(hmacStr, "utf8"));
+  } catch {
+    return false;
+  }
+}
+
+function requireOAuthEnv(res) {
+  if (!SHOPIFY_API_KEY) return apiError(res, 500, "SHOPIFY_API_KEY manquant");
+  if (!SHOPIFY_API_SECRET) return apiError(res, 500, "SHOPIFY_API_SECRET manquant");
+  if (!OAUTH_SCOPES) return apiError(res, 500, "SHOPIFY_SCOPES manquant (ex: read_products,write_inventory,...)");
+  if (!process.env.RENDER_PUBLIC_URL) {
+    return apiError(res, 500, "RENDER_PUBLIC_URL manquant (ex: https://stock-cbd-manager-1.onrender.com)");
+  }
+  return null;
 }
 
 function extractShopifyError(e) {
@@ -447,13 +491,7 @@ router.get("/api/stock.csv", (req, res) => {
         const s = v === null || v === undefined ? "" : String(v);
         return /[,"\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
       };
-      return [
-        esc(p.productId), 
-        esc(p.name), 
-        esc(p.totalGrams), 
-        esc(p.averageCostPerGram || 0),
-        esc(cat)
-      ].join(",");
+      return [esc(p.productId), esc(p.name), esc(p.totalGrams), esc(p.averageCostPerGram || 0), esc(cat)].join(",");
     });
 
     res.setHeader("Content-Type", "text/csv; charset=utf-8");
@@ -551,17 +589,10 @@ router.get("/api/movements.csv", (req, res) => {
     const days = Math.min(Math.max(Number(req.query.days || 30), 1), 365);
 
     const rows = movementStore.listMovements ? movementStore.listMovements({ shop, days, limit }) : [];
-    
-    const header = [
-      "ts",
-      "source",
-      "productId",
-      "productName",
-      "gramsDelta",
-      "purchasePricePerGram",
-      "totalAfter",
-      "shop",
-    ].join(",");
+
+    const header = ["ts", "source", "productId", "productName", "gramsDelta", "purchasePricePerGram", "totalAfter", "shop"].join(
+      ","
+    );
 
     const csvEscape = (v) => {
       const s = String(v ?? "");
@@ -652,7 +683,7 @@ router.post("/api/products/:productId/adjust-total", (req, res) => {
           productId,
           productName: updated.name,
           gramsDelta,
-          purchasePricePerGram: (gramsDelta > 0 && purchasePricePerGram > 0) ? purchasePricePerGram : undefined,
+          purchasePricePerGram: gramsDelta > 0 && purchasePricePerGram > 0 ? purchasePricePerGram : undefined,
           totalAfter: updated.totalGrams,
           shop,
         },
@@ -660,8 +691,8 @@ router.post("/api/products/:productId/adjust-total", (req, res) => {
       );
     }
 
-    res.json({ 
-      success: true, 
+    res.json({
+      success: true,
       product: updated,
       cmpUpdated: gramsDelta > 0 && purchasePricePerGram > 0,
     });
@@ -734,8 +765,8 @@ router.patch("/api/products/:productId/average-cost", (req, res) => {
       newCost: averageCostPerGram.toFixed(2),
     });
 
-    res.json({ 
-      success: true, 
+    res.json({
+      success: true,
       productId,
       oldAverageCost: oldCost,
       newAverageCost: averageCostPerGram,
@@ -913,8 +944,8 @@ router.post("/api/restock", (req, res) => {
       );
     }
 
-    res.json({ 
-      success: true, 
+    res.json({
+      success: true,
       product: updated,
       cmpUpdated: purchasePricePerGram > 0,
     });
@@ -966,6 +997,85 @@ router.post("/api/test-order", (req, res) => {
     }
 
     res.json({ success: true, tested: { productId, grams }, product: updated });
+  });
+});
+
+// =====================
+// OAuth Shopify (Partner)
+// =====================
+
+// 1) Start install/auth
+router.get("/api/auth/start", (req, res) => {
+  safeJson(res, () => {
+    const missing = requireOAuthEnv(res);
+    if (missing) return;
+
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable (ex: ?shop=xxx.myshopify.com)");
+
+    const state = crypto.randomBytes(16).toString("hex");
+    _oauthStateByShop.set(shop.toLowerCase(), state);
+
+    const redirectUri = `${String(process.env.RENDER_PUBLIC_URL).replace(/\/+$/, "")}/api/auth/callback`;
+
+    const authUrl =
+      `https://${shop}/admin/oauth/authorize` +
+      `?client_id=${encodeURIComponent(SHOPIFY_API_KEY)}` +
+      `&scope=${encodeURIComponent(OAUTH_SCOPES)}` +
+      `&redirect_uri=${encodeURIComponent(redirectUri)}` +
+      `&state=${encodeURIComponent(state)}`;
+
+    res.redirect(authUrl);
+  });
+});
+
+// 2) Callback
+router.get("/api/auth/callback", (req, res) => {
+  safeJson(res, async () => {
+    const missing = requireOAuthEnv(res);
+    if (missing) return;
+
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable (callback)");
+
+    // HMAC check (Shopify)
+    if (!verifyOAuthHmac(req.query)) return apiError(res, 401, "HMAC invalide");
+
+    // State check
+    const expected = _oauthStateByShop.get(shop.toLowerCase());
+    const got = String(req.query?.state || "");
+    if (!expected || got !== expected) return apiError(res, 401, "State invalide");
+    _oauthStateByShop.delete(shop.toLowerCase());
+
+    const code = String(req.query?.code || "");
+    if (!code) return apiError(res, 400, "Code OAuth manquant");
+
+    // Exchange code -> access_token
+    const tokenRes = await fetch(`https://${shop}/admin/oauth/access_token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        client_id: SHOPIFY_API_KEY,
+        client_secret: SHOPIFY_API_SECRET,
+        code,
+      }),
+    });
+
+    const tokenJson = await tokenRes.json().catch(() => ({}));
+    if (!tokenRes.ok || !tokenJson?.access_token) {
+      return apiError(res, 500, "Échec échange token", { status: tokenRes.status, body: tokenJson });
+    }
+
+    tokenStore.saveToken(shop, tokenJson.access_token, { scope: tokenJson.scope });
+
+    // Petit écran OK + lien retour
+    res.type("html").send(`
+      <div style="font-family:system-ui;padding:24px">
+        <h2>✅ OAuth OK</h2>
+        <p>Token enregistré pour <b>${shop}</b>.</p>
+        <p>Tu peux fermer cette page et relancer l'app.</p>
+      </div>
+    `);
   });
 });
 
