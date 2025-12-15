@@ -290,23 +290,58 @@ function extractShopifyError(e) {
   };
 }
 
-function safeJson(res, fn) {
+function safeJson(req, res, fn) {
+  const resolvedShop = normalizeShopDomain(String(req?.resolvedShop || getShop(req) || "").trim());
+
+  const handleAuthErrorIfNeeded = (info) => {
+    const status = Number(info?.statusCode || 0);
+    if (status !== 401) return false;
+
+    // ✅ Token invalide/révoqué => purge + renvoi URL de réauth
+    if (resolvedShop) {
+      try {
+        tokenStore?.removeToken?.(resolvedShop);
+      } catch {}
+
+      const reauthUrl = `/api/auth/start?shop=${encodeURIComponent(resolvedShop)}`;
+      return res.status(401).json({
+        error: "reauth_required",
+        message: "Réauth Shopify requise (token révoqué ou manquant).",
+        shop: resolvedShop,
+        reauthUrl,
+      });
+    }
+
+    return res.status(401).json({
+      error: "reauth_required",
+      message: "Réauth Shopify requise.",
+      reauthUrl: "/api/auth/start",
+    });
+  };
+
   try {
     const out = fn();
     if (out && typeof out.then === "function") {
       return out.catch((e) => {
         const info = extractShopifyError(e);
-        logEvent("api_error", info, "error");
+        logEvent("api_error", { shop: resolvedShop || undefined, ...info }, "error");
+
+        if (handleAuthErrorIfNeeded(info)) return;
+
         return apiError(res, info.statusCode || 500, info.message || "Erreur serveur", info);
       });
     }
     return out;
   } catch (e) {
     const info = extractShopifyError(e);
-    logEvent("api_error", info, "error");
+    logEvent("api_error", { shop: resolvedShop || undefined, ...info }, "error");
+
+    if (handleAuthErrorIfNeeded(info)) return;
+
     return apiError(res, info.statusCode || 500, info.message || "Erreur serveur", info);
   }
 }
+
 
 function parseGramsFromVariant(v) {
   const candidates = [v?.option1, v?.option2, v?.option3, v?.title, v?.sku].filter(Boolean);
@@ -492,6 +527,12 @@ router.use("/api", requireApiAuth);
 // ✅ DURCISSEMENT #1 (suite) : anti-spoof APRES auth
 router.use("/api", enforceAuthShopMatch);
 
+// ✅ Résout le shop une fois pour toutes (utile pour auto-reauth)
+router.use("/api", (req, _res, next) => {
+  req.resolvedShop = getShop(req);
+  next();
+});
+
 router.get("/health", (req, res) => res.status(200).send("ok"));
 
 // Static
@@ -519,7 +560,7 @@ router.get("/js/app.js", (req, res) => {
 // =====================================================
 
 router.get("/api/debug/shopify", (req, res) => {
-  safeJson(res, async () => {
+  safeJson(req, res, async () => {
     const shop = getShop(req);
     if (!shop) return apiError(res, 400, "Shop introuvable. Passe ?shop=xxx.myshopify.com ou configure SHOP_NAME.");
 
@@ -555,7 +596,7 @@ router.get("/api/debug/shopify", (req, res) => {
 });
 
 router.get("/api/settings", (req, res) => {
-  safeJson(res, () => {
+  safeJson(req, res, () => {
     const shop = getShop(req);
     if (!shop) return apiError(res, 400, "Shop introuvable");
     const settings = (settingsStore?.loadSettings && settingsStore.loadSettings(shop)) || {};
@@ -564,7 +605,7 @@ router.get("/api/settings", (req, res) => {
 });
 
 router.get("/api/shopify/locations", (req, res) => {
-  safeJson(res, async () => {
+  safeJson(req, res, async () => {
     const shop = getShop(req);
     if (!shop) return apiError(res, 400, "Shop introuvable");
     const client = shopifyFor(shop);
@@ -583,7 +624,7 @@ router.get("/api/shopify/locations", (req, res) => {
 });
 
 router.post("/api/settings/location", (req, res) => {
-  safeJson(res, () => {
+  safeJson(req, res, () => {
     const shop = getShop(req);
     if (!shop) return apiError(res, 400, "Shop introuvable");
 
@@ -598,7 +639,7 @@ router.post("/api/settings/location", (req, res) => {
 });
 
 router.get("/api/server-info", (req, res) => {
-  safeJson(res, () => {
+  safeJson(req, res, () => {
     const shop = getShop(req);
     if (!shop) return apiError(res, 400, "Shop introuvable");
 
@@ -614,7 +655,7 @@ router.get("/api/server-info", (req, res) => {
 });
 
 router.get("/api/stock", (req, res) => {
-  safeJson(res, () => {
+  safeJson(req, res, () => {
     const shop = getShop(req);
     if (!shop) return apiError(res, 400, "Shop introuvable");
 
@@ -640,7 +681,7 @@ router.get("/api/stock", (req, res) => {
 
 // ✅ Valeur totale du stock
 router.get("/api/stock/value", (req, res) => {
-  safeJson(res, () => {
+  safeJson(req, res, () => {
     const shop = getShop(req);
     if (!shop) return apiError(res, 400, "Shop introuvable");
 
@@ -655,7 +696,7 @@ router.get("/api/stock/value", (req, res) => {
 
 // ✅ Stats par catégorie
 router.get("/api/stats/categories", (req, res) => {
-  safeJson(res, () => {
+  safeJson(req, res, () => {
     const shop = getShop(req);
     if (!shop) return apiError(res, 400, "Shop introuvable");
 
@@ -669,7 +710,7 @@ router.get("/api/stats/categories", (req, res) => {
 });
 
 router.get("/api/stock.csv", (req, res) => {
-  safeJson(res, () => {
+  safeJson(req, res, () => {
     const shop = getShop(req);
     if (!shop) return apiError(res, 400, "Shop introuvable");
 
@@ -693,7 +734,7 @@ router.get("/api/stock.csv", (req, res) => {
 });
 
 router.get("/api/categories", (req, res) => {
-  safeJson(res, () => {
+  safeJson(req, res, () => {
     const shop = getShop(req);
     if (!shop) return apiError(res, 400, "Shop introuvable");
     const categories = catalogStore.listCategories ? catalogStore.listCategories(shop) : [];
@@ -702,7 +743,7 @@ router.get("/api/categories", (req, res) => {
 });
 
 router.post("/api/categories", (req, res) => {
-  safeJson(res, () => {
+  safeJson(req, res, () => {
     const shop = getShop(req);
     if (!shop) return apiError(res, 400, "Shop introuvable");
 
@@ -722,7 +763,7 @@ router.post("/api/categories", (req, res) => {
 });
 
 router.put("/api/categories/:id", (req, res) => {
-  safeJson(res, () => {
+  safeJson(req, res, () => {
     const shop = getShop(req);
     if (!shop) return apiError(res, 400, "Shop introuvable");
 
@@ -740,7 +781,7 @@ router.put("/api/categories/:id", (req, res) => {
 });
 
 router.delete("/api/categories/:id", (req, res) => {
-  safeJson(res, () => {
+  safeJson(req, res, () => {
     const shop = getShop(req);
     if (!shop) return apiError(res, 400, "Shop introuvable");
 
@@ -756,7 +797,7 @@ router.delete("/api/categories/:id", (req, res) => {
 });
 
 router.get("/api/movements", (req, res) => {
-  safeJson(res, () => {
+  safeJson(req, res, () => {
     const shop = getShop(req);
     if (!shop) return apiError(res, 400, "Shop introuvable");
 
@@ -769,7 +810,7 @@ router.get("/api/movements", (req, res) => {
 });
 
 router.get("/api/movements.csv", (req, res) => {
-  safeJson(res, () => {
+  safeJson(req, res, () => {
     const shop = getShop(req);
     if (!shop) return apiError(res, 400, "Shop introuvable");
 
@@ -808,13 +849,13 @@ router.get("/api/movements.csv", (req, res) => {
 
 // stub suppression mouvements
 router.delete("/api/movements/:id", (req, res) => {
-  safeJson(res, () => {
+  safeJson(req, res, () => {
     return apiError(res, 501, "Suppression de mouvements non encore implémentée dans movementStore.");
   });
 });
 
 router.get("/api/products/:productId/history", (req, res) => {
-  safeJson(res, () => {
+  safeJson(req, res, () => {
     const shop = getShop(req);
     if (!shop) return apiError(res, 400, "Shop introuvable");
 
@@ -829,7 +870,7 @@ router.get("/api/products/:productId/history", (req, res) => {
 });
 
 router.post("/api/products/:productId/adjust-total", (req, res) => {
-  safeJson(res, async () => {
+  safeJson(req, res, async () => {
     const shop = getShop(req);
     if (!shop) return apiError(res, 400, "Shop introuvable");
 
@@ -877,7 +918,7 @@ router.post("/api/products/:productId/adjust-total", (req, res) => {
 });
 
 router.patch("/api/products/:productId/average-cost", (req, res) => {
-  safeJson(res, () => {
+  safeJson(req, res, () => {
     const shop = getShop(req);
     if (!shop) return apiError(res, 400, "Shop introuvable");
 
@@ -946,7 +987,7 @@ router.patch("/api/products/:productId/average-cost", (req, res) => {
 });
 
 router.post("/api/products/:productId/categories", (req, res) => {
-  safeJson(res, () => {
+  safeJson(req, res, () => {
     const shop = getShop(req);
     if (!shop) return apiError(res, 400, "Shop introuvable");
 
@@ -972,7 +1013,7 @@ router.post("/api/products/:productId/categories", (req, res) => {
 });
 
 router.delete("/api/products/:productId", (req, res) => {
-  safeJson(res, () => {
+  safeJson(req, res, () => {
     const shop = getShop(req);
     if (!shop) return apiError(res, 400, "Shop introuvable");
 
@@ -994,7 +1035,7 @@ router.delete("/api/products/:productId", (req, res) => {
 });
 
 router.get("/api/shopify/products", (req, res) => {
-  safeJson(res, async () => {
+  safeJson(req, res, async () => {
     const shop = getShop(req);
     if (!shop) return apiError(res, 400, "Shop introuvable");
     const client = shopifyFor(shop);
@@ -1017,7 +1058,7 @@ router.get("/api/shopify/products", (req, res) => {
 });
 
 router.post("/api/import/product", (req, res) => {
-  safeJson(res, async () => {
+  safeJson(req, res, async () => {
     const shop = getShop(req);
     if (!shop) return apiError(res, 400, "Shop introuvable");
     const client = shopifyFor(shop);
@@ -1075,7 +1116,7 @@ router.post("/api/import/product", (req, res) => {
 });
 
 router.post("/api/restock", (req, res) => {
-  safeJson(res, async () => {
+  safeJson(req, res, async () => {
     const shop = getShop(req);
     if (!shop) return apiError(res, 400, "Shop introuvable");
 
@@ -1119,7 +1160,7 @@ router.post("/api/restock", (req, res) => {
 });
 
 router.post("/api/test-order", (req, res) => {
-  safeJson(res, async () => {
+  safeJson(req, res, async () => {
     const shop = getShop(req);
     if (!shop) return apiError(res, 400, "Shop introuvable");
 
@@ -1171,7 +1212,7 @@ router.post("/api/test-order", (req, res) => {
 // =====================
 
 router.get("/api/auth/start", (req, res) => {
-  safeJson(res, () => {
+  safeJson(req, res, () => {
     const missing = requireOAuthEnv(res);
     if (missing) return;
 
@@ -1195,7 +1236,7 @@ router.get("/api/auth/start", (req, res) => {
 });
 
 router.get("/api/auth/callback", (req, res) => {
-  safeJson(res, async () => {
+  safeJson(req, res, async () => {
     const missing = requireOAuthEnv(res);
     if (missing) return;
 

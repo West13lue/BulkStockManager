@@ -137,25 +137,45 @@
     return token || "";
   }
 
-  async function apiFetch(path, options = {}) {
-    const opts = { ...options };
-    opts.headers = new Headers(options.headers || {});
+async function apiFetch(path, options = {}) {
+  const opts = { ...options };
+  opts.headers = new Headers(options.headers || {});
 
-    if (opts.body && !opts.headers.has("Content-Type")) {
-      opts.headers.set("Content-Type", "application/json");
-    }
-
-    // ✅ Ajout automatique du token seulement si on peut
-    const token = await getSessionTokenStrict();
-    if (token && !opts.headers.has("Authorization")) {
-      opts.headers.set("Authorization", `Bearer ${token}`);
-      if (!opts.headers.has("X-Shopify-Session-Token")) {
-        opts.headers.set("X-Shopify-Session-Token", token);
-      }
-    }
-
-    return fetch(apiPath(path), opts);
+  if (opts.body && !opts.headers.has("Content-Type")) {
+    opts.headers.set("Content-Type", "application/json");
   }
+
+  // ✅ Ajout automatique du token seulement si on peut
+  const token = await getSessionTokenStrict();
+  if (token && !opts.headers.has("Authorization")) {
+    opts.headers.set("Authorization", `Bearer ${token}`);
+    if (!opts.headers.has("X-Shopify-Session-Token")) {
+      opts.headers.set("X-Shopify-Session-Token", token);
+    }
+  }
+
+  const res = await fetch(apiPath(path), opts);
+
+  // ✅ AUTO-REAUTH transparent si token OAuth Shopify révoqué
+  if (res.status === 401) {
+    try {
+      const ct = res.headers.get("content-type") || "";
+      if (ct.includes("application/json")) {
+        const data = await res.json().catch(() => null);
+
+        if (data && data.reauthUrl) {
+          const target = withPrefix(String(data.reauthUrl));
+          // top-level redirect (obligatoire en embedded)
+          window.top.location.href = target;
+          // on stop ici (la page va rediriger)
+          return new Response("", { status: 204 });
+        }
+      }
+    } catch {}
+  }
+
+  return res;
+}
 
   // ---------------- STATE ----------------
   const result = document.getElementById("result");
