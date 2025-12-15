@@ -6,7 +6,8 @@
 //    - Feedback visuel coloré selon type de mouvement
 //    - Affichage du CMP dans les produits
 // ✅ FIXES :
-//    - window.log exposé (utilisé par le script inline index.html)
+//    - injectAppCss() manquant (crash)
+//    - Auth App Bridge: ne tente pas en non-embedded (pas de host)
 //    - apiFetch centralisé + Authorization auto si token dispo
 //    - refreshMovements auto quand #movementsDays change
 //    - restockForm bind safe (n’empêche pas ton script inline)
@@ -47,91 +48,114 @@
     return `${base}${sep}shop=${encodeURIComponent(SHOP)}`;
   }
 
-// ---------------- AUTH (Shopify Session Token via App Bridge) ----------------
-let _appBridgeApp = null;
-let _cfg = null;
-let _tokenCache = { token: "", ts: 0 }; // cache ~20s
+  // ---------------- CSS injection (FIX) ----------------
+  function injectAppCss() {
+    // Ton index.html met déjà:
+    // <link id="bulk-stock-manager-css" rel="stylesheet" href="./css/style.css" />
+    // => ici on sécurise juste si jamais il manque.
+    const id = "bulk-stock-manager-css";
+    if (document.getElementById(id)) return;
 
-async function loadPublicConfig() {
-  if (_cfg) return _cfg;
-  try {
-    const res = await fetch(apiPath("/api/public/config"));
-    const data = await res.json();
-    _cfg = data || {};
-  } catch {
-    _cfg = { apiKey: "", apiAuthRequired: false };
-  }
-  return _cfg;
-}
-
-function getHostParam() {
-  return new URLSearchParams(window.location.search).get("host") || "";
-}
-
-function ensureAppBridge(apiKey) {
-  if (_appBridgeApp) return _appBridgeApp;
-
-  const host = getHostParam();
-  if (!apiKey || !host) return null;
-
-  // CDN UMD peut exposer plusieurs formes selon version/build
-  const ABGlobal = window["app-bridge"] || window.AppBridge || window.shopifyAppBridge || null;
-
-  const createApp =
-    (ABGlobal && typeof ABGlobal.createApp === "function" && ABGlobal.createApp) ||
-    (ABGlobal && ABGlobal.default && typeof ABGlobal.default.createApp === "function" && ABGlobal.default.createApp) ||
-    null;
-
-  if (!createApp) return null;
-
-  _appBridgeApp = createApp({ apiKey, host, forceRedirect: true });
-  return _appBridgeApp;
-}
-
-async function getSessionTokenStrict() {
-  // cache 20s
-  const now = Date.now();
-  if (_tokenCache.token && now - _tokenCache.ts < 20000) return _tokenCache.token;
-
-  // fallback si déjà injecté par toi
-  const t1 = String(window.__SHOPIFY_SESSION_TOKEN__ || "").trim();
-  if (t1) return (_tokenCache = { token: t1, ts: now }).token;
-
-  const t2 = String(sessionStorage.getItem("shopify_session_token") || "").trim();
-  if (t2) return (_tokenCache = { token: t2, ts: now }).token;
-
-  const cfg = await loadPublicConfig();
-  const apiKey = String(cfg.apiKey || "").trim();
-  const app = ensureAppBridge(apiKey);
-  if (!app) return "";
-
-  const Utils = window["app-bridge-utils"];
-  if (!Utils || typeof Utils.getSessionToken !== "function") return "";
-
-  const token = await Utils.getSessionToken(app);
-  if (token) _tokenCache = { token, ts: now };
-  return token || "";
-}
-
-async function apiFetch(path, options = {}) {
-  const opts = { ...options };
-  opts.headers = new Headers(options.headers || {});
-
-  if (opts.body && !opts.headers.has("Content-Type")) {
-    opts.headers.set("Content-Type", "application/json");
+    const link = document.createElement("link");
+    link.id = id;
+    link.rel = "stylesheet";
+    link.href = withPrefix("/css/style.css");
+    document.head.appendChild(link);
   }
 
-  // ✅ Ajout automatique du token
-  const token = await getSessionTokenStrict();
-  if (token && !opts.headers.has("Authorization")) {
-    opts.headers.set("Authorization", `Bearer ${token}`);
-    if (!opts.headers.has("X-Shopify-Session-Token")) {
-      opts.headers.set("X-Shopify-Session-Token", token);
+  // ---------------- AUTH (Shopify Session Token via App Bridge) ----------------
+  let _appBridgeApp = null;
+  let _cfg = null;
+  let _tokenCache = { token: "", ts: 0 }; // cache ~20s
+
+  function getHostParam() {
+    return new URLSearchParams(window.location.search).get("host") || "";
+  }
+
+  function isEmbeddedContext() {
+    // Embedded Shopify app = host présent (souvent) + app bridge dispo
+    return Boolean(getHostParam());
+  }
+
+  async function loadPublicConfig() {
+    if (_cfg) return _cfg;
+    try {
+      const res = await fetch(apiPath("/api/public/config"));
+      const data = await res.json();
+      _cfg = data || {};
+    } catch {
+      _cfg = { apiKey: "", apiAuthRequired: false };
     }
+    return _cfg;
   }
 
-  return fetch(apiPath(path), opts);
-}
+  function ensureAppBridge(apiKey) {
+    if (_appBridgeApp) return _appBridgeApp;
+
+    const host = getHostParam();
+    if (!apiKey || !host) return null;
+
+    // CDN UMD
+    const ABGlobal = window["app-bridge"] || window.AppBridge || window.shopifyAppBridge || null;
+
+    const createApp =
+      (ABGlobal && typeof ABGlobal.createApp === "function" && ABGlobal.createApp) ||
+      (ABGlobal && ABGlobal.default && typeof ABGlobal.default.createApp === "function" && ABGlobal.default.createApp) ||
+      null;
+
+    if (!createApp) return null;
+
+    _appBridgeApp = createApp({ apiKey, host, forceRedirect: true });
+    return _appBridgeApp;
+  }
+
+  async function getSessionTokenStrict() {
+    // cache 20s
+    const now = Date.now();
+    if (_tokenCache.token && now - _tokenCache.ts < 20000) return _tokenCache.token;
+
+    // si déjà injecté par toi
+    const t1 = String(window.__SHOPIFY_SESSION_TOKEN__ || "").trim();
+    if (t1) return (_tokenCache = { token: t1, ts: now }).token;
+
+    const t2 = String(sessionStorage.getItem("shopify_session_token") || "").trim();
+    if (t2) return (_tokenCache = { token: t2, ts: now }).token;
+
+    // ✅ si pas embedded => inutile de tenter App Bridge
+    if (!isEmbeddedContext()) return "";
+
+    const cfg = await loadPublicConfig();
+    const apiKey = String(cfg.apiKey || "").trim();
+    const app = ensureAppBridge(apiKey);
+    if (!app) return "";
+
+    const Utils = window["app-bridge-utils"];
+    if (!Utils || typeof Utils.getSessionToken !== "function") return "";
+
+    const token = await Utils.getSessionToken(app);
+    if (token) _tokenCache = { token, ts: now };
+    return token || "";
+  }
+
+  async function apiFetch(path, options = {}) {
+    const opts = { ...options };
+    opts.headers = new Headers(options.headers || {});
+
+    if (opts.body && !opts.headers.has("Content-Type")) {
+      opts.headers.set("Content-Type", "application/json");
+    }
+
+    // ✅ Ajout automatique du token seulement si on peut
+    const token = await getSessionTokenStrict();
+    if (token && !opts.headers.has("Authorization")) {
+      opts.headers.set("Authorization", `Bearer ${token}`);
+      if (!opts.headers.has("X-Shopify-Session-Token")) {
+        opts.headers.set("X-Shopify-Session-Token", token);
+      }
+    }
+
+    return fetch(apiPath(path), opts);
+  }
 
   // ---------------- STATE ----------------
   const result = document.getElementById("result");
@@ -172,7 +196,6 @@ async function apiFetch(path, options = {}) {
 
     result.textContent = `[${timestamp}] ${message}`;
 
-    // ✅ Feedback visuel coloré
     result.className = "result-content";
     if (type === "success") result.classList.add("success");
     if (type === "error") result.classList.add("error");
@@ -332,7 +355,6 @@ async function apiFetch(path, options = {}) {
       await saveLocationId(v);
     });
 
-    // ✅ refresh mouvements auto quand l’utilisateur change la période
     el("movementsDays")?.addEventListener("change", () => refreshMovements());
   }
 
@@ -873,7 +895,6 @@ async function apiFetch(path, options = {}) {
     if (f) f.reset();
   }
 
-  // ✅ bind safe : si tu gardes ton script inline, ça ne casse pas.
   function bindRestockFormOnce() {
     const form = el("restockForm");
     if (!form) return;
@@ -881,10 +902,7 @@ async function apiFetch(path, options = {}) {
     form.dataset.bound = "1";
 
     form.addEventListener("submit", async (e) => {
-      // si ton inline script gère déjà, on laisse faire
-      // (il fait e.preventDefault() aussi) => ici on ne bloque pas si déjà preventDefault.
       if (e.defaultPrevented) return;
-
       e.preventDefault();
 
       const productId = String(el("productSelect")?.value || "").trim();
@@ -1487,7 +1505,7 @@ async function apiFetch(path, options = {}) {
   window.addEventListener("load", async () => {
     document.body.classList.add("full-width");
 
-    injectAppCss();
+    injectAppCss(); // ✅ FIX
     ensureCatalogControls();
     bindRestockFormOnce();
 
