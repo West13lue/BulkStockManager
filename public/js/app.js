@@ -11,6 +11,8 @@
 //    - apiFetch centralisé + Authorization auto si token dispo
 //    - refreshMovements auto quand #movementsDays change
 //    - restockForm bind safe (n’empêche pas ton script inline)
+// ✅ FIX EXPORT CSV :
+//    - Export CSV via apiFetch + Blob (sinon token manquant avec window.location.href)
 
 (() => {
   // ---------------- SHOP CONTEXT ----------------
@@ -50,9 +52,6 @@
 
   // ---------------- CSS injection (FIX) ----------------
   function injectAppCss() {
-    // Ton index.html met déjà:
-    // <link id="bulk-stock-manager-css" rel="stylesheet" href="./css/style.css" />
-    // => ici on sécurise juste si jamais il manque.
     const id = "bulk-stock-manager-css";
     if (document.getElementById(id)) return;
 
@@ -73,7 +72,6 @@
   }
 
   function isEmbeddedContext() {
-    // Embedded Shopify app = host présent (souvent) + app bridge dispo
     return Boolean(getHostParam());
   }
 
@@ -95,7 +93,6 @@
     const host = getHostParam();
     if (!apiKey || !host) return null;
 
-    // CDN UMD
     const ABGlobal = window["app-bridge"] || window.AppBridge || window.shopifyAppBridge || null;
 
     const createApp =
@@ -110,18 +107,15 @@
   }
 
   async function getSessionTokenStrict() {
-    // cache 20s
     const now = Date.now();
     if (_tokenCache.token && now - _tokenCache.ts < 20000) return _tokenCache.token;
 
-    // si déjà injecté par toi
     const t1 = String(window.__SHOPIFY_SESSION_TOKEN__ || "").trim();
     if (t1) return (_tokenCache = { token: t1, ts: now }).token;
 
     const t2 = String(sessionStorage.getItem("shopify_session_token") || "").trim();
     if (t2) return (_tokenCache = { token: t2, ts: now }).token;
 
-    // ✅ si pas embedded => inutile de tenter App Bridge
     if (!isEmbeddedContext()) return "";
 
     const cfg = await loadPublicConfig();
@@ -137,45 +131,70 @@
     return token || "";
   }
 
-async function apiFetch(path, options = {}) {
-  const opts = { ...options };
-  opts.headers = new Headers(options.headers || {});
+  async function apiFetch(path, options = {}) {
+    const opts = { ...options };
+    opts.headers = new Headers(options.headers || {});
 
-  if (opts.body && !opts.headers.has("Content-Type")) {
-    opts.headers.set("Content-Type", "application/json");
+    if (opts.body && !opts.headers.has("Content-Type")) {
+      opts.headers.set("Content-Type", "application/json");
+    }
+
+    const token = await getSessionTokenStrict();
+    if (token && !opts.headers.has("Authorization")) {
+      opts.headers.set("Authorization", `Bearer ${token}`);
+      if (!opts.headers.has("X-Shopify-Session-Token")) {
+        opts.headers.set("X-Shopify-Session-Token", token);
+      }
+    }
+
+    const res = await fetch(apiPath(path), opts);
+
+    if (res.status === 401) {
+      try {
+        const ct = res.headers.get("content-type") || "";
+        if (ct.includes("application/json")) {
+          const data = await res.json().catch(() => null);
+          if (data && data.reauthUrl) {
+            const target = withPrefix(String(data.reauthUrl));
+            window.top.location.href = target;
+            return new Response("", { status: 204 });
+          }
+        }
+      } catch {}
+    }
+
+    return res;
   }
 
-  // ✅ Ajout automatique du token seulement si on peut
-  const token = await getSessionTokenStrict();
-  if (token && !opts.headers.has("Authorization")) {
-    opts.headers.set("Authorization", `Bearer ${token}`);
-    if (!opts.headers.has("X-Shopify-Session-Token")) {
-      opts.headers.set("X-Shopify-Session-Token", token);
+  // ✅ FIX: Export CSV avec token (Blob download)
+  async function downloadFile(path, filename) {
+    try {
+      log("⏳ Génération du fichier...", "info");
+
+      const res = await apiFetch(path, { method: "GET" });
+
+      if (!res.ok) {
+        const txt = await res.text().catch(() => "");
+        throw new Error(txt || `Erreur téléchargement (${res.status})`);
+      }
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename || "export.csv";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+      log("✅ Export téléchargé", "success");
+    } catch (e) {
+      log("❌ Export échoué: " + e.message, "error");
+      alert("Export échoué: " + e.message);
     }
   }
-
-  const res = await fetch(apiPath(path), opts);
-
-  // ✅ AUTO-REAUTH transparent si token OAuth Shopify révoqué
-  if (res.status === 401) {
-    try {
-      const ct = res.headers.get("content-type") || "";
-      if (ct.includes("application/json")) {
-        const data = await res.json().catch(() => null);
-
-        if (data && data.reauthUrl) {
-          const target = withPrefix(String(data.reauthUrl));
-          // top-level redirect (obligatoire en embedded)
-          window.top.location.href = target;
-          // on stop ici (la page va rediriger)
-          return new Response("", { status: 204 });
-        }
-      }
-    } catch {}
-  }
-
-  return res;
-}
 
   // ---------------- STATE ----------------
   const result = document.getElementById("result");
@@ -192,7 +211,6 @@ async function apiFetch(path, options = {}) {
   let shopifyLocations = [];
   let currentLocationId = null;
 
-  // ✅ NOUVEAU : État pour valeur stock et stats catégories
   let stockValue = { totalValue: 0, currency: "EUR", products: [] };
   let categoryStats = { totalGrams: 0, categories: [] };
 
@@ -224,7 +242,6 @@ async function apiFetch(path, options = {}) {
     result.scrollTop = result.scrollHeight;
   }
 
-  // ✅ IMPORTANT: exposé pour ton script inline index.html
   window.log = log;
 
   function formatDateTime(ts) {
@@ -366,8 +383,9 @@ async function apiFetch(path, options = {}) {
     el("btnImport")?.addEventListener("click", openImportModal);
     el("btnCategories")?.addEventListener("click", openCategoriesModal);
 
-    el("btnExportStock")?.addEventListener("click", () => (window.location.href = apiPath("/api/stock.csv")));
-    el("btnExportMovements")?.addEventListener("click", () => (window.location.href = apiPath("/api/movements.csv")));
+    // ✅ FIX: download via apiFetch (token OK)
+    el("btnExportStock")?.addEventListener("click", () => downloadFile("/api/stock.csv", "stock.csv"));
+    el("btnExportMovements")?.addEventListener("click", () => downloadFile("/api/movements.csv", "movements.csv"));
 
     el("locationSelect")?.addEventListener("change", async (e) => {
       const v = Number(e.target.value || 0);
@@ -1525,7 +1543,7 @@ async function apiFetch(path, options = {}) {
   window.addEventListener("load", async () => {
     document.body.classList.add("full-width");
 
-    injectAppCss(); // ✅ FIX
+    injectAppCss();
     ensureCatalogControls();
     bindRestockFormOnce();
 
@@ -1537,7 +1555,6 @@ async function apiFetch(path, options = {}) {
     await refreshStock();
     await refreshMovements();
 
-    // Expose global functions (index.html boutons)
     window.openProductModal = openProductModal;
     window.openRestockModal = openRestockModal;
     window.closeRestockModal = closeRestockModal;

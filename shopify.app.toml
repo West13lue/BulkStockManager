@@ -1,3 +1,5 @@
+# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
+
 client_id = "af29943af7d0b46cd218987c99b15929"
 name = "Bulk Stock Manager"
 application_url = "https://stock-cbd-manager-1.onrender.com"
@@ -7,36 +9,32 @@ embedded = true
 api_version = "2025-10"
 
   [[webhooks.subscriptions]]
-  topics = ["orders/create"]
+  topics = [ "orders/create" ]
   uri = "/webhooks/orders/create"
 
   [[webhooks.subscriptions]]
-  topics = ["app/uninstalled"]
+  uri = "/webhooks/customers/data_request"
+  compliance_topics = [ "customers/data_request" ]
+
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/customers/redact"
+  compliance_topics = [ "customers/redact" ]
+
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/shop/redact"
+  compliance_topics = [ "shop/redact" ]
+
+  [[webhooks.subscriptions]]
+  topics = [ "app/uninstalled" ]
   uri = "/webhooks/app/uninstalled"
 
-  [[webhooks.subscriptions]]
-  compliance_topics = ["customers/data_request"]
-  uri = "/webhooks/customers/data_request"
-
-  [[webhooks.subscriptions]]
-  compliance_topics = ["customers/redact"]
-  uri = "/webhooks/customers/redact"
-
-  [[webhooks.subscriptions]]
-  compliance_topics = ["shop/redact"]
-  uri = "/webhooks/shop/redact"
-
 [access_scopes]
-scopes = "write_inventory,read_inventory,read_locations,read_orders,read_product_listings,read_products,write_products,read_content,write_content"
-optional_scopes = []
+scopes = "read_products,write_inventory,read_locations,read_orders"
 use_legacy_install_flow = false
+
 
 [auth]
 redirect_urls = [
-  "https://stock-cbd-manager-1.onrender.com/auth/callback",
-  "https://stock-cbd-manager-1.onrender.com/auth/shopify/callback",
   "https://stock-cbd-manager-1.onrender.com/api/auth/callback"
 ]
 
-[build]
-automatically_update_urls_on_dev = false
