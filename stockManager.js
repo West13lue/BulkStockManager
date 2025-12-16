@@ -517,6 +517,47 @@ function removeProduct(shopOrProductId, maybeProductId) {
   return true;
 }
 
+// ============================================
+// ✅ NOUVEAU pour Analytics
+// ============================================
+
+/**
+ * Récupère le CMP actuel d'un produit (pour snapshot analytics)
+ * Utilisé par analyticsManager pour capturer le coût au moment de la vente
+ */
+function getProductCMPSnapshot(shop, productId) {
+  const sh = String(shop || "default");
+  const pid = String(productId || "");
+  
+  const store = getStore(sh);
+  const cfg = store[pid];
+  
+  if (!cfg) return 0;
+  
+  return clampMin0(cfg.averageCostPerGram || 0);
+}
+
+/**
+ * Récupère les infos complètes d'un produit pour analytics
+ */
+function getProductSnapshot(shop, productId) {
+  const sh = String(shop || "default");
+  const pid = String(productId || "");
+  
+  const store = getStore(sh);
+  const cfg = store[pid];
+  
+  if (!cfg) return null;
+  
+  return {
+    productId: pid,
+    name: String(cfg.name || pid),
+    totalGrams: clampMin0(cfg.totalGrams),
+    averageCostPerGram: clampMin0(cfg.averageCostPerGram || 0),
+    categoryIds: Array.isArray(cfg.categoryIds) ? cfg.categoryIds.slice() : [],
+  };
+}
+
 module.exports = {
   PRODUCT_CONFIG_BY_SHOP,
   applyOrderToProduct,
@@ -527,8 +568,12 @@ module.exports = {
   getCatalogSnapshot,
   removeProduct,
   
-  // ✅ NOUVELLES fonctions
+  // Fonctions CMP
   calculateTotalStockValue,
   getCategoryStats,
-  calculateWeightedAverageCost,  // export pour tests
+  calculateWeightedAverageCost,
+  
+  // ✅ NOUVEAU pour Analytics
+  getProductCMPSnapshot,
+  getProductSnapshot,
 };

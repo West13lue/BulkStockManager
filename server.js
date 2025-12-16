@@ -38,6 +38,16 @@ const catalogStore = require("./catalogStore");
 // --- Movements (multi-shop)
 const movementStore = require("./movementStore");
 
+// --- Analytics (multi-shop) ✅ NOUVEAU
+let analyticsStore = null;
+let analyticsManager = null;
+try {
+  analyticsStore = require("./analyticsStore");
+  analyticsManager = require("./analyticsManager");
+} catch (e) {
+  console.warn("Analytics modules non disponibles:", e.message);
+}
+
 // --- Settings (multi-shop) : locationId par boutique
 let settingsStore = null;
 try {
@@ -1282,6 +1292,144 @@ router.get("/api/auth/callback", (req, res) => {
   });
 });
 
+// =====================================================
+// ANALYTICS ROUTES ✅ NOUVEAU
+// =====================================================
+
+// Summary (KPIs globaux)
+router.get("/api/analytics/summary", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    if (!analyticsManager) return apiError(res, 500, "Analytics non disponible");
+
+    const from = req.query.from || null;
+    const to = req.query.to || null;
+
+    const summary = analyticsManager.calculateSummary(shop, from, to);
+    res.json(summary);
+  });
+});
+
+// Timeseries (données graphiques)
+router.get("/api/analytics/timeseries", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    if (!analyticsManager) return apiError(res, 500, "Analytics non disponible");
+
+    const from = req.query.from || null;
+    const to = req.query.to || null;
+    const bucket = String(req.query.bucket || "day");
+
+    const data = analyticsManager.calculateTimeseries(shop, from, to, bucket);
+    res.json(data);
+  });
+});
+
+// Liste des commandes récentes
+router.get("/api/analytics/orders", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    if (!analyticsManager) return apiError(res, 500, "Analytics non disponible");
+
+    const from = req.query.from || null;
+    const to = req.query.to || null;
+    const limit = Math.min(Number(req.query.limit || 50), 500);
+
+    const data = analyticsManager.listRecentOrders(shop, from, to, limit);
+    res.json(data);
+  });
+});
+
+// Top produits
+router.get("/api/analytics/products/top", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    if (!analyticsManager) return apiError(res, 500, "Analytics non disponible");
+
+    const from = req.query.from || null;
+    const to = req.query.to || null;
+    const by = String(req.query.by || "revenue");
+    const limit = Math.min(Number(req.query.limit || 10), 100);
+
+    const data = analyticsManager.getTopProducts(shop, from, to, { by, limit });
+    res.json(data);
+  });
+});
+
+// Stats d'un produit spécifique
+router.get("/api/analytics/products/:productId", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    if (!analyticsManager) return apiError(res, 500, "Analytics non disponible");
+
+    const productId = String(req.params.productId);
+    const from = req.query.from || null;
+    const to = req.query.to || null;
+
+    const data = analyticsManager.calculateProductStats(shop, productId, from, to);
+    res.json(data);
+  });
+});
+
+// Stats par catégorie
+router.get("/api/analytics/categories", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    if (!analyticsManager) return apiError(res, 500, "Analytics non disponible");
+
+    const from = req.query.from || null;
+    const to = req.query.to || null;
+
+    const data = analyticsManager.getCategoryAnalytics(shop, from, to);
+    res.json(data);
+  });
+});
+
+// Export CSV
+router.get("/api/analytics/export.csv", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    if (!analyticsStore) return apiError(res, 500, "Analytics non disponible");
+
+    const from = req.query.from || null;
+    const to = req.query.to || null;
+    const limit = Math.min(Number(req.query.limit || 10000), 50000);
+
+    const sales = analyticsStore.listSales({ shop, from, to, limit });
+    const csv = analyticsStore.toCSV(sales);
+
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="analytics-${from || "all"}-${to || "now"}.csv"`);
+    res.send(csv);
+  });
+});
+
+// Export JSON
+router.get("/api/analytics/export.json", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    if (!analyticsStore) return apiError(res, 500, "Analytics non disponible");
+
+    const from = req.query.from || null;
+    const to = req.query.to || null;
+    const limit = Math.min(Number(req.query.limit || 10000), 50000);
+
+    const sales = analyticsStore.listSales({ shop, from, to, limit });
+
+    res.setHeader("Content-Type", "application/json; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="analytics-${from || "all"}-${to || "now"}.json"`);
+    res.json({ sales, count: sales.length, period: { from, to } });
+  });
+});
+
 router.use("/api", (req, res) => apiError(res, 404, "Route API non trouvée"));
 
 router.use((err, req, res, next) => {
@@ -1465,6 +1613,16 @@ app.post("/webhooks/orders/create", express.raw({ type: "application/json" }), a
           );
         }
       }
+    }
+
+    // ✅ ANALYTICS : Enregistrer la vente complète
+    try {
+      if (analyticsManager && typeof analyticsManager.recordSaleFromOrder === "function") {
+        await analyticsManager.recordSaleFromOrder(shop, payload);
+        logEvent("analytics_sale_recorded", { shop, orderId: payload?.id }, "info");
+      }
+    } catch (e) {
+      logEvent("analytics_record_error", { shop, orderId: payload?.id, error: e.message }, "error");
     }
 
     return res.sendStatus(200);
