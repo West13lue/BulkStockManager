@@ -56,6 +56,14 @@ try {
   console.warn("PlanManager non disponible:", e.message);
 }
 
+// --- Settings Manager (paramètres avancés) ✅ NOUVEAU
+let settingsManager = null;
+try {
+  settingsManager = require("./settingsManager");
+} catch (e) {
+  console.warn("SettingsManager non disponible:", e.message);
+}
+
 // --- Settings (multi-shop) : locationId par boutique
 let settingsStore = null;
 try {
@@ -1413,6 +1421,166 @@ router.get("/api/auth/callback", (req, res) => {
         <p>Tu peux fermer cette page et relancer l'app.</p>
       </div>
     `);
+  });
+});
+
+// =====================================================
+// SETTINGS ROUTES ✅ NOUVEAU (Paramètres avancés)
+// =====================================================
+
+// Récupérer tous les paramètres
+router.get("/api/settings", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    if (!settingsManager) return apiError(res, 500, "SettingsManager non disponible");
+
+    const settings = settingsManager.loadSettings(shop);
+    const options = settingsManager.SETTING_OPTIONS;
+    res.json({ settings, options });
+  });
+});
+
+// Récupérer une section
+router.get("/api/settings/:section", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    if (!settingsManager) return apiError(res, 500, "SettingsManager non disponible");
+
+    const section = String(req.params.section);
+    const settings = settingsManager.loadSettings(shop);
+    if (!settings[section]) return apiError(res, 404, `Section '${section}' non trouvée`);
+    res.json({ section, settings: settings[section] });
+  });
+});
+
+// Mettre à jour une section
+router.put("/api/settings/:section", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    if (!settingsManager) return apiError(res, 500, "SettingsManager non disponible");
+
+    const currentSettings = settingsManager.loadSettings(shop);
+    if (currentSettings.security?.readOnlyMode) {
+      return res.status(403).json({ error: "readonly_mode", message: "Mode lecture seule activé" });
+    }
+
+    const section = String(req.params.section);
+    try {
+      const updated = settingsManager.updateSettings(shop, section, req.body);
+      logEvent("settings_updated", { shop, section }, "info");
+      res.json({ success: true, section, settings: updated[section] });
+    } catch (e) {
+      return apiError(res, 400, e.message);
+    }
+  });
+});
+
+// Reset paramètres
+router.post("/api/settings/reset", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    if (!settingsManager) return apiError(res, 500, "SettingsManager non disponible");
+
+    const section = req.body?.section || null;
+    try {
+      const settings = settingsManager.resetSettings(shop, section);
+      logEvent("settings_reset", { shop, section: section || "all" }, "info");
+      res.json({ success: true, settings });
+    } catch (e) {
+      return apiError(res, 400, e.message);
+    }
+  });
+});
+
+// Export config (backup)
+router.get("/api/settings/backup", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    if (!settingsManager) return apiError(res, 500, "SettingsManager non disponible");
+
+    const config = settingsManager.exportConfig(shop);
+    res.setHeader("Content-Type", "application/json");
+    res.setHeader("Content-Disposition", `attachment; filename="config-backup.json"`);
+    res.json(config);
+  });
+});
+
+// Import config (restore)
+router.post("/api/settings/restore", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    if (!settingsManager) return apiError(res, 500, "SettingsManager non disponible");
+
+    const config = req.body?.config;
+    const merge = req.body?.merge === true;
+    if (!config) return apiError(res, 400, "Configuration manquante");
+
+    try {
+      const settings = settingsManager.importConfig(shop, config, { merge });
+      logEvent("settings_restored", { shop, merge }, "info");
+      res.json({ success: true, settings });
+    } catch (e) {
+      return apiError(res, 400, e.message);
+    }
+  });
+});
+
+// Diagnostic
+router.get("/api/settings/diagnostic", (req, res) => {
+  safeJson(req, res, async () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+
+    let shopifyStatus = "unknown";
+    try {
+      const client = shopifyFor(shop);
+      const shopInfo = await client.shop.get();
+      shopifyStatus = shopInfo?.id ? "connected" : "error";
+    } catch (e) {
+      shopifyStatus = "error";
+    }
+
+    const snapshot = stock.getCatalogSnapshot ? stock.getCatalogSnapshot(shop) : { products: [] };
+    const productCount = Array.isArray(snapshot.products) ? snapshot.products.length : 0;
+
+    let planInfo = { planId: "free", limits: {} };
+    if (planManager) {
+      planInfo = planManager.getShopPlan(shop);
+    }
+
+    const settings = settingsManager ? settingsManager.loadSettings(shop) : {};
+
+    res.json({
+      status: "ok",
+      shop: shop,
+      shopify: { status: shopifyStatus },
+      data: { 
+        productCount,
+        settingsVersion: settings._meta?.version,
+        lastUpdated: settings._meta?.updatedAt,
+      },
+      plan: { id: planInfo.planId, limits: planInfo.limits },
+    });
+  });
+});
+
+// Support bundle
+router.get("/api/settings/support-bundle", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    if (!settingsManager) return apiError(res, 500, "SettingsManager non disponible");
+
+    const bundle = settingsManager.generateSupportBundle(shop);
+    res.setHeader("Content-Type", "application/json");
+    res.setHeader("Content-Disposition", `attachment; filename="support-bundle.json"`);
+    res.json(bundle);
   });
 });
 
