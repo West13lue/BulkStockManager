@@ -406,6 +406,29 @@ function safeJson(req, res, fn) {
   }
 }
 
+  try {
+    const out = fn();
+    if (out && typeof out.then === "function") {
+      return out.catch((e) => {
+        const info = extractShopifyError(e);
+        logEvent("api_error", { shop: resolvedShop || undefined, ...info }, "error");
+
+        if (handleAuthErrorIfNeeded(info)) return;
+
+        return apiError(res, info.statusCode || 500, info.message || "Erreur serveur", info);
+      });
+    }
+    return out;
+  } catch (e) {
+    const info = extractShopifyError(e);
+    logEvent("api_error", { shop: resolvedShop || undefined, ...info }, "error");
+
+    if (handleAuthErrorIfNeeded(info)) return;
+
+    return apiError(res, info.statusCode || 500, info.message || "Erreur serveur", info);
+  }
+}
+
 
 function parseGramsFromVariant(v) {
   const candidates = [v?.option1, v?.option2, v?.option3, v?.title, v?.sku].filter(Boolean);
