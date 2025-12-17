@@ -4,58 +4,93 @@
 
   const API_BASE = '/api';
   
-  // ============================================
-  // SHOPIFY APP BRIDGE & SESSION TOKEN
-  // ============================================
-  
-  let appBridge = null;
-  let sessionToken = null;
-  
-  function initAppBridge() {
-    const urlParams = new URLSearchParams(window.location.search);
-    const host = urlParams.get('host');
-    
-    if (window.shopify && host) {
-      try {
-        appBridge = window.shopify;
-        console.log('🔗 Shopify App Bridge initialisé');
-        return true;
-      } catch (e) {
-        console.warn('⚠️ Erreur App Bridge:', e);
-      }
-    }
+// ============================================
+// SHOPIFY APP BRIDGE & SESSION TOKEN (FIX)
+// ============================================
+
+let appBridgeApp = null;     // instance createApp()
+let sessionToken = null;
+let apiKeyCache = null;
+
+function getHostFromUrl() {
+  const urlParams = new URLSearchParams(window.location.search);
+  return urlParams.get('host');
+}
+
+async function loadPublicConfig() {
+  if (apiKeyCache) return apiKeyCache;
+  const res = await fetch('/api/public/config', { headers: { 'Accept': 'application/json' } });
+  const json = await res.json().catch(() => ({}));
+  apiKeyCache = String(json.apiKey || '').trim();
+  return apiKeyCache;
+}
+
+async function initAppBridge() {
+  const host = getHostFromUrl();
+  if (!host) {
+    console.warn('⚠️ host manquant dans l’URL (app embedded ?)');
     return false;
   }
-  
-  async function getSessionToken() {
-    if (sessionToken) return sessionToken;
-    
-    try {
-      if (appBridge && appBridge.idToken) {
-        sessionToken = await appBridge.idToken();
-        console.log('🔑 Session token obtenu');
-        return sessionToken;
-      }
-    } catch (e) {
-      console.warn('⚠️ Erreur session token:', e);
-    }
+
+  const apiKey = await loadPublicConfig();
+  if (!apiKey) {
+    console.warn('⚠️ apiKey introuvable via /api/public/config');
+    return false;
+  }
+
+  const AB = window['app-bridge'];
+  if (!AB || typeof AB.createApp !== 'function') {
+    console.warn('⚠️ @shopify/app-bridge non chargé (window["app-bridge"] absent)');
+    return false;
+  }
+
+  appBridgeApp = AB.createApp({
+    apiKey,
+    host,
+    forceRedirect: true,
+  });
+
+  console.log('🔗 App Bridge créé (createApp)');
+  return true;
+}
+
+async function getSessionToken() {
+  if (sessionToken) return sessionToken;
+  if (!appBridgeApp) return null;
+
+  const ABU = window['app-bridge-utils'];
+  if (!ABU || typeof ABU.getSessionToken !== 'function') {
+    console.warn('⚠️ @shopify/app-bridge-utils non chargé (getSessionToken indisponible)');
     return null;
   }
-  
-  // Fetch avec authentification automatique
-  async function authFetch(url, options = {}) {
-    const token = await getSessionToken();
-    const headers = {
-      ...options.headers,
-      'Content-Type': 'application/json',
-    };
-    
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
-    }
-    
-    return fetch(url, { ...options, headers });
+
+  try {
+    sessionToken = await ABU.getSessionToken(appBridgeApp);
+    return sessionToken;
+  } catch (e) {
+    console.warn('⚠️ Erreur getSessionToken(App Bridge):', e);
+    return null;
   }
+}
+
+// Fetch avec authentification automatique
+async function authFetch(url, options = {}) {
+  const token = await getSessionToken();
+
+  const headers = {
+    ...(options.headers || {}),
+    'Content-Type': 'application/json',
+  };
+
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  } else {
+    // utile en debug
+    console.warn('⚠️ Session token absent -> requête non authentifiée:', url);
+  }
+
+  return fetch(url, { ...options, headers });
+}
   
   // ============================================
   // SHOP DETECTION
@@ -128,11 +163,11 @@
     console.log('🚀 Stock Manager Pro initializing...');
     console.log('🏪 Shop:', CURRENT_SHOP || 'NON DÉTECTÉ');
     
-    // Initialiser App Bridge pour l'authentification
-    initAppBridge();
-    
-    setupNavigation();
-    await loadPlanInfo();
+// ✅ Initialiser App Bridge AVANT les appels /api/*
+await initAppBridge();
+
+setupNavigation();
+await loadPlanInfo();
     await loadProducts();
     renderTab('dashboard');
     updatePlanWidget();
