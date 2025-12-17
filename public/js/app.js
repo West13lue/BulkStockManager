@@ -308,7 +308,7 @@
         renderFeature(c, "hasKits", "Kits", "ðŸ§©");
         break;
       case "analytics":
-        renderFeature(c, "hasAnalytics", "Analytics", "ðŸ“ˆ");
+        renderAnalytics(c);
         break;
       case "inventory":
         renderFeature(c, "hasInventoryCount", "Inventaire", "ðŸ“‹");
@@ -1129,6 +1129,235 @@
   }
 
   // ============================================
+  // ANALYTICS PRO
+  // ============================================
+  var analyticsData = null;
+  var analyticsPeriod = "30";
+
+  function renderAnalytics(c) {
+    if (!hasFeature("hasAnalytics")) {
+      c.innerHTML =
+        '<div class="page-header"><h1 class="page-title">Analytics</h1></div>' +
+        '<div class="card" style="min-height:400px;display:flex;align-items:center;justify-content:center"><div class="text-center">' +
+        '<div style="font-size:64px">LOCK</div><h2>Fonctionnalite PRO</h2>' +
+        '<p class="text-secondary">Passez au plan Pro pour acceder aux analytics avances.</p>' +
+        '<button class="btn btn-upgrade mt-lg" onclick="app.showUpgradeModal()">Passer a Pro</button></div></div>';
+      return;
+    }
+
+    // Afficher loading puis charger les donnees
+    c.innerHTML =
+      '<div class="page-header"><div><h1 class="page-title">Analytics</h1><p class="page-subtitle">Analyse de votre stock</p></div>' +
+      '<div class="page-actions">' +
+      '<select class="form-select" id="analyticsPeriod" onchange="app.changeAnalyticsPeriod(this.value)">' +
+      '<option value="7"' + (analyticsPeriod === "7" ? " selected" : "") + '>7 derniers jours</option>' +
+      '<option value="30"' + (analyticsPeriod === "30" ? " selected" : "") + '>30 derniers jours</option>' +
+      '<option value="90"' + (analyticsPeriod === "90" ? " selected" : "") + '>90 derniers jours</option>' +
+      '</select></div></div>' +
+      '<div id="analyticsContent"><div class="text-center" style="padding:60px"><div class="spinner"></div><p class="text-secondary mt-md">Chargement des analytics...</p></div></div>';
+
+    loadAnalytics();
+  }
+
+  async function loadAnalytics() {
+    try {
+      var res = await authFetch(apiUrl("/analytics/dashboard?period=" + analyticsPeriod));
+      if (!res.ok) {
+        var err = await res.json().catch(function() { return {}; });
+        if (err.error === "plan_limit") {
+          showUpgradeModal();
+          return;
+        }
+        document.getElementById("analyticsContent").innerHTML = 
+          '<div class="card"><div class="card-body text-center"><p class="text-danger">Erreur: ' + (err.error || "Impossible de charger") + '</p></div></div>';
+        return;
+      }
+      analyticsData = await res.json();
+      renderAnalyticsContent();
+    } catch (e) {
+      document.getElementById("analyticsContent").innerHTML = 
+        '<div class="card"><div class="card-body text-center"><p class="text-danger">Erreur: ' + e.message + '</p></div></div>';
+    }
+  }
+
+  function changeAnalyticsPeriod(period) {
+    analyticsPeriod = period;
+    loadAnalytics();
+  }
+
+  function renderAnalyticsContent() {
+    if (!analyticsData) return;
+    var d = analyticsData;
+    var k = d.kpis || {};
+    var h = d.stockHealth || {};
+
+    // KPI Cards
+    var kpiCards = 
+      '<div class="analytics-kpis">' +
+      '<div class="kpi-card"><div class="kpi-value">' + formatCurrency(k.totalStockValue || 0) + '</div><div class="kpi-label">Valeur stock</div></div>' +
+      '<div class="kpi-card"><div class="kpi-value">' + formatCurrency((h.vendable || {}).value || 0) + '</div><div class="kpi-label">Stock vendable</div><div class="kpi-sub success">' + ((h.vendable || {}).percent || 0) + '%</div></div>' +
+      '<div class="kpi-card' + (k.alertsCount > 0 ? ' kpi-warning' : '') + '"><div class="kpi-value">' + (k.alertsCount || 0) + '</div><div class="kpi-label">Alertes</div></div>' +
+      '<div class="kpi-card"><div class="kpi-value">' + (k.avgRotationDays ? k.avgRotationDays + 'j' : '--') + '</div><div class="kpi-label">Rotation moy.</div></div>' +
+      '</div>';
+
+    // Score de sante
+    var scoreClass = k.healthScore >= 70 ? 'success' : k.healthScore >= 40 ? 'warning' : 'danger';
+    var healthSection = 
+      '<div class="analytics-section">' +
+      '<div class="section-header" onclick="app.toggleSection(\'health\')">' +
+      '<h3>Sante du stock</h3><span class="section-toggle" id="toggle-health">-</span></div>' +
+      '<div class="section-content" id="section-health">' +
+      '<div class="health-score-container">' +
+      '<div class="health-score ' + scoreClass + '">' + (k.healthScore || 0) + '</div>' +
+      '<div class="health-score-label">Score de sante</div>' +
+      '</div>' +
+      '<div class="health-bars">' +
+      '<div class="health-bar-item"><div class="health-bar-label">Vendable (&lt;30j)</div><div class="health-bar-track"><div class="health-bar-fill success" style="width:' + ((h.vendable || {}).percent || 0) + '%"></div></div><div class="health-bar-value">' + formatCurrency((h.vendable || {}).value || 0) + ' (' + ((h.vendable || {}).percent || 0) + '%)</div></div>' +
+      '<div class="health-bar-item"><div class="health-bar-label">Lent (30-60j)</div><div class="health-bar-track"><div class="health-bar-fill warning" style="width:' + ((h.lent || {}).percent || 0) + '%"></div></div><div class="health-bar-value">' + formatCurrency((h.lent || {}).value || 0) + ' (' + ((h.lent || {}).percent || 0) + '%)</div></div>' +
+      '<div class="health-bar-item"><div class="health-bar-label">Dormant (&gt;60j)</div><div class="health-bar-track"><div class="health-bar-fill danger" style="width:' + ((h.dormant || {}).percent || 0) + '%"></div></div><div class="health-bar-value">' + formatCurrency((h.dormant || {}).value || 0) + ' (' + ((h.dormant || {}).percent || 0) + '%)</div></div>' +
+      '</div>' +
+      '</div></div>';
+
+    // Alertes
+    var alerts = d.alerts || {};
+    var alertsHtml = '';
+    
+    if ((alerts.rupture || []).length > 0) {
+      alertsHtml += '<div class="alert-group alert-danger"><div class="alert-title">Rupture de stock (' + alerts.rupture.length + ')</div>';
+      alerts.rupture.forEach(function(a) {
+        alertsHtml += '<div class="alert-item"><span class="alert-product">' + esc(a.name) + '</span><span class="alert-action">Reapprovisionner</span></div>';
+      });
+      alertsHtml += '</div>';
+    }
+    
+    if ((alerts.lowStock || []).length > 0) {
+      alertsHtml += '<div class="alert-group alert-warning"><div class="alert-title">Stock critique (' + alerts.lowStock.length + ')</div>';
+      alerts.lowStock.forEach(function(a) {
+        alertsHtml += '<div class="alert-item"><span class="alert-product">' + esc(a.name) + '</span><span class="alert-days">' + (a.daysLeft || '?') + 'j restants</span><span class="alert-action">Commander</span></div>';
+      });
+      alertsHtml += '</div>';
+    }
+    
+    if ((alerts.dormant || []).length > 0) {
+      alertsHtml += '<div class="alert-group alert-info"><div class="alert-title">Stock dormant (' + alerts.dormant.length + ')</div>';
+      alerts.dormant.slice(0, 5).forEach(function(a) {
+        alertsHtml += '<div class="alert-item"><span class="alert-product">' + esc(a.name) + '</span><span class="alert-value">' + formatCurrency(a.value) + ' immobilises</span><span class="alert-action">Promo?</span></div>';
+      });
+      alertsHtml += '</div>';
+    }
+
+    if (!alertsHtml) {
+      alertsHtml = '<div class="empty-state-small"><p class="text-secondary">Aucune alerte</p></div>';
+    }
+
+    var alertsSection = 
+      '<div class="analytics-section">' +
+      '<div class="section-header" onclick="app.toggleSection(\'alerts\')">' +
+      '<h3>Alertes & Actions</h3><span class="section-toggle" id="toggle-alerts">-</span></div>' +
+      '<div class="section-content" id="section-alerts">' + alertsHtml + '</div></div>';
+
+    // Top produits
+    var tops = d.topProducts || {};
+    var topsHtml = '<div class="tops-grid">';
+    
+    // Top vendus
+    topsHtml += '<div class="top-list"><h4>Plus vendus</h4>';
+    if ((tops.vendus || []).length > 0) {
+      tops.vendus.forEach(function(p, i) {
+        topsHtml += '<div class="top-item"><span class="top-rank">' + (i + 1) + '</span><span class="top-name">' + esc(p.name) + '</span><span class="top-value">' + formatWeight(p.totalSoldGrams) + '</span></div>';
+      });
+    } else {
+      topsHtml += '<p class="text-secondary text-sm">Pas de donnees</p>';
+    }
+    topsHtml += '</div>';
+
+    // Top valeur
+    topsHtml += '<div class="top-list"><h4>Plus haute valeur</h4>';
+    if ((tops.valeur || []).length > 0) {
+      tops.valeur.forEach(function(p, i) {
+        topsHtml += '<div class="top-item"><span class="top-rank">' + (i + 1) + '</span><span class="top-name">' + esc(p.name) + '</span><span class="top-value">' + formatCurrency(p.value) + '</span></div>';
+      });
+    } else {
+      topsHtml += '<p class="text-secondary text-sm">Pas de donnees</p>';
+    }
+    topsHtml += '</div>';
+
+    // Plus lents
+    topsHtml += '<div class="top-list"><h4>Rotation lente</h4>';
+    if ((tops.lents || []).length > 0) {
+      tops.lents.forEach(function(p, i) {
+        topsHtml += '<div class="top-item"><span class="top-rank danger">' + (i + 1) + '</span><span class="top-name">' + esc(p.name) + '</span><span class="top-value">' + (p.rotationDays ? p.rotationDays + 'j' : 'Dormant') + '</span></div>';
+      });
+    } else {
+      topsHtml += '<p class="text-secondary text-sm">Pas de donnees</p>';
+    }
+    topsHtml += '</div></div>';
+
+    var topsSection = 
+      '<div class="analytics-section">' +
+      '<div class="section-header" onclick="app.toggleSection(\'tops\')">' +
+      '<h3>Top Produits</h3><span class="section-toggle" id="toggle-tops">-</span></div>' +
+      '<div class="section-content" id="section-tops">' + topsHtml + '</div></div>';
+
+    // Par categorie
+    var cats = d.categories || [];
+    var catsHtml = '';
+    if (cats.length > 0) {
+      catsHtml = '<table class="data-table data-table-compact"><thead><tr><th>Categorie</th><th>Produits</th><th>Stock</th><th>Valeur</th><th>Rotation</th><th>Sante</th></tr></thead><tbody>';
+      cats.forEach(function(cat) {
+        var healthBadge = cat.health === 'good' ? '<span class="badge badge-success">OK</span>' : 
+                          cat.health === 'slow' ? '<span class="badge badge-warning">Lent</span>' : 
+                          cat.health === 'dormant' ? '<span class="badge badge-danger">Dormant</span>' : 
+                          '<span class="badge badge-secondary">--</span>';
+        catsHtml += '<tr><td>' + esc(cat.name) + '</td><td>' + cat.productCount + '</td><td>' + formatWeight(cat.stockGrams) + '</td><td>' + formatCurrency(cat.stockValue) + '</td><td>' + (cat.avgRotationDays ? cat.avgRotationDays + 'j' : '--') + '</td><td>' + healthBadge + '</td></tr>';
+      });
+      catsHtml += '</tbody></table>';
+    } else {
+      catsHtml = '<div class="empty-state-small"><p class="text-secondary">Creez des categories pour voir cette analyse</p></div>';
+    }
+
+    var catsSection = 
+      '<div class="analytics-section">' +
+      '<div class="section-header" onclick="app.toggleSection(\'categories\')">' +
+      '<h3>Par Categorie</h3><span class="section-toggle" id="toggle-categories">-</span></div>' +
+      '<div class="section-content" id="section-categories">' + catsHtml + '</div></div>';
+
+    // Par format
+    var formats = d.formats || [];
+    var formatsHtml = '';
+    if (formats.length > 0) {
+      formatsHtml = '<div class="formats-grid">';
+      formats.forEach(function(f) {
+        var recClass = f.percentStock > 40 ? 'success' : f.percentStock > 20 ? 'warning' : 'secondary';
+        formatsHtml += '<div class="format-card"><div class="format-label">' + f.label + '</div><div class="format-percent">' + f.percentStock + '%</div><div class="format-value">' + formatCurrency(f.stockValue) + '</div><div class="format-bar"><div class="format-bar-fill ' + recClass + '" style="width:' + f.percentStock + '%"></div></div></div>';
+      });
+      formatsHtml += '</div>';
+    } else {
+      formatsHtml = '<div class="empty-state-small"><p class="text-secondary">Pas de donnees de format</p></div>';
+    }
+
+    var formatsSection = 
+      '<div class="analytics-section">' +
+      '<div class="section-header" onclick="app.toggleSection(\'formats\')">' +
+      '<h3>Par Format</h3><span class="section-toggle" id="toggle-formats">-</span></div>' +
+      '<div class="section-content" id="section-formats">' + formatsHtml + '</div></div>';
+
+    // Assembler
+    document.getElementById("analyticsContent").innerHTML = 
+      kpiCards + healthSection + alertsSection + topsSection + catsSection + formatsSection;
+  }
+
+  function toggleSection(sectionId) {
+    var content = document.getElementById("section-" + sectionId);
+    var toggle = document.getElementById("toggle-" + sectionId);
+    if (content && toggle) {
+      var isHidden = content.style.display === "none";
+      content.style.display = isHidden ? "block" : "none";
+      toggle.textContent = isHidden ? "-" : "+";
+    }
+  }
+
+  // ============================================
   // FILTRES ET TRI
   // ============================================
   var searchTimeout = null;
@@ -1363,6 +1592,9 @@
     deleteCategory: deleteCategory,
     showAssignCategoriesModal: showAssignCategoriesModal,
     saveProductCategories: saveProductCategories,
+    // Analytics
+    changeAnalyticsPeriod: changeAnalyticsPeriod,
+    toggleSection: toggleSection,
     get state() {
       return state;
     },

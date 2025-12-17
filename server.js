@@ -2307,6 +2307,313 @@ router.get("/api/analytics/export.json", (req, res) => {
 });
 
 // ============================================
+// ANALYTICS DASHBOARD PRO - Endpoint complet
+// ============================================
+router.get("/api/analytics/dashboard", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+
+    // Verifier le plan PRO
+    if (planManager) {
+      const check = planManager.checkLimit(shop, "view_analytics");
+      if (!check.allowed) {
+        return res.status(403).json({
+          error: "plan_limit",
+          message: check.reason,
+          upgrade: check.upgrade,
+          feature: "analytics",
+        });
+      }
+    }
+
+    const period = req.query.period || "30"; // jours
+    const now = new Date();
+    const daysAgo = parseInt(period, 10) || 30;
+    const from = new Date(now.getTime() - daysAgo * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const to = now.toISOString().slice(0, 10);
+
+    // 1. Recuperer le snapshot stock
+    const snapshot = stock.getCatalogSnapshot ? stock.getCatalogSnapshot(shop) : { products: [] };
+    const products = Array.isArray(snapshot.products) ? snapshot.products : [];
+    const categories = catalogStore.listCategories ? catalogStore.listCategories(shop) : [];
+
+    // 2. Calculer les KPIs stock
+    let totalStockValue = 0;
+    let totalStockGrams = 0;
+    const alertsRupture = [];
+    const alertsLow = [];
+    const alertsDormant = [];
+
+    // Seuils configurables
+    const SEUIL_RUPTURE = 0;
+    const SEUIL_CRITIQUE = 50; // grammes
+    const SEUIL_BAS = 200; // grammes
+    const SEUIL_ROTATION_LENT = 30; // jours
+    const SEUIL_ROTATION_DORMANT = 60; // jours
+
+    // Analyser chaque produit
+    const productsAnalysis = products.map(p => {
+      const grams = p.totalGrams || 0;
+      const cmp = p.averageCostPerGram || 0;
+      const value = grams * cmp;
+      totalStockValue += value;
+      totalStockGrams += grams;
+
+      // Calculer rotation estimee (basee sur les ventes si dispo)
+      let rotationDays = null;
+      let velocityPerDay = 0;
+      let lastSaleDate = null;
+      let totalSoldGrams = 0;
+
+      if (analyticsStore) {
+        const sales = analyticsStore.getSalesByProduct ? 
+          analyticsStore.getSalesByProduct(shop, p.productId, from, to) : [];
+        if (sales.length > 0) {
+          totalSoldGrams = sales.reduce((sum, s) => sum + (s.totalGrams || 0), 0);
+          velocityPerDay = totalSoldGrams / daysAgo;
+          rotationDays = velocityPerDay > 0 ? Math.round(grams / velocityPerDay) : null;
+          lastSaleDate = sales[0]?.orderDate || null;
+        }
+      }
+
+      // Determiner le statut
+      let status = "good";
+      let statusLabel = "OK";
+      if (grams <= SEUIL_RUPTURE) {
+        status = "rupture";
+        statusLabel = "Rupture";
+      } else if (grams < SEUIL_CRITIQUE) {
+        status = "critical";
+        statusLabel = "Critique";
+      } else if (grams < SEUIL_BAS) {
+        status = "low";
+        statusLabel = "Bas";
+      }
+
+      // Determiner sante rotation
+      let rotationStatus = "unknown";
+      if (rotationDays !== null) {
+        if (rotationDays <= SEUIL_ROTATION_LENT) rotationStatus = "fast";
+        else if (rotationDays <= SEUIL_ROTATION_DORMANT) rotationStatus = "slow";
+        else rotationStatus = "dormant";
+      } else if (grams > 0 && totalSoldGrams === 0) {
+        rotationStatus = "dormant"; // Aucune vente sur la periode
+      }
+
+      // Alertes
+      if (status === "rupture") {
+        alertsRupture.push({ productId: p.productId, name: p.name, grams, value });
+      } else if (status === "critical" || status === "low") {
+        if (rotationDays !== null && rotationDays < 7) {
+          alertsLow.push({ productId: p.productId, name: p.name, grams, daysLeft: rotationDays, value });
+        }
+      }
+      if (rotationStatus === "dormant" && grams > 0) {
+        alertsDormant.push({ productId: p.productId, name: p.name, grams, value, daysSinceLastSale: rotationDays || 999 });
+      }
+
+      return {
+        productId: p.productId,
+        name: p.name,
+        grams,
+        cmp,
+        value,
+        status,
+        statusLabel,
+        rotationDays,
+        rotationStatus,
+        velocityPerDay: Math.round(velocityPerDay * 100) / 100,
+        totalSoldGrams,
+        categoryIds: p.categoryIds || [],
+      };
+    });
+
+    // 3. Calculer la sante globale du stock
+    let stockVendable = 0;
+    let stockLent = 0;
+    let stockDormant = 0;
+
+    productsAnalysis.forEach(p => {
+      if (p.rotationStatus === "fast") stockVendable += p.value;
+      else if (p.rotationStatus === "slow") stockLent += p.value;
+      else if (p.rotationStatus === "dormant") stockDormant += p.value;
+      else stockVendable += p.value; // Par defaut si pas de donnees
+    });
+
+    const healthScore = totalStockValue > 0 
+      ? Math.round(((stockVendable / totalStockValue) * 100) - ((stockDormant / totalStockValue) * 30))
+      : 100;
+
+    // 4. Top produits
+    const topVendus = [...productsAnalysis]
+      .filter(p => p.totalSoldGrams > 0)
+      .sort((a, b) => b.totalSoldGrams - a.totalSoldGrams)
+      .slice(0, 5);
+
+    const topValeur = [...productsAnalysis]
+      .filter(p => p.value > 0)
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 5);
+
+    const topLents = [...productsAnalysis]
+      .filter(p => p.rotationStatus === "dormant" || p.rotationStatus === "slow")
+      .sort((a, b) => (b.rotationDays || 999) - (a.rotationDays || 999))
+      .slice(0, 5);
+
+    // 5. Analyse par categorie
+    const categoryAnalysis = categories.map(cat => {
+      const catProducts = productsAnalysis.filter(p => 
+        Array.isArray(p.categoryIds) && p.categoryIds.includes(cat.id)
+      );
+      const catValue = catProducts.reduce((sum, p) => sum + p.value, 0);
+      const catGrams = catProducts.reduce((sum, p) => sum + p.grams, 0);
+      const catSold = catProducts.reduce((sum, p) => sum + p.totalSoldGrams, 0);
+      const avgRotation = catProducts.length > 0
+        ? catProducts.reduce((sum, p) => sum + (p.rotationDays || 0), 0) / catProducts.length
+        : null;
+
+      let health = "good";
+      if (avgRotation !== null) {
+        if (avgRotation > SEUIL_ROTATION_DORMANT) health = "dormant";
+        else if (avgRotation > SEUIL_ROTATION_LENT) health = "slow";
+      }
+
+      return {
+        id: cat.id,
+        name: cat.name,
+        productCount: catProducts.length,
+        stockGrams: Math.round(catGrams),
+        stockValue: Math.round(catValue * 100) / 100,
+        soldGrams: Math.round(catSold),
+        avgRotationDays: avgRotation ? Math.round(avgRotation) : null,
+        health,
+      };
+    });
+
+    // Produits sans categorie
+    const uncategorized = productsAnalysis.filter(p => 
+      !Array.isArray(p.categoryIds) || p.categoryIds.length === 0
+    );
+    if (uncategorized.length > 0) {
+      const uncatValue = uncategorized.reduce((sum, p) => sum + p.value, 0);
+      const uncatGrams = uncategorized.reduce((sum, p) => sum + p.grams, 0);
+      const uncatSold = uncategorized.reduce((sum, p) => sum + p.totalSoldGrams, 0);
+      categoryAnalysis.push({
+        id: "uncategorized",
+        name: "Sans categorie",
+        productCount: uncategorized.length,
+        stockGrams: Math.round(uncatGrams),
+        stockValue: Math.round(uncatValue * 100) / 100,
+        soldGrams: Math.round(uncatSold),
+        avgRotationDays: null,
+        health: "unknown",
+      });
+    }
+
+    // 6. Analyse par format (gramsPerUnit des variantes)
+    const formatBuckets = { small: { label: "1-5g", min: 0, max: 5 }, medium: { label: "10-25g", min: 6, max: 25 }, large: { label: "50g+", min: 26, max: 9999 } };
+    const formatAnalysis = [];
+
+    products.forEach(p => {
+      if (!Array.isArray(p.variants)) return;
+      p.variants.forEach(v => {
+        const gpu = v.gramsPerUnit || 0;
+        let bucket = null;
+        if (gpu > 0 && gpu <= 5) bucket = "small";
+        else if (gpu > 5 && gpu <= 25) bucket = "medium";
+        else if (gpu > 25) bucket = "large";
+        if (bucket) {
+          if (!formatAnalysis[bucket]) {
+            formatAnalysis[bucket] = { ...formatBuckets[bucket], stockValue: 0, soldGrams: 0, productCount: 0 };
+          }
+          // Calculer la part de stock de cette variante
+          const productData = productsAnalysis.find(pa => pa.productId === p.productId);
+          if (productData) {
+            formatAnalysis[bucket].stockValue += productData.value / (p.variants.length || 1);
+            formatAnalysis[bucket].soldGrams += productData.totalSoldGrams / (p.variants.length || 1);
+            formatAnalysis[bucket].productCount++;
+          }
+        }
+      });
+    });
+
+    const formatAnalysisArray = Object.values(formatAnalysis).map(f => ({
+      ...f,
+      stockValue: Math.round(f.stockValue * 100) / 100,
+      soldGrams: Math.round(f.soldGrams),
+      percentStock: totalStockValue > 0 ? Math.round((f.stockValue / totalStockValue) * 100) : 0,
+    }));
+
+    // 7. Recuperer les ventes analytics si disponibles
+    let salesSummary = null;
+    if (analyticsManager && typeof analyticsManager.calculateSummary === "function") {
+      salesSummary = analyticsManager.calculateSummary(shop, from, to);
+    }
+
+    // 8. Calculer la rotation moyenne globale
+    const productsWithRotation = productsAnalysis.filter(p => p.rotationDays !== null && p.rotationDays > 0);
+    const avgRotation = productsWithRotation.length > 0
+      ? Math.round(productsWithRotation.reduce((sum, p) => sum + p.rotationDays, 0) / productsWithRotation.length)
+      : null;
+
+    // Reponse finale
+    res.json({
+      period: { from, to, days: daysAgo },
+      
+      // KPIs principaux
+      kpis: {
+        totalStockValue: Math.round(totalStockValue * 100) / 100,
+        totalStockGrams: Math.round(totalStockGrams),
+        totalProducts: products.length,
+        alertsCount: alertsRupture.length + alertsLow.length,
+        avgRotationDays: avgRotation,
+        healthScore: Math.max(0, Math.min(100, healthScore)),
+      },
+
+      // Sante du stock
+      stockHealth: {
+        vendable: { value: Math.round(stockVendable * 100) / 100, percent: totalStockValue > 0 ? Math.round((stockVendable / totalStockValue) * 100) : 0 },
+        lent: { value: Math.round(stockLent * 100) / 100, percent: totalStockValue > 0 ? Math.round((stockLent / totalStockValue) * 100) : 0 },
+        dormant: { value: Math.round(stockDormant * 100) / 100, percent: totalStockValue > 0 ? Math.round((stockDormant / totalStockValue) * 100) : 0 },
+      },
+
+      // Alertes
+      alerts: {
+        rupture: alertsRupture.slice(0, 10),
+        lowStock: alertsLow.sort((a, b) => a.daysLeft - b.daysLeft).slice(0, 10),
+        dormant: alertsDormant.sort((a, b) => b.value - a.value).slice(0, 10),
+      },
+
+      // Tops
+      topProducts: {
+        vendus: topVendus,
+        valeur: topValeur,
+        lents: topLents,
+      },
+
+      // Par categorie
+      categories: categoryAnalysis.sort((a, b) => b.stockValue - a.stockValue),
+
+      // Par format
+      formats: formatAnalysisArray,
+
+      // Ventes (si disponibles)
+      sales: salesSummary,
+
+      // Seuils utilises
+      thresholds: {
+        rupture: SEUIL_RUPTURE,
+        critique: SEUIL_CRITIQUE,
+        bas: SEUIL_BAS,
+        rotationLent: SEUIL_ROTATION_LENT,
+        rotationDormant: SEUIL_ROTATION_DORMANT,
+      },
+    });
+  });
+});
+
+// ============================================
 // ROUTES PRO (Batches, Suppliers, PO, Forecast, Kits, Inventory)
 // ============================================
 try {
