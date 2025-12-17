@@ -7,6 +7,38 @@ const path = require("path");
 const DATA_DIR = process.env.DATA_DIR || "/var/data";
 
 // ============================================
+// BYPASS BILLING - Boutiques avec accès gratuit
+// ============================================
+
+const BYPASS_BILLING = {
+  // Ta boutique - accès Enterprise gratuit
+  "e4vkqa-ea.myshopify.com": "enterprise",
+  
+  // Ajoute d'autres boutiques ici si besoin :
+  // "autre-boutique.myshopify.com": "business",
+  // "test-store.myshopify.com": "pro",
+};
+
+/**
+ * Vérifie si une boutique a un bypass billing
+ * @param {string} shop - Domaine de la boutique
+ * @returns {string|null} - Plan accordé ou null
+ */
+function getBypassPlan(shop) {
+  const normalizedShop = shop.toLowerCase().replace(/^https?:\/\//, '').replace(/\/$/, '');
+  return BYPASS_BILLING[normalizedShop] || null;
+}
+
+/**
+ * Vérifie si une boutique bypass le billing
+ * @param {string} shop - Domaine de la boutique
+ * @returns {boolean}
+ */
+function hasBypassBilling(shop) {
+  return getBypassPlan(shop) !== null;
+}
+
+// ============================================
 // DÉFINITION DES PLANS v2.0
 // ============================================
 
@@ -294,6 +326,36 @@ function planFile(shop) {
 // ============================================
 
 function getShopPlan(shop) {
+  // ============================================
+  // BYPASS BILLING CHECK - Priorité absolue
+  // ============================================
+  const bypassPlan = getBypassPlan(shop);
+  if (bypassPlan) {
+    const plan = PLANS[bypassPlan] || PLANS.enterprise;
+    console.log(`🎁 BYPASS BILLING: ${shop} → Plan ${plan.name} (gratuit)`);
+    return {
+      planId: plan.id,
+      plan,
+      subscription: {
+        id: "bypass_" + Date.now(),
+        status: "active",
+        startedAt: "2024-01-01T00:00:00.000Z",
+        expiresAt: null, // Jamais d'expiration
+        chargeId: null,
+        interval: "lifetime",
+        bypass: true, // Marqueur bypass
+      },
+      limits: plan.limits,
+      features: plan.features,
+      trialEndsAt: null,
+      grandfathered: true,
+      bypass: true,
+    };
+  }
+
+  // ============================================
+  // Fonctionnement normal
+  // ============================================
   const file = planFile(shop);
   let data = { planId: "free" };
 
@@ -561,6 +623,13 @@ module.exports = {
   PLANS,
   PLAN_ORDER,
   FEATURE_DESCRIPTIONS,
+  
+  // Bypass billing
+  BYPASS_BILLING,
+  getBypassPlan,
+  hasBypassBilling,
+  
+  // CRUD
   getShopPlan,
   setShopPlan,
   startTrial,
