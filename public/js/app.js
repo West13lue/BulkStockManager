@@ -139,7 +139,14 @@
     planName: "Free",
     limits: {},
     products: [],
+    categories: [],
     shop: CURRENT_SHOP,
+    // Filtres produits
+    filters: {
+      search: "",
+      category: "",
+      sort: "alpha"
+    }
   };
 
   function hasFeature(key) {
@@ -377,43 +384,95 @@
   }
 
   function renderProducts(c) {
+    // Options categories pour le select
+    var catOptions = '<option value="">Toutes les categories</option>';
+    catOptions += '<option value="uncategorized"' + (state.filters.category === "uncategorized" ? " selected" : "") + '>Sans categorie</option>';
+    state.categories.forEach(function(cat) {
+      var count = cat.productCount || 0;
+      catOptions += '<option value="' + esc(cat.id) + '"' + (state.filters.category === cat.id ? " selected" : "") + '>' + esc(cat.name) + ' (' + count + ')</option>';
+    });
+
+    // Options tri
+    var sortOptions = [
+      { value: "alpha", label: "Nom A-Z" },
+      { value: "alpha_desc", label: "Nom Z-A" },
+      { value: "stock_asc", label: "Stock croissant" },
+      { value: "stock_desc", label: "Stock decroissant" },
+      { value: "value_asc", label: "Valeur croissante" },
+      { value: "value_desc", label: "Valeur decroissante" }
+    ];
+    var sortOptionsHtml = sortOptions.map(function(opt) {
+      return '<option value="' + opt.value + '"' + (state.filters.sort === opt.value ? " selected" : "") + '>' + opt.label + '</option>';
+    }).join("");
+
     c.innerHTML =
       '<div class="page-header"><div><h1 class="page-title">Produits</h1><p class="page-subtitle">' +
-      state.products.length +
-      " produit(s)</p></div>" +
-      '<div class="page-actions"><button class="btn btn-secondary" onclick="app.showImportModal()">Import Shopify</button>' +
+      state.products.length + " produit(s)</p></div>" +
+      '<div class="page-actions">' +
+      '<button class="btn btn-ghost" onclick="app.showCategoriesModal()">Categories</button>' +
+      '<button class="btn btn-secondary" onclick="app.showImportModal()">Import Shopify</button>' +
       '<button class="btn btn-primary" onclick="app.showAddProductModal()">+ Ajouter</button></div></div>' +
+      
+      // Toolbar filtres
+      '<div class="toolbar-filters">' +
+      '<div class="filter-group">' +
+      '<input type="text" class="form-input" id="searchInput" placeholder="Rechercher..." value="' + esc(state.filters.search) + '" onkeyup="app.onSearchChange(event)">' +
+      '</div>' +
+      '<div class="filter-group">' +
+      '<select class="form-select" id="categoryFilter" onchange="app.onCategoryChange(this.value)">' + catOptions + '</select>' +
+      '</div>' +
+      '<div class="filter-group">' +
+      '<select class="form-select" id="sortFilter" onchange="app.onSortChange(this.value)">' + sortOptionsHtml + '</select>' +
+      '</div>' +
+      '</div>' +
+      
       '<div class="card"><div class="card-body" style="padding:0">' +
       (state.products.length ? renderTable(state.products) : renderEmpty()) +
       "</div></div>";
   }
 
-function renderTable(products) {
-  var rows = products
-    .map(function (p) {
-      var s = p.totalGrams || 0,
-        cost = p.averageCostPerGram || 0;
-      var st = getStatus(s);
-      return (
-        '<tr class="product-row" onclick="app.openProductDetails(\'' + esc(p.productId) + '\')" style="cursor:pointer">' +
-        "<td>" + esc(p.name || p.title || "Sans nom") + "</td>" +
-        "<td>" + formatWeight(s) + "</td>" +
-        "<td>" + formatCurrency(cost) + "/g</td>" +
-        "<td>" + formatCurrency(s * cost) + "</td>" +
-        '<td><span class="stock-badge ' + st.c + '">' + st.i + " " + st.l + "</span></td>" +
-        '<td class="cell-actions" onclick="event.stopPropagation()">' +
-        '<button class="btn btn-ghost btn-xs" onclick="app.showRestockModal(\'' + p.productId + "')\">+</button>" +
-        '<button class="btn btn-ghost btn-xs" onclick="app.showAdjustModal(\'' + p.productId + "')\">Edit</button>" +
-        '<button class="btn btn-ghost btn-xs" onclick="app.openProductDetails(\'' + p.productId + "')\">Details</button></td></tr>"
-      );
-    })
-    .join("");
-  return (
-    '<table class="data-table"><thead><tr><th>Produit</th><th>Stock</th><th>CMP</th><th>Valeur</th><th>Statut</th><th></th></tr></thead><tbody>' +
-    rows +
-    "</tbody></table>"
-  );
-}
+  function renderTable(products) {
+    var rows = products
+      .map(function (p) {
+        var s = p.totalGrams || 0,
+          cost = p.averageCostPerGram || 0;
+        var st = getStatus(s);
+        
+        // Generer les chips categories
+        var catChips = "";
+        if (Array.isArray(p.categoryIds) && p.categoryIds.length > 0) {
+          catChips = p.categoryIds.map(function(catId) {
+            var cat = state.categories.find(function(c) { return c.id === catId; });
+            if (cat) {
+              return '<span class="category-chip">' + esc(cat.name) + '</span>';
+            }
+            return "";
+          }).join("");
+        } else {
+          catChips = '<span class="category-chip category-chip-empty">-</span>';
+        }
+        
+        return (
+          '<tr class="product-row" data-product-id="' + esc(p.productId) + '" onclick="app.openProductDetails(\'' + esc(p.productId) + '\')" style="cursor:pointer">' +
+          "<td>" + esc(p.name || p.title || "Sans nom") + "</td>" +
+          '<td class="cell-categories" onclick="event.stopPropagation();app.showAssignCategoriesModal(\'' + esc(p.productId) + '\')">' + catChips + '</td>' +
+          "<td>" + formatWeight(s) + "</td>" +
+          "<td>" + formatCurrency(cost) + "/g</td>" +
+          "<td>" + formatCurrency(s * cost) + "</td>" +
+          '<td><span class="stock-badge ' + st.c + '">' + st.i + " " + st.l + "</span></td>" +
+          '<td class="cell-actions" onclick="event.stopPropagation()">' +
+          '<button class="btn btn-ghost btn-xs" onclick="app.showRestockModal(\'' + p.productId + "')\">+</button>" +
+          '<button class="btn btn-ghost btn-xs" onclick="app.showAdjustModal(\'' + p.productId + "')\">Edit</button>" +
+          '<button class="btn btn-ghost btn-xs" onclick="app.openProductDetails(\'' + p.productId + "')\">Details</button></td></tr>"
+        );
+      })
+      .join("");
+    return (
+      '<table class="data-table"><thead><tr><th>Produit</th><th>Categories</th><th>Stock</th><th>CMP</th><th>Valeur</th><th>Statut</th><th></th></tr></thead><tbody>' +
+      rows +
+      "</tbody></table>"
+    );
+  }
 
   function renderEmpty() {
     return (
@@ -699,20 +758,37 @@ function renderTable(products) {
     }
   }
 
-  async function loadProducts() {
+  async function loadProducts(useFilters) {
     try {
-      var res = await authFetch(apiUrl("/stock"));
+      var url = "/stock";
+      if (useFilters) {
+        var params = [];
+        if (state.filters.search) params.push("q=" + encodeURIComponent(state.filters.search));
+        if (state.filters.category) params.push("category=" + encodeURIComponent(state.filters.category));
+        if (state.filters.sort) params.push("sort=" + encodeURIComponent(state.filters.sort));
+        if (params.length) url += "?" + params.join("&");
+      }
+      var res = await authFetch(apiUrl(url));
       if (!res.ok) {
         state.products = [];
+        state.categories = [];
         return;
       }
       var data = await res.json();
       state.products = Array.isArray(data.products) ? data.products : [];
-      console.log("[Products] Loaded:", state.products.length);
+      state.categories = Array.isArray(data.categories) ? data.categories : [];
+      console.log("[Products] Loaded:", state.products.length, "Categories:", state.categories.length);
     } catch (e) {
       state.products = [];
+      state.categories = [];
     }
     updateUI();
+  }
+
+  function applyFilters() {
+    loadProducts(true).then(function() {
+      renderTab(state.currentTab);
+    });
   }
 
   async function saveProduct() {
@@ -1052,109 +1128,205 @@ function renderTable(products) {
     }
   }
 
-// ============================================
-// FICHE DETAIL PRODUIT
-// ============================================
-async function openProductDetails(productId) {
-  if (!productId) return;
-  showModal({
-    title: "Chargement...",
-    size: "xl",
-    content: '<div class="text-center" style="padding:40px"><div class="spinner"></div></div>',
-  });
-  try {
-    var res = await authFetch(apiUrl("/products/" + encodeURIComponent(productId)));
-    if (!res.ok) {
-      var err = await res.json().catch(function() { return {}; });
-      showToast(err.error || "Erreur chargement", "error");
-      closeModal();
+  // ============================================
+  // FILTRES ET TRI
+  // ============================================
+  var searchTimeout = null;
+  
+  function onSearchChange(event) {
+    clearTimeout(searchTimeout);
+    searchTimeout = setTimeout(function() {
+      state.filters.search = event.target.value;
+      applyFilters();
+    }, 300);
+  }
+  
+  function onCategoryChange(value) {
+    state.filters.category = value;
+    applyFilters();
+  }
+  
+  function onSortChange(value) {
+    state.filters.sort = value;
+    applyFilters();
+  }
+
+  // ============================================
+  // GESTION CATEGORIES
+  // ============================================
+  function showCategoriesModal() {
+    var categoriesList = "";
+    if (state.categories.length === 0) {
+      categoriesList = '<div class="empty-state-small"><p class="text-secondary">Aucune categorie</p></div>';
+    } else {
+      categoriesList = '<div class="categories-list">' + state.categories.map(function(cat) {
+        var count = cat.productCount || 0;
+        return '<div class="category-item">' +
+          '<div class="category-item-info">' +
+          '<span class="category-item-name">' + esc(cat.name) + '</span>' +
+          '<span class="category-item-count">' + count + ' produit(s)</span>' +
+          '</div>' +
+          '<div class="category-item-actions">' +
+          '<button class="btn btn-ghost btn-xs" onclick="app.showRenameCategoryModal(\'' + esc(cat.id) + '\',\'' + esc(cat.name) + '\')">Renommer</button>' +
+          '<button class="btn btn-ghost btn-xs text-danger" onclick="app.deleteCategory(\'' + esc(cat.id) + '\')">Supprimer</button>' +
+          '</div>' +
+          '</div>';
+      }).join("") + '</div>';
+    }
+
+    showModal({
+      title: "Gerer les categories",
+      content:
+        '<div class="form-group">' +
+        '<div style="display:flex;gap:8px">' +
+        '<input type="text" class="form-input" id="newCatName" placeholder="Nouvelle categorie...">' +
+        '<button class="btn btn-primary" onclick="app.createCategory()">Ajouter</button>' +
+        '</div>' +
+        '</div>' +
+        '<div class="categories-container">' + categoriesList + '</div>',
+      footer: '<button class="btn btn-ghost" onclick="app.closeModal()">Fermer</button>',
+    });
+  }
+
+  async function createCategory() {
+    var input = document.getElementById("newCatName");
+    var name = input ? input.value.trim() : "";
+    if (!name) {
+      showToast("Nom requis", "error");
       return;
     }
-    var data = await res.json();
-    renderProductDetails(data);
-  } catch (e) {
-    showToast("Erreur: " + e.message, "error");
-    closeModal();
+    try {
+      var res = await authFetch(apiUrl("/categories"), {
+        method: "POST",
+        body: JSON.stringify({ name: name }),
+      });
+      if (res.ok) {
+        showToast("Categorie creee", "success");
+        await loadProducts(true);
+        showCategoriesModal(); // Refresh modal
+      } else {
+        var e = await res.json();
+        showToast(e.error || "Erreur", "error");
+      }
+    } catch (e) {
+      showToast("Erreur: " + e.message, "error");
+    }
   }
-}
 
-function renderProductDetails(data) {
-  var p = data.product;
-  var variants = data.variantStats || [];
-  var summary = data.summary || {};
-  var statusClass = p.stockStatus || "good";
-  var statusLabel = p.stockLabel || "OK";
-
-  var variantsRows = variants.map(function(v) {
-    var barWidth = Math.min(100, Math.max(5, v.shareByUnits || 0));
-    return '<tr><td class="cell-primary">' + v.gramsPerUnit + 'g</td>' +
-      '<td class="cell-mono">' + (v.inventoryItemId || '-') + '</td>' +
-      '<td style="font-weight:600">' + v.canSell + ' unites</td>' +
-      '<td>' + formatWeight(v.gramsEquivalent) + '</td>' +
-      '<td style="width:150px"><div class="variant-bar-container">' +
-      '<div class="variant-bar" style="width:' + barWidth + '%"></div>' +
-      '<span class="variant-bar-label">' + v.shareByUnits.toFixed(1) + '%</span></div></td></tr>';
-  }).join("");
-
-  var chartBars = variants.map(function(v, i) {
-    var maxCanSell = Math.max.apply(null, variants.map(function(x) { return x.canSell; })) || 1;
-    var heightPercent = Math.round((v.canSell / maxCanSell) * 100);
-    var colors = ['#6366f1', '#8b5cf6', '#06b6d4', '#10b981', '#f59e0b', '#ef4444'];
-    return '<div class="chart-bar-wrapper"><div class="chart-bar" style="height:' + heightPercent + '%;background:' + colors[i % 6] + '"></div>' +
-      '<div class="chart-bar-label">' + v.gramsPerUnit + 'g</div><div class="chart-bar-value">' + v.canSell + '</div></div>';
-  }).join("");
-
-  var content = 
-    '<div class="product-detail-header"><div class="product-detail-title"><h2>' + esc(p.name) + '</h2>' +
-    '<span class="stock-badge ' + statusClass + '">' + statusLabel + '</span></div></div>' +
-    '<div class="product-detail-stats">' +
-    '<div class="detail-stat"><div class="detail-stat-value">' + formatWeight(p.totalGrams) + '</div><div class="detail-stat-label">Stock total</div></div>' +
-    '<div class="detail-stat"><div class="detail-stat-value">' + formatCurrency(p.averageCostPerGram) + '/g</div><div class="detail-stat-label">CMP</div></div>' +
-    '<div class="detail-stat"><div class="detail-stat-value">' + formatCurrency(p.stockValue) + '</div><div class="detail-stat-label">Valeur</div></div>' +
-    '<div class="detail-stat"><div class="detail-stat-value">' + summary.variantCount + '</div><div class="detail-stat-label">Variantes</div></div></div>' +
-    '<div class="product-detail-actions">' +
-    '<button class="btn btn-primary btn-sm" onclick="app.closeModal();app.showRestockModal(\'' + p.productId + '\')">Reappro</button>' +
-    '<button class="btn btn-secondary btn-sm" onclick="app.closeModal();app.showAdjustModal(\'' + p.productId + '\')">Ajuster</button>' +
-    '<button class="btn btn-ghost btn-sm" onclick="app.showEditCMPModal(\'' + p.productId + '\',' + p.averageCostPerGram + ')">Modifier CMP</button></div>' +
-    '<div class="product-detail-section"><h3 class="section-title">Capacite de vente par variante</h3>' +
-    '<div class="chart-container"><div class="simple-bar-chart">' + chartBars + '</div></div></div>' +
-    '<div class="product-detail-section"><h3 class="section-title">Detail des variantes</h3>' +
-    '<table class="data-table data-table-compact"><thead><tr><th>Grammage</th><th>Inventory ID</th><th>Unites</th><th>Equivalent</th><th>Repartition</th></tr></thead>' +
-    '<tbody>' + variantsRows + '</tbody></table></div>' +
-    '<div class="product-detail-info"><strong>Mode Pool Global</strong> - Le stock est partage entre toutes les variantes.</div>';
-
-  showModal({ title: "Fiche produit", size: "xl", content: content, footer: '<button class="btn btn-ghost" onclick="app.closeModal()">Fermer</button>' });
-}
-
-function showEditCMPModal(productId, currentCMP) {
-  closeModal();
-  showModal({
-    title: "Modifier le CMP",
-    content: '<p class="text-secondary mb-md">CMP actuel: <strong>' + formatCurrency(currentCMP) + '/g</strong></p>' +
-      '<div class="form-group"><label class="form-label">Nouveau CMP (EUR/g)</label>' +
-      '<input type="number" class="form-input" id="newCMP" value="' + currentCMP + '" step="0.01" min="0"></div>',
-    footer: '<button class="btn btn-ghost" onclick="app.closeModal()">Annuler</button>' +
-      '<button class="btn btn-primary" onclick="app.saveCMP(\'' + productId + '\')">Enregistrer</button>',
-  });
-}
-
-async function saveCMP(productId) {
-  var input = document.getElementById("newCMP");
-  var newCMP = parseFloat(input ? input.value : 0);
-  if (!Number.isFinite(newCMP) || newCMP < 0) { showToast("Valeur invalide", "error"); return; }
-  try {
-    var res = await authFetch(apiUrl("/products/" + encodeURIComponent(productId) + "/average-cost"), {
-      method: "PATCH", body: JSON.stringify({ averageCostPerGram: newCMP }),
+  function showRenameCategoryModal(catId, currentName) {
+    closeModal();
+    showModal({
+      title: "Renommer la categorie",
+      content:
+        '<div class="form-group"><label class="form-label">Nouveau nom</label>' +
+        '<input type="text" class="form-input" id="renameCatInput" value="' + esc(currentName) + '"></div>',
+      footer:
+        '<button class="btn btn-ghost" onclick="app.showCategoriesModal()">Annuler</button>' +
+        '<button class="btn btn-primary" onclick="app.renameCategory(\'' + esc(catId) + '\')">Enregistrer</button>',
     });
-    if (res.ok) { showToast("CMP mis a jour", "success"); closeModal(); await loadProducts(); renderTab(state.currentTab); }
-    else { var e = await res.json(); showToast(e.error || "Erreur", "error"); }
-  } catch (e) { showToast("Erreur: " + e.message, "error"); }
-}
+  }
+
+  async function renameCategory(catId) {
+    var input = document.getElementById("renameCatInput");
+    var name = input ? input.value.trim() : "";
+    if (!name) {
+      showToast("Nom requis", "error");
+      return;
+    }
+    try {
+      var res = await authFetch(apiUrl("/categories/" + encodeURIComponent(catId)), {
+        method: "PUT",
+        body: JSON.stringify({ name: name }),
+      });
+      if (res.ok) {
+        showToast("Categorie renommee", "success");
+        await loadProducts(true);
+        showCategoriesModal();
+      } else {
+        var e = await res.json();
+        showToast(e.error || "Erreur", "error");
+      }
+    } catch (e) {
+      showToast("Erreur: " + e.message, "error");
+    }
+  }
+
+  async function deleteCategory(catId) {
+    if (!confirm("Supprimer cette categorie ?")) return;
+    try {
+      var res = await authFetch(apiUrl("/categories/" + encodeURIComponent(catId)), {
+        method: "DELETE",
+      });
+      if (res.ok) {
+        showToast("Categorie supprimee", "success");
+        await loadProducts(true);
+        showCategoriesModal();
+      } else {
+        var e = await res.json();
+        showToast(e.error || "Erreur", "error");
+      }
+    } catch (e) {
+      showToast("Erreur: " + e.message, "error");
+    }
+  }
+
+  // ============================================
+  // ASSIGNER CATEGORIES A UN PRODUIT
+  // ============================================
+  function showAssignCategoriesModal(productId) {
+    var product = state.products.find(function(p) { return p.productId === productId; });
+    if (!product) return;
+
+    var currentCatIds = Array.isArray(product.categoryIds) ? product.categoryIds : [];
+
+    var checkboxes = "";
+    if (state.categories.length === 0) {
+      checkboxes = '<p class="text-secondary">Aucune categorie. <a href="#" onclick="app.closeModal();app.showCategoriesModal();return false;">Creer une categorie</a></p>';
+    } else {
+      checkboxes = state.categories.map(function(cat) {
+        var checked = currentCatIds.includes(cat.id) ? " checked" : "";
+        return '<label class="checkbox-item">' +
+          '<input type="checkbox" class="cat-checkbox" value="' + esc(cat.id) + '"' + checked + '>' +
+          '<span>' + esc(cat.name) + '</span>' +
+          '</label>';
+      }).join("");
+    }
+
+    showModal({
+      title: "Categories pour " + esc(product.name || "Produit"),
+      content:
+        '<div class="categories-checkboxes">' + checkboxes + '</div>',
+      footer:
+        '<button class="btn btn-ghost" onclick="app.closeModal()">Annuler</button>' +
+        '<button class="btn btn-primary" onclick="app.saveProductCategories(\'' + esc(productId) + '\')">Enregistrer</button>',
+    });
+  }
+
+  async function saveProductCategories(productId) {
+    var checkboxes = document.querySelectorAll(".cat-checkbox:checked");
+    var categoryIds = [];
+    checkboxes.forEach(function(cb) { categoryIds.push(cb.value); });
+
+    try {
+      var res = await authFetch(apiUrl("/products/" + encodeURIComponent(productId) + "/categories"), {
+        method: "POST",
+        body: JSON.stringify({ categoryIds: categoryIds }),
+      });
+      if (res.ok) {
+        showToast("Categories mises a jour", "success");
+        closeModal();
+        await loadProducts(true);
+        renderTab(state.currentTab);
+      } else {
+        var e = await res.json();
+        showToast(e.error || "Erreur", "error");
+      }
+    } catch (e) {
+      showToast("Erreur: " + e.message, "error");
+    }
+  }
 
   window.app = {
-openProductDetails: openProductDetails,
-showEditCMPModal: showEditCMPModal,
-saveCMP: saveCMP,
     init: init,
     navigateTo: navigateTo,
     toggleSidebar: toggleSidebar,
@@ -1179,6 +1351,18 @@ saveCMP: saveCMP,
     openProductDetails: openProductDetails,
     showEditCMPModal: showEditCMPModal,
     saveCMP: saveCMP,
+    // Filtres
+    onSearchChange: onSearchChange,
+    onCategoryChange: onCategoryChange,
+    onSortChange: onSortChange,
+    // Categories
+    showCategoriesModal: showCategoriesModal,
+    createCategory: createCategory,
+    showRenameCategoryModal: showRenameCategoryModal,
+    renameCategory: renameCategory,
+    deleteCategory: deleteCategory,
+    showAssignCategoriesModal: showAssignCategoriesModal,
+    saveProductCategories: saveProductCategories,
     get state() {
       return state;
     },

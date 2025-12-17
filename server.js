@@ -696,23 +696,78 @@ router.get("/api/stock", (req, res) => {
     const shop = getShop(req);
     if (!shop) return apiError(res, 400, "Shop introuvable");
 
-    const { sort = "alpha", category = "" } = req.query;
+    const { sort = "alpha", category = "", q = "" } = req.query;
 
     const snapshot = stock.getCatalogSnapshot ? stock.getCatalogSnapshot(shop) : { products: [], categories: [] };
     const categories = catalogStore.listCategories ? catalogStore.listCategories(shop) : [];
     let products = Array.isArray(snapshot.products) ? snapshot.products.slice() : [];
 
-    if (category) {
-      products = products.filter((p) => Array.isArray(p.categoryIds) && p.categoryIds.includes(String(category)));
-    }
-
-    if (sort === "alpha") {
-      products.sort((a, b) =>
-        String(a.name || "").localeCompare(String(b.name || ""), "fr", { sensitivity: "base" })
+    // Filtre par recherche (nom produit)
+    if (q && q.trim()) {
+      const search = q.trim().toLowerCase();
+      products = products.filter((p) => 
+        String(p.name || "").toLowerCase().includes(search)
       );
     }
 
-    res.json({ products, categories });
+    // Filtre par categorie
+    if (category === "uncategorized") {
+      // Produits sans categorie
+      products = products.filter((p) => !Array.isArray(p.categoryIds) || p.categoryIds.length === 0);
+    } else if (category) {
+      // Produits dans une categorie specifique
+      products = products.filter((p) => Array.isArray(p.categoryIds) && p.categoryIds.includes(String(category)));
+    }
+
+    // Tri
+    if (sort === "alpha" || sort === "alpha_asc") {
+      products.sort((a, b) =>
+        String(a.name || "").localeCompare(String(b.name || ""), "fr", { sensitivity: "base" })
+      );
+    } else if (sort === "alpha_desc") {
+      products.sort((a, b) =>
+        String(b.name || "").localeCompare(String(a.name || ""), "fr", { sensitivity: "base" })
+      );
+    } else if (sort === "stock_asc") {
+      products.sort((a, b) => (a.totalGrams || 0) - (b.totalGrams || 0));
+    } else if (sort === "stock_desc") {
+      products.sort((a, b) => (b.totalGrams || 0) - (a.totalGrams || 0));
+    } else if (sort === "value_asc") {
+      products.sort((a, b) => 
+        ((a.totalGrams || 0) * (a.averageCostPerGram || 0)) - ((b.totalGrams || 0) * (b.averageCostPerGram || 0))
+      );
+    } else if (sort === "value_desc") {
+      products.sort((a, b) => 
+        ((b.totalGrams || 0) * (b.averageCostPerGram || 0)) - ((a.totalGrams || 0) * (a.averageCostPerGram || 0))
+      );
+    }
+
+    // Ajouter compteur produits par categorie
+    const categoriesWithCount = categories.map((cat) => {
+      const allProducts = snapshot.products || [];
+      const count = allProducts.filter((p) => 
+        Array.isArray(p.categoryIds) && p.categoryIds.includes(cat.id)
+      ).length;
+      return { ...cat, productCount: count };
+    });
+
+    // Compter produits sans categorie
+    const allProducts = snapshot.products || [];
+    const uncategorizedCount = allProducts.filter((p) => 
+      !Array.isArray(p.categoryIds) || p.categoryIds.length === 0
+    ).length;
+
+    res.json({ 
+      products, 
+      categories: categoriesWithCount,
+      meta: {
+        total: products.length,
+        uncategorizedCount,
+        sort,
+        category: category || "all",
+        q: q || ""
+      }
+    });
   });
 });
 
