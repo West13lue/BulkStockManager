@@ -31,14 +31,26 @@ function shopDomainToSlug(shopDomain) {
 // ==========================
 function getAccessTokenForShop(shopDomain) {
   const shop = normalizeShopDomain(shopDomain);
-  if (!shop) throw new Error("Shop invalide (token)");
+  if (!shop) {
+    const err = new Error("Shop invalide (token)");
+    err.statusCode = 400;
+    err.code = "invalid_shop";
+    throw err;
+  }
 
   const token = tokenStore.loadToken(shop);
+
+  // ✅ IMPORTANT: si token manquant => 401 pour que safeJson() renvoie reauth_required
   if (!token) {
-    throw new Error(
+    const err = new Error(
       `Aucun token OAuth pour ${shop}. Installe l'app ou relance /api/auth/start?shop=${shop}`
     );
+    err.statusCode = 401;
+    err.code = "missing_oauth_token";
+    err.shop = shop;
+    throw err;
   }
+
   return token;
 }
 
@@ -49,7 +61,12 @@ function createShopifyClient(shopDomain, accessToken) {
   const domain = normalizeShopDomain(shopDomain);
   const shopName = shopDomainToSlug(domain);
 
-  if (!shopName) throw new Error("Shop invalide pour Shopify client");
+  if (!shopName) {
+    const err = new Error("Shop invalide pour Shopify client");
+    err.statusCode = 400;
+    err.code = "invalid_shop";
+    throw err;
+  }
 
   return new Shopify({
     shopName, // ex: "cloud-store-test"
@@ -60,7 +77,12 @@ function createShopifyClient(shopDomain, accessToken) {
 
 function getShopifyClient(shop) {
   const shopDomain = normalizeShopDomain(shop);
-  if (!shopDomain) throw new Error("Shop manquant pour Shopify client");
+  if (!shopDomain) {
+    const err = new Error("Shop manquant pour Shopify client");
+    err.statusCode = 400;
+    err.code = "missing_shop";
+    throw err;
+  }
 
   const token = getAccessTokenForShop(shopDomain);
 
@@ -88,7 +110,12 @@ async function searchProducts(shop, opts = {}) {
 }
 
 async function fetchProduct(shop, productId) {
-  if (!productId) throw new Error("fetchProduct: productId manquant");
+  if (!productId) {
+    const err = new Error("fetchProduct: productId manquant");
+    err.statusCode = 400;
+    err.code = "missing_product_id";
+    throw err;
+  }
   const client = getShopifyClient(shop);
   return client.product.get(Number(productId));
 }
@@ -112,7 +139,6 @@ async function testShopifyConnection(shop) {
 function toMoneyAmount(v) {
   const n = Number(v);
   if (!Number.isFinite(n) || n < 0) throw new Error("Montant invalide");
-  // Shopify accepte string/decimal ; on normalise en string "12.34"
   return (Math.round(n * 100) / 100).toFixed(2);
 }
 
@@ -136,10 +162,6 @@ async function graphqlRequest(shop, query, variables = {}) {
   }
 }
 
-/**
- * Lire les abonnements actifs de l’app (Billing status)
- * Utile pour savoir si shop est Free/Starter/Pro etc côté Shopify.
- */
 async function getActiveAppSubscriptions(shop) {
   const query = `
     query ActiveSubs {
@@ -174,20 +196,6 @@ async function getActiveAppSubscriptions(shop) {
   return Array.isArray(subs) ? subs : [];
 }
 
-/**
- * Créer un abonnement récurrent (AppSubscriptionCreate)
- * Retourne { confirmationUrl, subscriptionId, userErrors }
- *
- * @param {string} shop
- * @param {object} opts
- * @param {string} opts.name - nom du plan (ex: "Starter")
- * @param {string} opts.returnUrl - URL où Shopify renvoie après acceptation
- * @param {number} opts.price - montant mensuel/annuel
- * @param {string} [opts.currencyCode="EUR"]
- * @param {"EVERY_30_DAYS"|"ANNUAL"} [opts.interval="EVERY_30_DAYS"]
- * @param {number} [opts.trialDays=0]
- * @param {boolean} [opts.test=false] - mode test (pour dev)
- */
 async function createAppSubscription(shop, opts = {}) {
   const name = String(opts.name || "").trim();
   const returnUrl = String(opts.returnUrl || "").trim();
@@ -234,7 +242,7 @@ async function createAppSubscription(shop, opts = {}) {
         plan: {
           appRecurringPricingDetails: {
             price: { amount, currencyCode },
-            interval, // EVERY_30_DAYS ou ANNUAL
+            interval,
           },
         },
       },
@@ -253,19 +261,11 @@ async function createAppSubscription(shop, opts = {}) {
   };
 }
 
-/**
- * Annuler un abonnement (AppSubscriptionCancel)
- * @param {string} shop
- * @param {string} subscriptionGid - ex: "gid://shopify/AppSubscription/123"
- * @param {object} opts
- * @param {boolean} [opts.prorate=true]
- * @param {string} [opts.reason="OTHER"]
- */
 async function cancelAppSubscription(shop, subscriptionGid, opts = {}) {
   const id = String(subscriptionGid || "").trim();
   if (!id) throw new Error("Billing: subscriptionGid manquant");
 
-  const prorate = opts.prorate !== false; // true par défaut
+  const prorate = opts.prorate !== false;
   const reason = String(opts.reason || "OTHER").trim().toUpperCase();
 
   const mutation = `
@@ -283,11 +283,7 @@ async function cancelAppSubscription(shop, subscriptionGid, opts = {}) {
     }
   `;
 
-  const variables = {
-    id,
-    prorate,
-    reason,
-  };
+  const variables = { id, prorate, reason };
 
   const data = await graphqlRequest(shop, mutation, variables);
   const payload = data?.appSubscriptionCancel || {};
@@ -301,14 +297,12 @@ async function cancelAppSubscription(shop, subscriptionGid, opts = {}) {
 }
 
 module.exports = {
-  // existant
   getShopifyClient,
   searchProducts,
   fetchProduct,
   normalizeShopDomain,
   testShopifyConnection,
 
-  // ✅ Billing
   graphqlRequest,
   getActiveAppSubscriptions,
   createAppSubscription,
