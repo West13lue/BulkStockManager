@@ -1,5 +1,5 @@
 // planManager.js â€” Gestion des plans (Free/Starter/Pro/Business/Enterprise)
-// v2.0 - Nouveau pricing avec fonctionnalitÃ©s avancÃ©es
+// v2.0 - Nouveau pricing avec fonctionnalites avancees
 
 const fs = require("fs");
 const path = require("path");
@@ -7,11 +7,11 @@ const path = require("path");
 const DATA_DIR = process.env.DATA_DIR || "/var/data";
 
 // ============================================
-// BYPASS BILLING - Boutiques avec accÃ¨s gratuit
+// BYPASS BILLING - Boutiques avec acces gratuit
 // ============================================
 
 const BYPASS_BILLING = {
-  // Ta boutique - accÃ¨s Enterprise gratuit (tous les formats possibles)
+  // Ta boutique - acces Enterprise gratuit (tous les formats possibles)
   "e4vkqa-ea.myshopify.com": "enterprise",
   "cloud-store-cbd.com": "enterprise",
   "www.cloud-store-cbd.com": "enterprise",
@@ -21,9 +21,9 @@ const BYPASS_BILLING = {
 };
 
 /**
- * VÃ©rifie si une boutique a un bypass billing
+ * Verifie si une boutique a un bypass billing
  * @param {string} shop - Domaine de la boutique
- * @returns {string|null} - Plan accordÃ© ou null
+ * @returns {string|null} - Plan accorde ou null
  */
 function getBypassPlan(shop) {
   if (!shop) return null;
@@ -55,7 +55,7 @@ function getBypassPlan(shop) {
     return BYPASS_BILLING[withWww];
   }
   
-  // Essayer avec .myshopify.com si pas prÃ©sent
+  // Essayer avec .myshopify.com si pas present
   if (!normalizedShop.includes('.myshopify.com') && !normalizedShop.includes('.')) {
     const withSuffix = normalizedShop + '.myshopify.com';
     if (BYPASS_BILLING[withSuffix]) {
@@ -79,7 +79,7 @@ function getBypassPlan(shop) {
 }
 
 /**
- * VÃ©rifie si une boutique bypass le billing
+ * Verifie si une boutique bypass le billing
  * @param {string} shop - Domaine de la boutique
  * @returns {boolean}
  */
@@ -88,7 +88,7 @@ function hasBypassBilling(shop) {
 }
 
 // ============================================
-// DÃ‰FINITION DES PLANS v2.0
+// DEFINITION DES PLANS v2.0
 // ============================================
 
 const PLANS = {
@@ -128,7 +128,7 @@ const PLANS = {
     features: [
       "2 produits maximum",
       "Gestion stock + sync Shopify",
-      "CMP (coÃ»t moyen) basique",
+      "CMP (cout moyen) basique",
       "Ajustements manuels",
       "Export CSV simple",
     ],
@@ -171,11 +171,11 @@ const PLANS = {
     features: [
       "15 produits",
       "Tout Free +",
-      "CatÃ©gories & filtres",
+      "Categories & filtres",
       "Import Shopify",
       "Valeur totale stock",
       "Historique 30 jours",
-      "Exports CSV avancÃ©s",
+      "Exports CSV avances",
     ],
     cta: "Essai gratuit 14 jours",
   },
@@ -216,12 +216,12 @@ const PLANS = {
     features: [
       "75 produits",
       "Tout Starter +",
-      "ðŸ“¦ Lots / DLC / TraÃ§abilitÃ©",
+      "ðŸ“¦ Lots / DLC / Tracabilite",
       "ðŸ­ Gestion fournisseurs",
       "ðŸ“‹ Inventaire physique",
       "ðŸ“Š Analytics (CA, marges)",
       "ðŸ”” Notifications Slack/Discord",
-      "ðŸŽ Gestion freebies",
+      "[GIFT] Gestion freebies",
       "Historique 90 jours",
     ],
     cta: "Essai gratuit 14 jours",
@@ -261,14 +261,14 @@ const PLANS = {
       hasFreebies: true,
     },
     features: [
-      "Produits illimitÃ©s",
+      "Produits illimites",
       "Tout Pro +",
-      "ðŸ”® PrÃ©visions de rupture (IA)",
-      "ðŸ§© Kits / Bundles / ComposÃ©s",
+      "ðŸ”® Previsions de rupture (IA)",
+      "ðŸ§© Kits / Bundles / Composes",
       "ðŸ“ Bons de commande (PO)",
       "ðŸ‘¥ Multi-utilisateurs (5)",
       "âš¡ Automatisations",
-      "ðŸ”— IntÃ©grations (Zapier)",
+      "ðŸ”— Integrations (Zapier)",
       "ðŸ“§ Rapports auto par email",
       "â­ Support prioritaire",
       "Historique 1 an",
@@ -312,12 +312,12 @@ const PLANS = {
     features: [
       "Tout Business +",
       "ðŸª Multi-boutiques",
-      "ðŸ‘¥ Utilisateurs illimitÃ©s",
-      "ðŸ”Œ AccÃ¨s API complet",
-      "ðŸ“Š Historique illimitÃ©",
-      "ðŸŽ¯ Account manager dÃ©diÃ©",
-      "ðŸ“ž Support tÃ©lÃ©phonique",
-      "ðŸ”§ Onboarding personnalisÃ©",
+      "ðŸ‘¥ Utilisateurs illimites",
+      "ðŸ”Œ Acces API complet",
+      "ðŸ“Š Historique illimite",
+      "[GIFT]¯ Account manager dedie",
+      "ðŸ“ž Support telephonique",
+      "ðŸ”§ Onboarding personnalise",
       "ðŸ“œ SLA garanti 99.9%",
     ],
     cta: "Contacter les ventes",
@@ -328,24 +328,24 @@ const PLANS = {
 const PLAN_ORDER = ["free", "starter", "pro", "business", "enterprise"];
 
 const FEATURE_DESCRIPTIONS = {
-  hasCategories: { name: "CatÃ©gories", icon: "ðŸ·ï¸", description: "Organiser vos produits" },
+  hasCategories: { name: "Categories", icon: "ðŸ·ï¸", description: "Organiser vos produits" },
   hasShopifyImport: { name: "Import Shopify", icon: "ðŸ“¥", description: "Importer depuis Shopify" },
   hasStockValue: { name: "Valeur stock", icon: "ðŸ’°", description: "Valeur totale du stock" },
   hasAnalytics: { name: "Analytics", icon: "ðŸ“Š", description: "Stats ventes et marges" },
-  hasBatchTracking: { name: "Lots & DLC", icon: "ðŸ“¦", description: "TraÃ§abilitÃ©, pÃ©remption" },
+  hasBatchTracking: { name: "Lots & DLC", icon: "ðŸ“¦", description: "Tracabilite, peremption" },
   hasSuppliers: { name: "Fournisseurs", icon: "ðŸ­", description: "Gestion fournisseurs" },
   hasPurchaseOrders: { name: "Bons de commande", icon: "ðŸ“", description: "PO fournisseurs" },
   hasInventoryCount: { name: "Inventaire", icon: "ðŸ“‹", description: "Comptage physique" },
-  hasForecast: { name: "PrÃ©visions", icon: "ðŸ”®", description: "PrÃ©diction ruptures" },
-  hasKits: { name: "Kits & Bundles", icon: "ðŸ§©", description: "Produits composÃ©s" },
+  hasForecast: { name: "Previsions", icon: "ðŸ”®", description: "Prediction ruptures" },
+  hasKits: { name: "Kits & Bundles", icon: "ðŸ§©", description: "Produits composes" },
   hasMultiUsers: { name: "Multi-utilisateurs", icon: "ðŸ‘¥", description: "Ã‰quipe" },
-  hasAutomations: { name: "Automatisations", icon: "âš¡", description: "RÃ¨gles auto" },
-  hasIntegrations: { name: "IntÃ©grations", icon: "ðŸ”—", description: "Zapier, webhooks" },
+  hasAutomations: { name: "Automatisations", icon: "âš¡", description: "Regles auto" },
+  hasIntegrations: { name: "Integrations", icon: "ðŸ”—", description: "Zapier, webhooks" },
   hasReports: { name: "Rapports auto", icon: "ðŸ“§", description: "Emails hebdo" },
   hasMultiStore: { name: "Multi-boutiques", icon: "ðŸª", description: "Plusieurs shops" },
-  hasApi: { name: "AccÃ¨s API", icon: "ðŸ”Œ", description: "API REST" },
+  hasApi: { name: "Acces API", icon: "ðŸ”Œ", description: "API REST" },
   hasNotifications: { name: "Notifications", icon: "ðŸ””", description: "Slack, Discord" },
-  hasFreebies: { name: "Freebies", icon: "ðŸŽ", description: "Ã‰chantillons" },
+  hasFreebies: { name: "Freebies", icon: "[GIFT]", description: "Ã‰chantillons" },
 };
 
 // ============================================
@@ -376,14 +376,14 @@ function planFile(shop) {
 
 function getShopPlan(shop) {
   // ============================================
-  // BYPASS BILLING CHECK - PrioritÃ© absolue
+  // BYPASS BILLING CHECK - Priorite absolue
   // ============================================
   console.log(`ðŸ” PLAN CHECK for shop: "${shop}"`);
   
   const bypassPlan = getBypassPlan(shop);
   if (bypassPlan) {
     const plan = PLANS[bypassPlan] || PLANS.enterprise;
-    console.log(`ðŸŽ BYPASS BILLING ACTIVATED: "${shop}" â†’ Plan ${plan.name} (gratuit)`);
+    console.log(`[GIFT] BYPASS BILLING ACTIVATED: "${shop}" â†’ Plan ${plan.name} (gratuit)`);
     return {
       planId: plan.id,
       plan,
@@ -613,8 +613,8 @@ function checkLimit(shop, action, context = {}) {
 
   const featureChecks = {
     import_shopify: ["hasShopifyImport", "Import Shopify", "starter"],
-    view_categories: ["hasCategories", "CatÃ©gories", "starter"],
-    manage_categories: ["hasCategories", "CatÃ©gories", "starter"],
+    view_categories: ["hasCategories", "Categories", "starter"],
+    manage_categories: ["hasCategories", "Categories", "starter"],
     view_stock_value: ["hasStockValue", "Valeur stock", "starter"],
     view_analytics: ["hasAnalytics", "Analytics", "pro"],
     export_analytics: ["hasAnalytics", "Analytics", "pro"],
@@ -626,18 +626,18 @@ function checkLimit(shop, action, context = {}) {
     manage_purchase_orders: ["hasPurchaseOrders", "Bons de commande", "business"],
     view_purchase_orders: ["hasPurchaseOrders", "Bons de commande", "business"],
     inventory_count: ["hasInventoryCount", "Inventaire", "pro"],
-    view_forecast: ["hasForecast", "PrÃ©visions", "business"],
+    view_forecast: ["hasForecast", "Previsions", "business"],
     manage_kits: ["hasKits", "Kits & Bundles", "business"],
     view_kits: ["hasKits", "Kits & Bundles", "business"],
     manage_users: ["hasMultiUsers", "Multi-utilisateurs", "business"],
     manage_automations: ["hasAutomations", "Automatisations", "business"],
-    use_integrations: ["hasIntegrations", "IntÃ©grations", "business"],
+    use_integrations: ["hasIntegrations", "Integrations", "business"],
     manage_reports: ["hasReports", "Rapports auto", "business"],
     multi_store: ["hasMultiStore", "Multi-boutiques", "enterprise"],
-    use_api: ["hasApi", "AccÃ¨s API", "enterprise"],
+    use_api: ["hasApi", "Acces API", "enterprise"],
     manage_notifications: ["hasNotifications", "Notifications", "pro"],
     manage_freebies: ["hasFreebies", "Freebies", "pro"],
-    advanced_export: ["hasAdvancedExports", "Exports avancÃ©s", "starter"],
+    advanced_export: ["hasAdvancedExports", "Exports avances", "starter"],
   };
 
   if (action === "add_product") {
@@ -670,7 +670,7 @@ function checkLimit(shop, action, context = {}) {
     const requestedDays = Number(context.days || 7);
     const maxDays = limits.movementHistoryDays === Infinity ? 9999 : limits.movementHistoryDays;
     if (requestedDays > maxDays) {
-      return { allowed: true, limitedTo: maxDays, reason: `Historique limitÃ© Ã  ${maxDays} jours` };
+      return { allowed: true, limitedTo: maxDays, reason: `Historique limite Ã  ${maxDays} jours` };
     }
     return { allowed: true };
   }

@@ -221,7 +221,7 @@
         return;
       }
       document.body.innerHTML =
-        '<div style="padding:40px"><h2>Application Shopify</h2><p>ParamÃ¨tre shop manquant.</p></div>';
+        '<div style="padding:40px"><h2>Application Shopify</h2><p>Parametre shop manquant.</p></div>';
       return;
     }
 
@@ -234,7 +234,7 @@
     // 3) shop missing
     if (!CURRENT_SHOP) {
       document.body.innerHTML =
-        '<div style="padding:40px"><h2>Application Shopify</h2><p>ParamÃ¨tre shop manquant.</p></div>';
+        '<div style="padding:40px"><h2>Application Shopify</h2><p>Parametre shop manquant.</p></div>';
       return;
     }
 
@@ -308,7 +308,7 @@
         renderFeature(c, "hasForecast", "Previsions", "ðŸ”®");
         break;
       case "kits":
-        renderFeature(c, "hasKits", "Kits", "ðŸ§©");
+        renderFeature(c, "hasKits", "Kits", "🧩");
         break;
       case "analytics":
         renderAnalytics(c);
@@ -1264,7 +1264,7 @@
         return '<span class="tag">' + esc(c.name) + '</span>';
       }).join(" ");
     } else {
-      categoriesHtml = '<span class="text-secondary text-sm">Aucune catégorie</span>';
+      categoriesHtml = '<span class="text-secondary text-sm">Aucune categorie</span>';
     }
 
     // Variants table
@@ -1274,7 +1274,7 @@
         '<tr>' +
         '<td class="cell-primary">' + v.gramsPerUnit + 'g</td>' +
         '<td class="cell-mono">' + (v.inventoryItemId || '-') + '</td>' +
-        '<td style="font-weight:600">' + v.canSell + ' unités</td>' +
+        '<td style="font-weight:600">' + v.canSell + ' unites</td>' +
         '<td>' + formatWeight(v.gramsEquivalent) + '</td>' +
         '<td style="width:150px">' +
         '<div class="variant-bar-container">' +
@@ -1314,22 +1314,22 @@
       // Stats grid
       '<div class="product-detail-stats">' +
       '<div class="detail-stat"><div class="detail-stat-value">' + formatWeight(p.totalGrams) + '</div><div class="detail-stat-label">Stock total</div></div>' +
-      '<div class="detail-stat"><div class="detail-stat-value">' + formatCurrency(p.averageCostPerGram) + '/g</div><div class="detail-stat-label">Coût moyen (CMP)</div></div>' +
+      '<div class="detail-stat"><div class="detail-stat-value">' + formatCurrency(p.averageCostPerGram) + '/g</div><div class="detail-stat-label">Cout moyen (CMP)</div></div>' +
       '<div class="detail-stat"><div class="detail-stat-value">' + formatCurrency(p.stockValue) + '</div><div class="detail-stat-label">Valeur stock</div></div>' +
       '<div class="detail-stat"><div class="detail-stat-value">' + summary.variantCount + '</div><div class="detail-stat-label">Variantes</div></div>' +
       '</div>' +
 
       // Actions rapides
       '<div class="product-detail-actions">' +
-      '<button class="btn btn-primary btn-sm" onclick="app.closeModal();app.showRestockModal(\'' + p.productId + '\')">📦 Réappro</button>' +
+      '<button class="btn btn-primary btn-sm" onclick="app.closeModal();app.showRestockModal(\'' + p.productId + '\')">📦 Reappro</button>' +
       '<button class="btn btn-secondary btn-sm" onclick="app.closeModal();app.showAdjustModal(\'' + p.productId + '\')">✏️ Ajuster</button>' +
       '<button class="btn btn-ghost btn-sm" onclick="app.showEditCMPModal(\'' + p.productId + '\',' + p.averageCostPerGram + ')">💰 Modifier CMP</button>' +
       '</div>' +
 
-      // Graphique capacité de vente
+      // Graphique capacite de vente
       '<div class="product-detail-section">' +
-      '<h3 class="section-title">📊 Capacité de vente par variante</h3>' +
-      '<p class="text-secondary text-sm mb-md">Nombre d\'unités vendables si le stock était vendu uniquement via cette variante</p>' +
+      '<h3 class="section-title">📊 Capacite de vente par variante</h3>' +
+      '<p class="text-secondary text-sm mb-md">Nombre d\'unites vendables si le stock etait vendu uniquement via cette variante</p>' +
       '<div class="chart-container">' +
       '<div class="simple-bar-chart">' + chartBars + '</div>' +
       '</div>' +
@@ -1337,10 +1337,10 @@
 
       // Tableau variantes
       '<div class="product-detail-section">' +
-      '<h3 class="section-title">📦 Détail des variantes</h3>' +
+      '<h3 class="section-title">📦 Detail des variantes</h3>' +
       '<div class="table-container">' +
       '<table class="data-table data-table-compact">' +
-      '<thead><tr><th>Grammage</th><th>Inventory ID</th><th>Unités dispo</th><th>Équivalent stock</th><th>Répartition</th></tr></thead>' +
+      '<thead><tr><th>Grammage</th><th>Inventory ID</th><th>Unites dispo</th><th>Équivalent stock</th><th>Repartition</th></tr></thead>' +
       '<tbody>' + variantsRows + '</tbody>' +
       '</table>' +
       '</div>' +
@@ -1351,7 +1351,7 @@
       '<div class="info-icon">ℹ️</div>' +
       '<div class="info-text">' +
       '<strong>Mode Pool Global</strong><br>' +
-      '<span class="text-secondary">Le stock est partagé entre toutes les variantes. Les "unités dispo" représentent la capacité maximale de vente pour chaque grammage.</span>' +
+      '<span class="text-secondary">Le stock est partage entre toutes les variantes. Les "unites dispo" representent la capacite maximale de vente pour chaque grammage.</span>' +
       '</div>' +
       '</div>';
 
@@ -1366,12 +1366,12 @@
   function showEditCMPModal(productId, currentCMP) {
     closeModal();
     showModal({
-      title: "Modifier le coût moyen (CMP)",
+      title: "Modifier le cout moyen (CMP)",
       content:
         '<p class="text-secondary mb-md">Le CMP actuel est de <strong>' + formatCurrency(currentCMP) + '/g</strong>.</p>' +
         '<div class="form-group"><label class="form-label">Nouveau CMP (€/g)</label>' +
         '<input type="number" class="form-input" id="newCMP" value="' + currentCMP + '" step="0.01" min="0"></div>' +
-        '<p class="form-hint">⚠️ La modification manuelle du CMP écrase le calcul automatique.</p>',
+        '<p class="form-hint">⚠️ La modification manuelle du CMP ecrase le calcul automatique.</p>',
       footer:
         '<button class="btn btn-ghost" onclick="app.closeModal()">Annuler</button>' +
         '<button class="btn btn-primary" onclick="app.saveCMP(\'' + productId + '\')">Enregistrer</button>',
@@ -1391,7 +1391,7 @@
         body: JSON.stringify({ averageCostPerGram: newCMP }),
       });
       if (res.ok) {
-        showToast("CMP mis à jour", "success");
+        showToast("CMP mis a jour", "success");
         closeModal();
         await loadProducts();
         renderTab(state.currentTab);
