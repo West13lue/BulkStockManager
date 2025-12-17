@@ -4,6 +4,48 @@
 
   const API_BASE = '/api';
   
+  // ============================================
+  // SHOP DETECTION
+  // ============================================
+  
+  function getShopFromUrl() {
+    // 1. Depuis l'URL (query param)
+    const urlParams = new URLSearchParams(window.location.search);
+    const shopParam = urlParams.get('shop');
+    if (shopParam) return shopParam;
+    
+    // 2. Depuis le host param (Shopify embedded)
+    const hostParam = urlParams.get('host');
+    if (hostParam) {
+      try {
+        const decoded = atob(hostParam);
+        const match = decoded.match(/([^/]+\.myshopify\.com)/);
+        if (match) return match[1];
+      } catch (e) {}
+    }
+    
+    // 3. Depuis localStorage (cache)
+    const cached = localStorage.getItem('stockmanager_shop');
+    if (cached) return cached;
+    
+    // 4. Fallback pour dev
+    return null;
+  }
+  
+  const CURRENT_SHOP = getShopFromUrl();
+  
+  // Sauvegarder pour les prochaines fois
+  if (CURRENT_SHOP) {
+    localStorage.setItem('stockmanager_shop', CURRENT_SHOP);
+    console.log('🏪 Shop détecté:', CURRENT_SHOP);
+  }
+  
+  // Helper pour ajouter le shop aux requêtes
+  function apiUrl(endpoint) {
+    const separator = endpoint.includes('?') ? '&' : '?';
+    return CURRENT_SHOP ? `${API_BASE}${endpoint}${separator}shop=${encodeURIComponent(CURRENT_SHOP)}` : `${API_BASE}${endpoint}`;
+  }
+  
   const FEATURES = {
     hasBatchTracking: { plan: 'pro', name: 'Lots & DLC', icon: '🏷️' },
     hasSuppliers: { plan: 'pro', name: 'Fournisseurs', icon: '🏭' },
@@ -22,6 +64,7 @@
     products: [],
     loading: false,
     sidebarOpen: true,
+    shop: CURRENT_SHOP,
   };
 
   // ============================================
@@ -30,6 +73,7 @@
 
   async function init() {
     console.log('🚀 Stock Manager Pro initializing...');
+    console.log('🏪 Shop:', CURRENT_SHOP || 'NON DÉTECTÉ');
     setupNavigation();
     await loadPlanInfo();
     await loadProducts();
@@ -569,17 +613,18 @@
 
   async function loadPlanInfo() {
     try {
-      const res = await fetch(`${API_BASE}/plan`);
+      const res = await fetch(apiUrl('/plan'));
       if (res.ok) {
         const data = await res.json();
         state.plan = { id: data.current?.planId || 'free', limits: data.limits || { maxProducts: 2 } };
+        console.log('📋 Plan chargé:', state.plan.id);
       }
     } catch (e) { console.warn('Plan load error', e); }
   }
 
   async function loadProducts() {
     try {
-      const res = await fetch(`${API_BASE}/products`);
+      const res = await fetch(apiUrl('/products'));
       if (res.ok) state.products = await res.json();
     } catch (e) { console.warn('Products load error', e); state.products = []; }
   }
@@ -590,7 +635,7 @@
     const cost = parseFloat(document.getElementById('productCost')?.value) || 0;
     if (!name) { showToast('Nom requis', 'error'); return; }
     try {
-      const res = await fetch(`${API_BASE}/products`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, totalGrams: stock, averageCostPerGram: cost }) });
+      const res = await fetch(apiUrl('/products'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, totalGrams: stock, averageCostPerGram: cost }) });
       if (res.ok) { showToast('Produit ajouté', 'success'); closeModal(); await loadProducts(); renderTab(state.currentTab); }
       else throw new Error();
     } catch (e) { showToast('Erreur', 'error'); }
@@ -602,7 +647,7 @@
     const price = parseFloat(document.getElementById('restockPrice')?.value) || 0;
     if (!productId || !qty) { showToast('Champs requis', 'error'); return; }
     try {
-      const res = await fetch(`${API_BASE}/products/${productId}/restock`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ grams: qty, costPerGram: price }) });
+      const res = await fetch(apiUrl(`/products/${productId}/restock`), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ grams: qty, costPerGram: price }) });
       if (res.ok) { showToast('Stock mis à jour', 'success'); closeModal(); await loadProducts(); renderTab(state.currentTab); }
       else throw new Error();
     } catch (e) { showToast('Erreur', 'error'); }
@@ -614,7 +659,7 @@
     const qty = parseFloat(document.getElementById('adjustQty')?.value);
     if (!productId || !qty) { showToast('Champs requis', 'error'); return; }
     try {
-      const res = await fetch(`${API_BASE}/products/${productId}/adjust`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type, grams: qty }) });
+      const res = await fetch(apiUrl(`/products/${productId}/adjust`), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type, grams: qty }) });
       if (res.ok) { showToast('Ajustement appliqué', 'success'); closeModal(); await loadProducts(); renderTab(state.currentTab); }
       else throw new Error();
     } catch (e) { showToast('Erreur', 'error'); }

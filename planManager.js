@@ -25,8 +25,36 @@ const BYPASS_BILLING = {
  * @returns {string|null} - Plan accordé ou null
  */
 function getBypassPlan(shop) {
-  const normalizedShop = shop.toLowerCase().replace(/^https?:\/\//, '').replace(/\/$/, '');
-  return BYPASS_BILLING[normalizedShop] || null;
+  if (!shop) return null;
+  
+  // Normaliser le shop pour matcher toutes les variantes possibles
+  let normalizedShop = String(shop).toLowerCase().trim();
+  normalizedShop = normalizedShop.replace(/^https?:\/\//, ''); // Enlever http(s)://
+  normalizedShop = normalizedShop.replace(/\/$/, '');          // Enlever trailing slash
+  normalizedShop = normalizedShop.replace(/^www\./, '');       // Enlever www.
+  
+  // Essayer le match direct
+  if (BYPASS_BILLING[normalizedShop]) {
+    return BYPASS_BILLING[normalizedShop];
+  }
+  
+  // Essayer avec .myshopify.com si pas présent
+  if (!normalizedShop.includes('.myshopify.com')) {
+    const withSuffix = normalizedShop + '.myshopify.com';
+    if (BYPASS_BILLING[withSuffix]) {
+      return BYPASS_BILLING[withSuffix];
+    }
+  }
+  
+  // Essayer juste le préfixe (avant .myshopify.com)
+  const prefix = normalizedShop.replace('.myshopify.com', '');
+  for (const [key, plan] of Object.entries(BYPASS_BILLING)) {
+    if (key.startsWith(prefix) || prefix.startsWith(key.replace('.myshopify.com', ''))) {
+      return plan;
+    }
+  }
+  
+  return null;
 }
 
 /**
@@ -329,10 +357,12 @@ function getShopPlan(shop) {
   // ============================================
   // BYPASS BILLING CHECK - Priorité absolue
   // ============================================
+  console.log(`🔍 PLAN CHECK for shop: "${shop}"`);
+  
   const bypassPlan = getBypassPlan(shop);
   if (bypassPlan) {
     const plan = PLANS[bypassPlan] || PLANS.enterprise;
-    console.log(`🎁 BYPASS BILLING: ${shop} → Plan ${plan.name} (gratuit)`);
+    console.log(`🎁 BYPASS BILLING ACTIVATED: "${shop}" → Plan ${plan.name} (gratuit)`);
     return {
       planId: plan.id,
       plan,
@@ -351,6 +381,8 @@ function getShopPlan(shop) {
       grandfathered: true,
       bypass: true,
     };
+  } else {
+    console.log(`❌ NO BYPASS for "${shop}" - checking normal plan...`);
   }
 
   // ============================================
