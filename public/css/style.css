@@ -2483,3 +2483,153 @@ input, select, textarea {
 .badge-warning { background: rgba(245, 158, 11, 0.2); color: var(--warning); }
 .badge-danger { background: rgba(239, 68, 68, 0.2); color: var(--danger); }
 .badge-secondary { background: var(--surface); color: var(--text-tertiary); }
+
+/* ============================================
+   TRIAL BANNER
+   ============================================ */
+
+.trial-banner {
+  background: linear-gradient(90deg, #6366f1 0%, #8b5cf6 100%);
+  padding: 0;
+}
+
+.trial-banner-content {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-md);
+  padding: var(--space-sm) var(--space-lg);
+  flex-wrap: wrap;
+}
+
+.trial-banner-content.trial-expired {
+  background: linear-gradient(90deg, #ef4444 0%, #f97316 100%);
+}
+
+.trial-icon {
+  background: rgba(255,255,255,0.2);
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  font-weight: 700;
+  color: white;
+}
+
+.trial-text {
+  color: white;
+  font-size: 13px;
+}
+
+.trial-badge {
+  display: inline-block;
+  background: var(--warning);
+  color: #000;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  font-size: 10px;
+  font-weight: 700;
+  margin-left: 6px;
+}
+
+/* ============================================
+   SCROLL GLOBAL - OBLIGATOIRE
+   ============================================ */
+
+html, body {
+  height: 100%;
+  overflow: hidden;
+}
+
+#app {
+  height: 100%;
+  overflow: hidden;
+}
+
+.main-content {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.page-content {
+  flex: 1;
+  overflow-y: auto !important;
+  overflow-x: hidden;
+  padding: var(--space-lg);
+  padding-bottom: 100px;
+}
+
+/* Scroll dans les modals */
+.modal-body {
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+/* Scroll dans les sections analytics */
+.analytics-section .section-content {
+  max-height: none;
+  overflow: visible;
+}
+
+/* Cards scrollables si trop hautes */
+.card-body {
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+/* Table scrollable */
+.data-table-wrapper {
+  overflow-x: auto;
+}
+
+/* Sidebar scrollable */
+.sidebar-nav {
+  overflow-y: auto;
+  max-height: calc(100vh - 200px);
+}
+
+/* Analytics scrollable sections */
+.categories-container,
+.categories-checkboxes {
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+/* ============================================
+   ANALYTICS PREVIEW (NON-PRO)
+   ============================================ */
+
+.analytics-preview {
+  position: relative;
+}
+
+.analytics-preview-blur {
+  filter: blur(4px);
+  pointer-events: none;
+  user-select: none;
+}
+
+.analytics-upgrade-overlay {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: var(--bg-secondary);
+  border: 2px solid var(--accent-primary);
+  border-radius: var(--radius-lg);
+  padding: var(--space-xl);
+  text-align: center;
+  z-index: 10;
+  max-width: 400px;
+}
+
+.analytics-upgrade-overlay h3 {
+  margin: 0 0 var(--space-md) 0;
+  font-size: 20px;
+}
+
+.analytics-upgrade-overlay p {
+  color: var(--text-secondary);
+  margin-bottom: var(--space-lg);
+}

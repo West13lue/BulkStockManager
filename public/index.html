@@ -15,7 +15,7 @@
     <aside class="sidebar" id="sidebar">
       <div class="sidebar-header">
         <div class="logo">
-          <span class="logo-icon">📦</span>
+          <span class="logo-icon">ðŸ“¦</span>
           <span class="logo-text">Stock Manager</span>
         </div>
         <span class="version-badge">PRO</span>
@@ -23,45 +23,45 @@
 
       <nav class="sidebar-nav">
         <a href="#" class="nav-item active" data-tab="dashboard">
-          <span class="nav-icon">📊</span>
+          <span class="nav-icon">ðŸ“Š</span>
           <span class="nav-label">Tableau de bord</span>
         </a>
         <a href="#" class="nav-item" data-tab="products">
-          <span class="nav-icon">📦</span>
+          <span class="nav-icon">ðŸ“¦</span>
           <span class="nav-label">Produits</span>
         </a>
         <a href="#" class="nav-item" data-tab="batches" data-feature="hasBatchTracking">
-          <span class="nav-icon">🏷️</span>
+          <span class="nav-icon">ðŸ·ï¸</span>
           <span class="nav-label">Lots & DLC</span>
           <span class="nav-badge pro">PRO</span>
         </a>
         <a href="#" class="nav-item" data-tab="suppliers" data-feature="hasSuppliers">
-          <span class="nav-icon">🏭</span>
+          <span class="nav-icon">ðŸ­</span>
           <span class="nav-label">Fournisseurs</span>
           <span class="nav-badge pro">PRO</span>
         </a>
         <a href="#" class="nav-item" data-tab="orders" data-feature="hasPurchaseOrders">
-          <span class="nav-icon">📝</span>
+          <span class="nav-icon">ðŸ“</span>
           <span class="nav-label">Commandes</span>
           <span class="nav-badge business">BIZ</span>
         </a>
         <a href="#" class="nav-item" data-tab="forecast" data-feature="hasForecast">
-          <span class="nav-icon">🔮</span>
-          <span class="nav-label">Prévisions</span>
+          <span class="nav-icon">ðŸ”®</span>
+          <span class="nav-label">PrÃ©visions</span>
           <span class="nav-badge business">BIZ</span>
         </a>
         <a href="#" class="nav-item" data-tab="kits" data-feature="hasKits">
-          <span class="nav-icon">🧩</span>
+          <span class="nav-icon">ðŸ§©</span>
           <span class="nav-label">Kits & Bundles</span>
           <span class="nav-badge business">BIZ</span>
         </a>
         <a href="#" class="nav-item" data-tab="analytics" data-feature="hasAnalytics">
-          <span class="nav-icon">📈</span>
+          <span class="nav-icon">ðŸ“ˆ</span>
           <span class="nav-label">Analytics</span>
           <span class="nav-badge pro">PRO</span>
         </a>
         <a href="#" class="nav-item" data-tab="inventory" data-feature="hasInventoryCount">
-          <span class="nav-icon">📋</span>
+          <span class="nav-icon">ðŸ“‹</span>
           <span class="nav-label">Inventaire</span>
           <span class="nav-badge pro">PRO</span>
         </a>
@@ -69,8 +69,8 @@
 
       <div class="sidebar-footer">
         <a href="#" class="nav-item" data-tab="settings">
-          <span class="nav-icon">⚙️</span>
-          <span class="nav-label">Paramètres</span>
+          <span class="nav-icon">âš™ï¸</span>
+          <span class="nav-label">ParamÃ¨tres</span>
         </a>
         <div class="plan-widget" id="planWidget">
           <div class="plan-info">
@@ -104,7 +104,7 @@
         <div class="topbar-actions">
           <div class="sync-status" id="syncStatus">
             <span class="sync-dot"></span>
-            <span class="sync-text">Synchronisé</span>
+            <span class="sync-text">SynchronisÃ©</span>
           </div>
 
           <button class="btn-icon" onclick="app.toggleNotifications()" data-tooltip="Notifications">
@@ -123,6 +123,9 @@
         </div>
       </header>
 
+      <!-- TRIAL BANNER -->
+      <div id="trialBanner" class="trial-banner" style="display:none"></div>
+
       <!-- PAGE CONTENT -->
       <div class="page-content" id="pageContent"></div>
     </main>
@@ -135,11 +138,11 @@
   <div id="toastContainer" class="toast-container"></div>
 
   <!-- SCRIPTS -->
-  <!-- ✅ UMD build => window["app-bridge"] + window["app-bridge-utils"] -->
+  <!-- âœ… UMD build => window["app-bridge"] + window["app-bridge-utils"] -->
   <script src="https://unpkg.com/@shopify/app-bridge@3/umd/index.js"></script>
   <script src="https://unpkg.com/@shopify/app-bridge-utils@3/umd/index.js"></script>
 
-  <!-- ✅ ton seul fichier front -->
+  <!-- âœ… ton seul fichier front -->
   <script src="./js/app.js"></script>
 </body>
 </html>

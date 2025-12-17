@@ -1860,19 +1860,30 @@ function isBillingTestMode() {
 router.get("/api/plan", (req, res) => {
   safeJson(req, res, () => {
     const shop = getShop(req);
-    console.log(`Ã°Å¸â€œâ€¹ API /api/plan called - shop from request: "${shop}"`);
-    console.log(`   Query params: ${JSON.stringify(req.query)}`);
-    console.log(`   Headers x-shop-domain: ${req.headers["x-shop-domain"]}`);
+    console.log(`[Plan] API /api/plan called - shop: "${shop}"`);
 
     if (!shop) return apiError(res, 400, "Shop introuvable");
     if (!planManager) return apiError(res, 500, "PlanManager non disponible");
+
+    // Verifier si c'est un nouveau shop qui merite un trial Starter
+    const currentPlan = planManager.getShopPlan(shop);
+    
+    // Si pas d'abonnement, pas de trial en cours, et effectivePlan = free
+    // => Demarrer le trial Starter automatique de 7 jours
+    if (currentPlan.effectivePlanId === "free" && 
+        !currentPlan.trialPlanId && 
+        !currentPlan.trialEndsAt &&
+        (!currentPlan.subscription || currentPlan.subscription.status !== "active")) {
+      console.log(`[Trial] Starting automatic Starter trial for ${shop}`);
+      planManager.startStarterTrial(shop);
+    }
 
     // Compter les produits actuels
     const snapshot = stock.getCatalogSnapshot ? stock.getCatalogSnapshot(shop) : { products: [] };
     const productCount = Array.isArray(snapshot.products) ? snapshot.products.length : 0;
 
     const planInfo = planManager.getPlanInfoForUI(shop, productCount);
-    console.log(`   Plan result: ${planInfo.current?.planId} (bypass: ${planInfo.bypass || false})`);
+    console.log(`[Plan] Result: effectivePlan=${planInfo.current?.planId}, trial=${planInfo.trial?.active}, daysLeft=${planInfo.trial?.daysLeft}`);
     res.json(planInfo);
   });
 });

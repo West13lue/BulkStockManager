@@ -141,6 +141,9 @@
     products: [],
     categories: [],
     shop: CURRENT_SHOP,
+    // Trial info
+    trial: { active: false, daysLeft: null, planId: null },
+    effective: { planId: "free", reason: "default" },
     // Filtres produits
     filters: {
       search: "",
@@ -753,6 +756,12 @@
       state.planId = (data.current && data.current.planId) || data.planId || "free";
       state.planName = (data.current && data.current.name) || state.planId.charAt(0).toUpperCase() + state.planId.slice(1);
       state.limits = data.limits || {};
+      
+      // Infos trial
+      state.trial = data.trial || {};
+      state.effective = data.effective || {};
+      
+      console.log("[Plan] Effective:", state.planId, "Trial active:", state.trial.active, "Days left:", state.trial.daysLeft);
     } catch (e) {
       console.warn("[Plan] Error:", e);
     }
@@ -899,21 +908,50 @@
   }
 
   function updateUI() {
+    // Bandeau trial
+    var trialBanner = document.getElementById("trialBanner");
+    if (trialBanner) {
+      if (state.trial && state.trial.active && state.trial.daysLeft > 0) {
+        trialBanner.innerHTML = 
+          '<div class="trial-banner-content">' +
+          '<span class="trial-icon">TRIAL</span>' +
+          '<span class="trial-text">Essai Starter gratuit - <strong>' + state.trial.daysLeft + ' jour(s) restant(s)</strong></span>' +
+          '<button class="btn btn-sm btn-upgrade" onclick="app.showUpgradeModal()">Garder les fonctionnalites</button>' +
+          '</div>';
+        trialBanner.style.display = "block";
+      } else if (state.trial && state.trial.expired) {
+        trialBanner.innerHTML = 
+          '<div class="trial-banner-content trial-expired">' +
+          '<span class="trial-icon">!</span>' +
+          '<span class="trial-text">Votre essai est termine. Passez a Starter pour continuer.</span>' +
+          '<button class="btn btn-sm btn-upgrade" onclick="app.showUpgradeModal()">Choisir un plan</button>' +
+          '</div>';
+        trialBanner.style.display = "block";
+      } else {
+        trialBanner.style.display = "none";
+      }
+    }
+
+    // Widget plan sidebar
     var w = document.getElementById("planWidget");
     if (w) {
       var max = state.limits.maxProducts;
-      max = max === Infinity || max > 9999 ? "âˆž" : max;
+      max = max === Infinity || max > 9999 ? "INF" : max;
+      
+      var trialBadge = "";
+      if (state.trial && state.trial.active) {
+        trialBadge = '<span class="trial-badge">' + state.trial.daysLeft + 'j</span>';
+      }
+      
       w.innerHTML =
         '<div class="plan-info"><span class="plan-name">' +
-        state.planName +
+        state.planName + trialBadge +
         '</span><span class="plan-usage">' +
-        state.products.length +
-        "/" +
-        max +
+        state.products.length + "/" + max +
         "</span></div>" +
         (state.planId !== "enterprise"
           ? '<button class="btn btn-upgrade btn-sm" onclick="app.showUpgradeModal()">Upgrade</button>'
-          : '<span style="color:var(--success);font-size:11px">ENTERPRISE âœ“</span>');
+          : '<span style="color:var(--success);font-size:11px">ENTERPRISE OK</span>');
     }
   }
 

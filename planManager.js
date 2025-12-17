@@ -1,5 +1,5 @@
-// planManager.js — Gestion des plans (Free/Starter/Pro/Business/Enterprise)
-// v2.0 - Nouveau pricing avec fonctionnalités avancées
+// planManager.js â€” Gestion des plans (Free/Starter/Pro/Business/Enterprise)
+// v2.0 - Nouveau pricing avec fonctionnalitÃ©s avancÃ©es
 
 const fs = require("fs");
 const path = require("path");
@@ -7,11 +7,11 @@ const path = require("path");
 const DATA_DIR = process.env.DATA_DIR || "/var/data";
 
 // ============================================
-// BYPASS BILLING - Boutiques avec accès gratuit
+// BYPASS BILLING - Boutiques avec accÃ¨s gratuit
 // ============================================
 
 const BYPASS_BILLING = {
-  // Ta boutique - accès Enterprise gratuit (tous les formats possibles)
+  // Ta boutique - accÃ¨s Enterprise gratuit (tous les formats possibles)
   "e4vkqa-ea.myshopify.com": "enterprise",
   "cloud-store-cbd.com": "enterprise",
   "www.cloud-store-cbd.com": "enterprise",
@@ -21,9 +21,9 @@ const BYPASS_BILLING = {
 };
 
 /**
- * Vérifie si une boutique a un bypass billing
+ * VÃ©rifie si une boutique a un bypass billing
  * @param {string} shop - Domaine de la boutique
- * @returns {string|null} - Plan accordé ou null
+ * @returns {string|null} - Plan accordÃ© ou null
  */
 function getBypassPlan(shop) {
   if (!shop) return null;
@@ -33,33 +33,33 @@ function getBypassPlan(shop) {
   normalizedShop = normalizedShop.replace(/^https?:\/\//, ''); // Enlever http(s)://
   normalizedShop = normalizedShop.replace(/\/$/, '');          // Enlever trailing slash
   
-  console.log(`🔎 BYPASS CHECK: original="${shop}" normalized="${normalizedShop}"`);
+  console.log(`ðŸ”Ž BYPASS CHECK: original="${shop}" normalized="${normalizedShop}"`);
   
   // Essayer le match direct (avec et sans www)
   if (BYPASS_BILLING[normalizedShop]) {
-    console.log(`✅ BYPASS MATCH DIRECT: ${normalizedShop}`);
+    console.log(`âœ… BYPASS MATCH DIRECT: ${normalizedShop}`);
     return BYPASS_BILLING[normalizedShop];
   }
   
   // Essayer sans www
   const withoutWww = normalizedShop.replace(/^www\./, '');
   if (BYPASS_BILLING[withoutWww]) {
-    console.log(`✅ BYPASS MATCH (sans www): ${withoutWww}`);
+    console.log(`âœ… BYPASS MATCH (sans www): ${withoutWww}`);
     return BYPASS_BILLING[withoutWww];
   }
   
   // Essayer avec www
   const withWww = 'www.' + withoutWww;
   if (BYPASS_BILLING[withWww]) {
-    console.log(`✅ BYPASS MATCH (avec www): ${withWww}`);
+    console.log(`âœ… BYPASS MATCH (avec www): ${withWww}`);
     return BYPASS_BILLING[withWww];
   }
   
-  // Essayer avec .myshopify.com si pas présent
+  // Essayer avec .myshopify.com si pas prÃ©sent
   if (!normalizedShop.includes('.myshopify.com') && !normalizedShop.includes('.')) {
     const withSuffix = normalizedShop + '.myshopify.com';
     if (BYPASS_BILLING[withSuffix]) {
-      console.log(`✅ BYPASS MATCH (avec .myshopify.com): ${withSuffix}`);
+      console.log(`âœ… BYPASS MATCH (avec .myshopify.com): ${withSuffix}`);
       return BYPASS_BILLING[withSuffix];
     }
   }
@@ -69,17 +69,17 @@ function getBypassPlan(shop) {
     const keyNorm = key.toLowerCase().replace(/^www\./, '');
     const shopNorm = withoutWww;
     if (keyNorm.includes(shopNorm) || shopNorm.includes(keyNorm)) {
-      console.log(`✅ BYPASS MATCH PARTIEL: ${key} ~ ${shopNorm}`);
+      console.log(`âœ… BYPASS MATCH PARTIEL: ${key} ~ ${shopNorm}`);
       return plan;
     }
   }
   
-  console.log(`❌ NO BYPASS MATCH for: ${normalizedShop}`);
+  console.log(`âŒ NO BYPASS MATCH for: ${normalizedShop}`);
   return null;
 }
 
 /**
- * Vérifie si une boutique bypass le billing
+ * VÃ©rifie si une boutique bypass le billing
  * @param {string} shop - Domaine de la boutique
  * @returns {boolean}
  */
@@ -88,7 +88,7 @@ function hasBypassBilling(shop) {
 }
 
 // ============================================
-// DÉFINITION DES PLANS v2.0
+// DÃ‰FINITION DES PLANS v2.0
 // ============================================
 
 const PLANS = {
@@ -128,7 +128,7 @@ const PLANS = {
     features: [
       "2 produits maximum",
       "Gestion stock + sync Shopify",
-      "CMP (coût moyen) basique",
+      "CMP (coÃ»t moyen) basique",
       "Ajustements manuels",
       "Export CSV simple",
     ],
@@ -171,11 +171,11 @@ const PLANS = {
     features: [
       "15 produits",
       "Tout Free +",
-      "Catégories & filtres",
+      "CatÃ©gories & filtres",
       "Import Shopify",
       "Valeur totale stock",
       "Historique 30 jours",
-      "Exports CSV avancés",
+      "Exports CSV avancÃ©s",
     ],
     cta: "Essai gratuit 14 jours",
   },
@@ -216,12 +216,12 @@ const PLANS = {
     features: [
       "75 produits",
       "Tout Starter +",
-      "📦 Lots / DLC / Traçabilité",
-      "🏭 Gestion fournisseurs",
-      "📋 Inventaire physique",
-      "📊 Analytics (CA, marges)",
-      "🔔 Notifications Slack/Discord",
-      "🎁 Gestion freebies",
+      "ðŸ“¦ Lots / DLC / TraÃ§abilitÃ©",
+      "ðŸ­ Gestion fournisseurs",
+      "ðŸ“‹ Inventaire physique",
+      "ðŸ“Š Analytics (CA, marges)",
+      "ðŸ”” Notifications Slack/Discord",
+      "ðŸŽ Gestion freebies",
       "Historique 90 jours",
     ],
     cta: "Essai gratuit 14 jours",
@@ -261,16 +261,16 @@ const PLANS = {
       hasFreebies: true,
     },
     features: [
-      "Produits illimités",
+      "Produits illimitÃ©s",
       "Tout Pro +",
-      "🔮 Prévisions de rupture (IA)",
-      "🧩 Kits / Bundles / Composés",
-      "📝 Bons de commande (PO)",
-      "👥 Multi-utilisateurs (5)",
-      "⚡ Automatisations",
-      "🔗 Intégrations (Zapier)",
-      "📧 Rapports auto par email",
-      "⭐ Support prioritaire",
+      "ðŸ”® PrÃ©visions de rupture (IA)",
+      "ðŸ§© Kits / Bundles / ComposÃ©s",
+      "ðŸ“ Bons de commande (PO)",
+      "ðŸ‘¥ Multi-utilisateurs (5)",
+      "âš¡ Automatisations",
+      "ðŸ”— IntÃ©grations (Zapier)",
+      "ðŸ“§ Rapports auto par email",
+      "â­ Support prioritaire",
       "Historique 1 an",
     ],
     cta: "Essai gratuit 14 jours",
@@ -311,14 +311,14 @@ const PLANS = {
     },
     features: [
       "Tout Business +",
-      "🏪 Multi-boutiques",
-      "👥 Utilisateurs illimités",
-      "🔌 Accès API complet",
-      "📊 Historique illimité",
-      "🎯 Account manager dédié",
-      "📞 Support téléphonique",
-      "🔧 Onboarding personnalisé",
-      "📜 SLA garanti 99.9%",
+      "ðŸª Multi-boutiques",
+      "ðŸ‘¥ Utilisateurs illimitÃ©s",
+      "ðŸ”Œ AccÃ¨s API complet",
+      "ðŸ“Š Historique illimitÃ©",
+      "ðŸŽ¯ Account manager dÃ©diÃ©",
+      "ðŸ“ž Support tÃ©lÃ©phonique",
+      "ðŸ”§ Onboarding personnalisÃ©",
+      "ðŸ“œ SLA garanti 99.9%",
     ],
     cta: "Contacter les ventes",
     contactSales: true,
@@ -328,24 +328,24 @@ const PLANS = {
 const PLAN_ORDER = ["free", "starter", "pro", "business", "enterprise"];
 
 const FEATURE_DESCRIPTIONS = {
-  hasCategories: { name: "Catégories", icon: "🏷️", description: "Organiser vos produits" },
-  hasShopifyImport: { name: "Import Shopify", icon: "📥", description: "Importer depuis Shopify" },
-  hasStockValue: { name: "Valeur stock", icon: "💰", description: "Valeur totale du stock" },
-  hasAnalytics: { name: "Analytics", icon: "📊", description: "Stats ventes et marges" },
-  hasBatchTracking: { name: "Lots & DLC", icon: "📦", description: "Traçabilité, péremption" },
-  hasSuppliers: { name: "Fournisseurs", icon: "🏭", description: "Gestion fournisseurs" },
-  hasPurchaseOrders: { name: "Bons de commande", icon: "📝", description: "PO fournisseurs" },
-  hasInventoryCount: { name: "Inventaire", icon: "📋", description: "Comptage physique" },
-  hasForecast: { name: "Prévisions", icon: "🔮", description: "Prédiction ruptures" },
-  hasKits: { name: "Kits & Bundles", icon: "🧩", description: "Produits composés" },
-  hasMultiUsers: { name: "Multi-utilisateurs", icon: "👥", description: "Équipe" },
-  hasAutomations: { name: "Automatisations", icon: "⚡", description: "Règles auto" },
-  hasIntegrations: { name: "Intégrations", icon: "🔗", description: "Zapier, webhooks" },
-  hasReports: { name: "Rapports auto", icon: "📧", description: "Emails hebdo" },
-  hasMultiStore: { name: "Multi-boutiques", icon: "🏪", description: "Plusieurs shops" },
-  hasApi: { name: "Accès API", icon: "🔌", description: "API REST" },
-  hasNotifications: { name: "Notifications", icon: "🔔", description: "Slack, Discord" },
-  hasFreebies: { name: "Freebies", icon: "🎁", description: "Échantillons" },
+  hasCategories: { name: "CatÃ©gories", icon: "ðŸ·ï¸", description: "Organiser vos produits" },
+  hasShopifyImport: { name: "Import Shopify", icon: "ðŸ“¥", description: "Importer depuis Shopify" },
+  hasStockValue: { name: "Valeur stock", icon: "ðŸ’°", description: "Valeur totale du stock" },
+  hasAnalytics: { name: "Analytics", icon: "ðŸ“Š", description: "Stats ventes et marges" },
+  hasBatchTracking: { name: "Lots & DLC", icon: "ðŸ“¦", description: "TraÃ§abilitÃ©, pÃ©remption" },
+  hasSuppliers: { name: "Fournisseurs", icon: "ðŸ­", description: "Gestion fournisseurs" },
+  hasPurchaseOrders: { name: "Bons de commande", icon: "ðŸ“", description: "PO fournisseurs" },
+  hasInventoryCount: { name: "Inventaire", icon: "ðŸ“‹", description: "Comptage physique" },
+  hasForecast: { name: "PrÃ©visions", icon: "ðŸ”®", description: "PrÃ©diction ruptures" },
+  hasKits: { name: "Kits & Bundles", icon: "ðŸ§©", description: "Produits composÃ©s" },
+  hasMultiUsers: { name: "Multi-utilisateurs", icon: "ðŸ‘¥", description: "Ã‰quipe" },
+  hasAutomations: { name: "Automatisations", icon: "âš¡", description: "RÃ¨gles auto" },
+  hasIntegrations: { name: "IntÃ©grations", icon: "ðŸ”—", description: "Zapier, webhooks" },
+  hasReports: { name: "Rapports auto", icon: "ðŸ“§", description: "Emails hebdo" },
+  hasMultiStore: { name: "Multi-boutiques", icon: "ðŸª", description: "Plusieurs shops" },
+  hasApi: { name: "AccÃ¨s API", icon: "ðŸ”Œ", description: "API REST" },
+  hasNotifications: { name: "Notifications", icon: "ðŸ””", description: "Slack, Discord" },
+  hasFreebies: { name: "Freebies", icon: "ðŸŽ", description: "Ã‰chantillons" },
 };
 
 // ============================================
@@ -376,14 +376,14 @@ function planFile(shop) {
 
 function getShopPlan(shop) {
   // ============================================
-  // BYPASS BILLING CHECK - Priorité absolue
+  // BYPASS BILLING CHECK - PrioritÃ© absolue
   // ============================================
-  console.log(`🔍 PLAN CHECK for shop: "${shop}"`);
+  console.log(`ðŸ” PLAN CHECK for shop: "${shop}"`);
   
   const bypassPlan = getBypassPlan(shop);
   if (bypassPlan) {
     const plan = PLANS[bypassPlan] || PLANS.enterprise;
-    console.log(`🎁 BYPASS BILLING ACTIVATED: "${shop}" → Plan ${plan.name} (gratuit)`);
+    console.log(`ðŸŽ BYPASS BILLING ACTIVATED: "${shop}" â†’ Plan ${plan.name} (gratuit)`);
     return {
       planId: plan.id,
       plan,
@@ -401,9 +401,10 @@ function getShopPlan(shop) {
       trialEndsAt: null,
       grandfathered: true,
       bypass: true,
+      effectivePlanId: bypassPlan,
     };
   } else {
-    console.log(`❌ NO BYPASS for "${shop}" - checking normal plan...`);
+    console.log(`[Plan] NO BYPASS for "${shop}" - checking normal plan...`);
   }
 
   // ============================================
@@ -426,17 +427,63 @@ function getShopPlan(shop) {
   if (planId === "premium") planId = "pro";
 
   const plan = PLANS[planId] || PLANS.free;
+  const subscription = data.subscription || null;
+  const trialEndsAt = data.trialEndsAt || null;
+  const trialPlanId = data.trialPlanId || null;
+
+  // ============================================
+  // LOGIQUE EFFECTIVE PLAN (CRITIQUE)
+  // Priorite: 1) Abonnement paye actif > 2) Trial actif > 3) Free
+  // ============================================
+  
+  let effectivePlanId = "free";
+  let effectiveReason = "default";
+
+  // 1) Verifier si abonnement paye actif (non-bypass, non-trialing)
+  if (subscription && subscription.status === "active" && !subscription.bypass) {
+    effectivePlanId = planId;
+    effectiveReason = "paid_subscription";
+  }
+  // 2) Verifier si trial actif avec trialPlanId (nouveau format)
+  else if (trialPlanId && trialEndsAt) {
+    const trialEnd = new Date(trialEndsAt);
+    const now = new Date();
+    if (trialEnd > now) {
+      effectivePlanId = trialPlanId;
+      effectiveReason = "trial_active";
+    } else {
+      effectiveReason = "trial_expired";
+    }
+  }
+  // 3) Si trialing dans subscription (ancien format)
+  else if (subscription && subscription.status === "trialing" && trialEndsAt) {
+    const trialEnd = new Date(trialEndsAt);
+    const now = new Date();
+    if (trialEnd > now) {
+      effectivePlanId = planId;
+      effectiveReason = "trial_active_legacy";
+    } else {
+      effectiveReason = "trial_expired_legacy";
+    }
+  }
+
+  const effectivePlan = PLANS[effectivePlanId] || PLANS.free;
 
   return {
     planId: plan.id,
     plan,
-    subscription: data.subscription || null,
-    limits: plan.limits,
-    features: plan.features,
-    trialEndsAt: data.trialEndsAt || null,
+    subscription,
+    limits: effectivePlan.limits,
+    features: effectivePlan.features,
+    trialEndsAt,
+    trialPlanId,
     grandfathered: data.grandfathered || false,
+    effectivePlanId,
+    effectivePlan,
+    effectiveReason,
   };
 }
+
 
 function setShopPlan(shop, planId, subscription = null, options = {}) {
   const file = planFile(shop);
@@ -457,6 +504,7 @@ function setShopPlan(shop, planId, subscription = null, options = {}) {
       interval: subscription.interval || "monthly",
     } : null,
     trialEndsAt: options.trialEndsAt || null,
+    trialPlanId: options.trialPlanId || null,  // Nouveau: plan du trial
     grandfathered: options.grandfathered || existing.grandfathered || false,
     previousPlan: existing.planId,
     updatedAt: new Date().toISOString(),
@@ -468,21 +516,82 @@ function setShopPlan(shop, planId, subscription = null, options = {}) {
   return getShopPlan(shop);
 }
 
+// Demarrer un trial Starter automatique (7 jours)
+function startStarterTrial(shop) {
+  const existing = getShopPlan(shop);
+  
+  // Ne pas ecraser un abonnement paye actif
+  if (existing.subscription && existing.subscription.status === "active" && !existing.subscription.bypass) {
+    console.log(`[Trial] Shop ${shop} a deja un abonnement actif, pas de trial`);
+    return existing;
+  }
+  
+  // Ne pas redemarrer un trial si deja en trial ou si trial expire
+  if (existing.trialPlanId || existing.trialEndsAt) {
+    console.log(`[Trial] Shop ${shop} a deja eu un trial`);
+    return existing;
+  }
+
+  const trialEndsAt = new Date();
+  trialEndsAt.setDate(trialEndsAt.getDate() + 7); // 7 jours
+
+  const file = planFile(shop);
+  const data = {
+    planId: "free",  // Plan de base reste free
+    subscription: null,
+    trialEndsAt: trialEndsAt.toISOString(),
+    trialPlanId: "starter",  // Trial sur Starter
+    grandfathered: false,
+    previousPlan: existing.planId,
+    updatedAt: new Date().toISOString(),
+    trialStartedAt: new Date().toISOString(),
+  };
+
+  fs.writeFileSync(file + ".tmp", JSON.stringify(data, null, 2), "utf8");
+  fs.renameSync(file + ".tmp", file);
+
+  console.log(`[Trial] Started Starter trial for ${shop} until ${trialEndsAt.toISOString()}`);
+  return getShopPlan(shop);
+}
+
 function startTrial(shop, planId, durationDays = 14) {
   const trialEndsAt = new Date();
   trialEndsAt.setDate(trialEndsAt.getDate() + durationDays);
 
-  return setShopPlan(shop, planId, {
-    id: `trial_${Date.now()}`,
-    status: "trialing",
-    startedAt: new Date().toISOString(),
-  }, { trialEndsAt: trialEndsAt.toISOString() });
+  return setShopPlan(shop, "free", null, { 
+    trialEndsAt: trialEndsAt.toISOString(),
+    trialPlanId: planId,
+  });
 }
 
 function isTrialExpired(shop) {
-  const { subscription, trialEndsAt } = getShopPlan(shop);
-  if (subscription?.status !== "trialing" || !trialEndsAt) return false;
-  return new Date(trialEndsAt) < new Date();
+  const { trialEndsAt, trialPlanId, subscription } = getShopPlan(shop);
+  
+  // Nouveau format avec trialPlanId
+  if (trialPlanId && trialEndsAt) {
+    return new Date(trialEndsAt) < new Date();
+  }
+  
+  // Ancien format avec subscription.status = trialing
+  if (subscription?.status === "trialing" && trialEndsAt) {
+    return new Date(trialEndsAt) < new Date();
+  }
+  
+  return false;
+}
+
+function isTrialActive(shop) {
+  const { trialEndsAt, trialPlanId, effectiveReason } = getShopPlan(shop);
+  return effectiveReason === "trial_active" || effectiveReason === "trial_active_legacy";
+}
+
+function getTrialDaysLeft(shop) {
+  const { trialEndsAt, trialPlanId } = getShopPlan(shop);
+  if (!trialEndsAt) return null;
+  
+  const diff = new Date(trialEndsAt) - new Date();
+  if (diff <= 0) return 0;
+  return Math.ceil(diff / (1000 * 60 * 60 * 24));
 }
 
 function cancelSubscription(shop) {
@@ -490,20 +599,22 @@ function cancelSubscription(shop) {
 }
 
 // ============================================
-// VÉRIFICATION DES LIMITES
+// VÃ‰RIFICATION DES LIMITES
 // ============================================
 
 function checkLimit(shop, action, context = {}) {
-  const { limits, planId, subscription } = getShopPlan(shop);
+  const shopPlan = getShopPlan(shop);
+  const { limits, effectivePlanId, effectiveReason } = shopPlan;
 
-  if (subscription?.status === "trialing" && isTrialExpired(shop)) {
-    return { allowed: false, reason: "Période d'essai terminée", upgrade: "starter", trialExpired: true };
+  // Si trial expire, bloquer
+  if (effectiveReason === "trial_expired" || effectiveReason === "trial_expired_legacy") {
+    return { allowed: false, reason: "Periode d'essai terminee", upgrade: "starter", trialExpired: true };
   }
 
   const featureChecks = {
     import_shopify: ["hasShopifyImport", "Import Shopify", "starter"],
-    view_categories: ["hasCategories", "Catégories", "starter"],
-    manage_categories: ["hasCategories", "Catégories", "starter"],
+    view_categories: ["hasCategories", "CatÃ©gories", "starter"],
+    manage_categories: ["hasCategories", "CatÃ©gories", "starter"],
     view_stock_value: ["hasStockValue", "Valeur stock", "starter"],
     view_analytics: ["hasAnalytics", "Analytics", "pro"],
     export_analytics: ["hasAnalytics", "Analytics", "pro"],
@@ -515,18 +626,18 @@ function checkLimit(shop, action, context = {}) {
     manage_purchase_orders: ["hasPurchaseOrders", "Bons de commande", "business"],
     view_purchase_orders: ["hasPurchaseOrders", "Bons de commande", "business"],
     inventory_count: ["hasInventoryCount", "Inventaire", "pro"],
-    view_forecast: ["hasForecast", "Prévisions", "business"],
+    view_forecast: ["hasForecast", "PrÃ©visions", "business"],
     manage_kits: ["hasKits", "Kits & Bundles", "business"],
     view_kits: ["hasKits", "Kits & Bundles", "business"],
     manage_users: ["hasMultiUsers", "Multi-utilisateurs", "business"],
     manage_automations: ["hasAutomations", "Automatisations", "business"],
-    use_integrations: ["hasIntegrations", "Intégrations", "business"],
+    use_integrations: ["hasIntegrations", "IntÃ©grations", "business"],
     manage_reports: ["hasReports", "Rapports auto", "business"],
     multi_store: ["hasMultiStore", "Multi-boutiques", "enterprise"],
-    use_api: ["hasApi", "Accès API", "enterprise"],
+    use_api: ["hasApi", "AccÃ¨s API", "enterprise"],
     manage_notifications: ["hasNotifications", "Notifications", "pro"],
     manage_freebies: ["hasFreebies", "Freebies", "pro"],
-    advanced_export: ["hasAdvancedExports", "Exports avancés", "starter"],
+    advanced_export: ["hasAdvancedExports", "Exports avancÃ©s", "starter"],
   };
 
   if (action === "add_product") {
@@ -559,7 +670,7 @@ function checkLimit(shop, action, context = {}) {
     const requestedDays = Number(context.days || 7);
     const maxDays = limits.movementHistoryDays === Infinity ? 9999 : limits.movementHistoryDays;
     if (requestedDays > maxDays) {
-      return { allowed: true, limitedTo: maxDays, reason: `Historique limité à ${maxDays} jours` };
+      return { allowed: true, limitedTo: maxDays, reason: `Historique limitÃ© Ã  ${maxDays} jours` };
     }
     return { allowed: true };
   }
@@ -606,30 +717,28 @@ function hasFeature(shop, featureKey) {
 // ============================================
 
 function getPlanInfoForUI(shop, currentProductCount = 0, currentUserCount = 1) {
-  const { planId, plan, subscription, limits, features, trialEndsAt, grandfathered } = getShopPlan(shop);
+  const shopPlan = getShopPlan(shop);
+  const { planId, plan, subscription, limits, features, trialEndsAt, trialPlanId, grandfathered, effectivePlanId, effectivePlan, effectiveReason } = shopPlan;
 
-  let trialDaysLeft = null;
-  if (subscription?.status === "trialing" && trialEndsAt) {
-    const diff = new Date(trialEndsAt) - new Date();
-    trialDaysLeft = Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)));
-  }
+  const trialDaysLeft = getTrialDaysLeft(shop);
+  const trialActive = isTrialActive(shop);
 
   return {
     current: {
-      planId,
-      name: plan.name,
-      price: plan.price,
-      priceYearly: plan.priceYearly,
-      currency: plan.currency,
-      badge: plan.badge,
-      features,
+      planId: effectivePlanId,           // Utiliser le plan EFFECTIF
+      name: effectivePlan.name,
+      price: effectivePlan.price,
+      priceYearly: effectivePlan.priceYearly,
+      currency: effectivePlan.currency,
+      badge: effectivePlan.badge,
+      features: effectivePlan.features,
     },
     limits: {
-      maxProducts: limits.maxProducts === Infinity ? "Illimité" : limits.maxProducts,
+      maxProducts: limits.maxProducts === Infinity ? "Illimite" : limits.maxProducts,
       maxProductsNum: limits.maxProducts,
-      maxUsers: limits.maxUsers === Infinity ? "Illimité" : limits.maxUsers,
+      maxUsers: limits.maxUsers === Infinity ? "Illimite" : limits.maxUsers,
       maxUsersNum: limits.maxUsers,
-      movementHistoryDays: limits.movementHistoryDays === Infinity ? "Illimité" : limits.movementHistoryDays,
+      movementHistoryDays: limits.movementHistoryDays === Infinity ? "Illimite" : limits.movementHistoryDays,
       ...limits,
     },
     usage: {
@@ -646,10 +755,15 @@ function getPlanInfoForUI(shop, currentProductCount = 0, currentUserCount = 1) {
       interval: subscription.interval,
     } : null,
     trial: {
-      active: subscription?.status === "trialing",
+      active: trialActive,
+      planId: trialPlanId,
       endsAt: trialEndsAt,
       daysLeft: trialDaysLeft,
       expired: isTrialExpired(shop),
+    },
+    effective: {
+      planId: effectivePlanId,
+      reason: effectiveReason,
     },
     grandfathered,
     availablePlans: PLAN_ORDER.map(id => {
@@ -662,8 +776,8 @@ function getPlanInfoForUI(shop, currentProductCount = 0, currentUserCount = 1) {
         currency: p.currency,
         badge: p.badge,
         features: p.features,
-        isCurrent: p.id === planId,
-        isUpgrade: PLAN_ORDER.indexOf(p.id) > PLAN_ORDER.indexOf(planId),
+        isCurrent: p.id === effectivePlanId,
+        isUpgrade: PLAN_ORDER.indexOf(p.id) > PLAN_ORDER.indexOf(effectivePlanId),
         cta: p.cta,
         contactSales: p.contactSales || false,
       };
@@ -686,7 +800,10 @@ module.exports = {
   getShopPlan,
   setShopPlan,
   startTrial,
+  startStarterTrial,  // Nouveau
   isTrialExpired,
+  isTrialActive,      // Nouveau
+  getTrialDaysLeft,   // Nouveau
   cancelSubscription,
   checkLimit,
   applyMovementDaysLimit,
