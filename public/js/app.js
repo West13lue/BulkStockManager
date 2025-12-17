@@ -415,8 +415,8 @@ if (!CURRENT_SHOP || window.top === window.self) {
                   <td class="cell-mono">${formatCurrency(stock * cmp)}</td>
                   <td><span class="stock-badge ${status.class}">${status.icon} ${status.label}</span></td>
                   <td class="cell-actions">
-                    <button class="btn btn-ghost btn-xs" onclick="app.showRestockModal('${p.id}')">📥</button>
-                    <button class="btn btn-ghost btn-xs" onclick="app.showAdjustModal('${p.id}')">✏️</button>
+                    <button class="btn btn-ghost btn-xs" onclick="app.showRestockModal('${p.productId}')">📥</button>
+                    <button class="btn btn-ghost btn-xs" onclick="app.showAdjustModal('${p.productId}')">✏️</button>
                   </td>
                 </tr>
               `;
@@ -787,12 +787,21 @@ async function loadPlanInfo() {
 }
 
 async function loadProducts() {
-  const url = apiUrl('/products');
+  const url = apiUrl('/stock'); // ✅ route existante côté server
   if (!url) return;
 
   try {
     const res = await authFetch(url);
-    if (res.ok) state.products = await res.json();
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      console.warn('Products load error', err);
+      state.products = [];
+      return;
+    }
+
+    const data = await res.json().catch(() => ({}));
+    // server renvoie { products, categories }
+    state.products = Array.isArray(data.products) ? data.products : [];
   } catch (e) {
     console.warn('Products load error', e);
     state.products = [];
@@ -827,57 +836,82 @@ async function loadProducts() {
     }
   }
 
-  async function saveRestock() {
-    const productId = document.getElementById('restockProduct')?.value;
-    const qty = parseFloat(document.getElementById('restockQty')?.value);
-    const price = parseFloat(document.getElementById('restockPrice')?.value) || 0;
-    if (!productId || !qty) { showToast('Champs requis', 'error'); return; }
+async function saveRestock() {
+  const productId = document.getElementById('restockProduct')?.value;
+  const qty = parseFloat(document.getElementById('restockQty')?.value);
+  const price = parseFloat(document.getElementById('restockPrice')?.value) || 0;
 
-    try {
-      const res = await authFetch(apiUrl(`/products/${productId}/restock`), {
-        method: 'POST',
-        body: JSON.stringify({ grams: qty, costPerGram: price })
-      });
+  if (!productId || !qty) { showToast('Champs requis', 'error'); return; }
 
-      if (res.ok) {
-        showToast('Stock mis à jour', 'success');
-        closeModal();
-        await loadProducts();
-        renderTab(state.currentTab);
-        updatePlanWidget();
-      } else {
-        throw new Error();
-      }
-    } catch (e) {
-      showToast('Erreur', 'error');
+  try {
+    const res = await authFetch(apiUrl('/restock'), {
+      method: 'POST',
+      body: JSON.stringify({
+        productId,
+        grams: qty,
+        purchasePricePerGram: price
+      })
+    });
+
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      console.warn('Restock error:', data);
+      showToast(data?.error || 'Erreur', 'error');
+      return;
     }
+
+    showToast('Stock mis à jour', 'success');
+    closeModal();
+    await loadProducts();
+    renderTab(state.currentTab);
+    updatePlanWidget();
+  } catch (e) {
+    console.error(e);
+    showToast('Erreur', 'error');
+  }
+}
+
+
+async function saveAdjustment() {
+  const productId = document.getElementById('adjustProduct')?.value;
+  const type = document.querySelector('input[name="adjustType"]:checked')?.value;
+  const qty = parseFloat(document.getElementById('adjustQty')?.value);
+
+  if (!productId || !qty) { showToast('Champs requis', 'error'); return; }
+
+  // Backend: /api/products/:productId/adjust-total attend gramsDelta (positif/negatif)
+  let gramsDelta = qty;
+  if (type === 'remove') gramsDelta = -Math.abs(qty);
+  if (type === 'add') gramsDelta = Math.abs(qty);
+
+  if (type === 'set') {
+    showToast("Mode 'Définir' pas supporté par l’API actuelle (ajustement delta uniquement).", 'warning');
+    return;
   }
 
-  async function saveAdjustment() {
-    const productId = document.getElementById('adjustProduct')?.value;
-    const type = document.querySelector('input[name="adjustType"]:checked')?.value;
-    const qty = parseFloat(document.getElementById('adjustQty')?.value);
-    if (!productId || !qty) { showToast('Champs requis', 'error'); return; }
+  try {
+    const res = await authFetch(apiUrl(`/products/${encodeURIComponent(productId)}/adjust-total`), {
+      method: 'POST',
+      body: JSON.stringify({ gramsDelta })
+    });
 
-    try {
-      const res = await authFetch(apiUrl(`/products/${productId}/adjust`), {
-        method: 'POST',
-        body: JSON.stringify({ type, grams: qty })
-      });
-
-      if (res.ok) {
-        showToast('Ajustement appliqué', 'success');
-        closeModal();
-        await loadProducts();
-        renderTab(state.currentTab);
-        updatePlanWidget();
-      } else {
-        throw new Error();
-      }
-    } catch (e) {
-      showToast('Erreur', 'error');
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      console.warn('Adjust error:', data);
+      showToast(data?.error || 'Erreur', 'error');
+      return;
     }
+
+    showToast('Ajustement appliqué', 'success');
+    closeModal();
+    await loadProducts();
+    renderTab(state.currentTab);
+    updatePlanWidget();
+  } catch (e) {
+    console.error(e);
+    showToast('Erreur', 'error');
   }
+}
 
   function syncShopify() { showToast('Synchronisation...', 'info'); }
   function importFromShopify() { showToast('Import Shopify...', 'info'); }
