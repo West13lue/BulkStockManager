@@ -854,7 +854,39 @@
 
   function syncShopify() { showToast('Synchronisation...', 'info'); }
   function importFromShopify() { showToast('Import Shopify...', 'info'); }
-  function upgradeTo(plan) { showToast(`Upgrade vers ${plan} - Contactez le support`, 'info'); closeModal(); }
+  async function upgradeTo(planId, interval = 'monthly') {
+  try {
+    showToast('Redirection vers Shopify Billing…', 'info', 2000);
+
+    const res = await authFetch(apiUrl('/plan/upgrade'), {
+      method: 'POST',
+      body: JSON.stringify({ planId, interval })
+    });
+
+    const data = await res.json();
+
+    // 🟣 Cas bypass (/ dev)
+    if (data.bypass) {
+      showToast('Plan activé (bypass)', 'success');
+      await loadPlanInfo();
+      updatePlanWidget();
+      closeModal();
+      return;
+    }
+
+    // 🟣 Cas NORMAL Shopify Billing
+    if (data.confirmationUrl) {
+      // ⚠️ OBLIGATOIRE : redirection top-level
+      window.top.location.href = data.confirmationUrl;
+      return;
+    }
+
+    throw new Error('Aucune confirmationUrl retournée');
+  } catch (e) {
+    console.error('Billing error', e);
+    showToast('Erreur lors de l’activation du plan', 'error');
+  }
+}
 
   // ============================================
   // HELPERS
@@ -893,17 +925,26 @@
     return d.innerHTML;
   }
 
+function toggleNotifications() {
+  showToast('Notifications bientôt disponibles', 'info');
+}
+
+function toggleUserMenu() {
+  showToast('Menu utilisateur bientôt disponible', 'info');
+}
+
   // ============================================
   // EXPORTS
   // ============================================
 
-  window.app = {
-    init, navigateTo, toggleSidebar,
-    showModal, closeModal, showAddProductModal, showRestockModal, showAdjustModal, showUpgradeModal, showFeatureLockedModal,
-    saveProduct, saveRestock, saveAdjustment, syncShopify, importFromShopify, upgradeTo,
-    showToast,
-    get state() { return state; },
-  };
+window.app = {
+  init, navigateTo, toggleSidebar,
+  toggleNotifications, toggleUserMenu,
+  showModal, closeModal, showAddProductModal, showRestockModal, showAdjustModal, showUpgradeModal, showFeatureLockedModal,
+  saveProduct, saveRestock, saveAdjustment, syncShopify, importFromShopify, upgradeTo,
+  showToast,
+  get state() { return state; },
+};
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
   else init();
