@@ -311,25 +311,25 @@
         renderProducts(c);
         break;
       case "batches":
-        renderFeature(c, "hasBatchTracking", "Lots & DLC", "ðŸ“¦");
+        renderFeature(c, "hasBatchTracking", "Lots et DLC", "tags");
         break;
       case "suppliers":
-        renderFeature(c, "hasSuppliers", "Fournisseurs", "ðŸ­");
+        renderFeature(c, "hasSuppliers", "Fournisseurs", "factory");
         break;
       case "orders":
-        renderFeature(c, "hasPurchaseOrders", "Commandes", "ðŸ“");
+        renderFeature(c, "hasPurchaseOrders", "Commandes", "clipboard-list");
         break;
       case "forecast":
-        renderFeature(c, "hasForecast", "Previsions", "ðŸ”®");
+        renderFeature(c, "hasForecast", "Previsions", "trending-up");
         break;
       case "kits":
-        renderFeature(c, "hasKits", "Kits", "🧩");
+        renderFeature(c, "hasKits", "Kits et Bundles", "puzzle");
         break;
       case "analytics":
         renderAnalytics(c);
         break;
       case "inventory":
-        renderFeature(c, "hasInventoryCount", "Inventaire", "ðŸ“‹");
+        renderFeature(c, "hasInventoryCount", "Inventaire", "clipboard-check");
         break;
       case "settings":
         renderSettings(c);
@@ -337,32 +337,35 @@
       default:
         renderDashboard(c);
     }
+    // Refresh Lucide icons after rendering
+    if (typeof lucide !== "undefined") lucide.createIcons();
   }
 
-  function renderFeature(c, key, title, icon) {
+  function renderFeature(c, key, title, iconName) {
+    var iconHtml = '<i data-lucide="' + iconName + '"></i>';
     if (!hasFeature(key)) {
       c.innerHTML =
         '<div class="page-header"><h1 class="page-title">' +
-        icon +
+        iconHtml +
         " " +
         title +
         "</h1></div>" +
         '<div class="card" style="min-height:400px;display:flex;align-items:center;justify-content:center"><div class="text-center">' +
-        '<div style="font-size:64px">ðŸ”’</div><h2>Fonctionnalite verrouillee</h2>' +
+        '<div class="lock-icon"><i data-lucide="lock"></i></div><h2>Fonctionnalite verrouillee</h2>' +
         '<p class="text-secondary">Passez a un plan superieur pour debloquer.</p>' +
         '<button class="btn btn-upgrade mt-lg" onclick="app.showUpgradeModal()">Upgrader</button></div></div>';
     } else {
       c.innerHTML =
         '<div class="page-header"><h1 class="page-title">' +
-        icon +
+        iconHtml +
         " " +
         title +
         "</h1></div>" +
-        '<div class="card"><div class="card-body"><div class="empty-state"><div class="empty-icon">' +
-        icon +
-        "</div>" +
+        '<div class="card"><div class="card-body"><div class="empty-state"><div class="empty-icon"><i data-lucide="package-open"></i></div>' +
         "<p>Aucun element</p></div></div></div>";
     }
+    // Refresh Lucide icons
+    if (typeof lucide !== "undefined") lucide.createIcons();
   }
 
   function renderDashboard(c) {
@@ -381,13 +384,13 @@
       '<div class="page-actions"><button class="btn btn-secondary" onclick="app.syncShopify()">Sync</button>' +
       '<button class="btn btn-primary" onclick="app.showAddProductModal()">+ Produit</button></div></div>' +
       '<div class="stats-grid">' +
-      '<div class="stat-card"><div class="stat-icon">ðŸ“¦</div><div class="stat-value">' +
+      '<div class="stat-card"><div class="stat-icon"><i data-lucide="boxes"></i></div><div class="stat-value">' +
       state.products.length +
       '</div><div class="stat-label">Produits</div></div>' +
-      '<div class="stat-card"><div class="stat-icon">âš–ï¸</div><div class="stat-value">' +
+      '<div class="stat-card"><div class="stat-icon"><i data-lucide="scale"></i></div><div class="stat-value">' +
       formatWeight(totalStock) +
       '</div><div class="stat-label">Stock total</div></div>' +
-      '<div class="stat-card"><div class="stat-icon">ðŸ’°</div><div class="stat-value">' +
+      '<div class="stat-card"><div class="stat-icon"><i data-lucide="coins"></i></div><div class="stat-value">' +
       formatCurrency(totalValue) +
       '</div><div class="stat-label">Valeur</div></div>' +
       '<div class="stat-card"><div class="stat-icon">âš ï¸</div><div class="stat-value">' +
@@ -494,7 +497,7 @@
 
   function renderEmpty() {
     return (
-      '<div class="empty-state"><div class="empty-icon">ðŸ“¦</div><h3>Aucun produit</h3>' +
+      '<div class="empty-state"><div class="empty-icon"><i data-lucide="package-open"></i></div><h3>Aucun produit</h3>' +
       '<p class="text-secondary">Ajoutez ou importez des produits.</p>' +
       '<button class="btn btn-primary" onclick="app.showAddProductModal()">+ Ajouter</button> ' +
       '<button class="btn btn-secondary" onclick="app.showImportModal()">Import Shopify</button></div>'
@@ -980,7 +983,7 @@
     showModal({
       title: "Fonctionnalite verrouillee",
       content:
-        '<div class="text-center"><div style="font-size:64px">ðŸ”’</div><p class="text-secondary mt-lg">Passez a un plan superieur pour debloquer cette fonctionnalite.</p></div>',
+        '<div class="text-center"><div class="lock-icon"><i data-lucide="lock"></i></div><p class="text-secondary mt-lg">Passez a un plan superieur pour debloquer cette fonctionnalite.</p></div>',
       footer:
         '<button class="btn btn-ghost" onclick="app.closeModal()">Fermer</button><button class="btn btn-upgrade" onclick="app.showUpgradeModal()">Upgrader</button>',
     });
@@ -1455,7 +1458,7 @@
       c.innerHTML =
         '<div class="page-header"><h1 class="page-title">Analytics</h1></div>' +
         '<div class="card" style="min-height:400px;display:flex;align-items:center;justify-content:center"><div class="text-center">' +
-        '<div style="font-size:64px">LOCK</div><h2>Fonctionnalite PRO</h2>' +
+        '<div class="lock-icon"><i data-lucide="lock"></i></div><h2>Fonctionnalite PRO</h2>' +
         '<p class="text-secondary">Passez au plan Pro pour acceder aux analytics avances.</p>' +
         '<button class="btn btn-upgrade mt-lg" onclick="app.showUpgradeModal()">Passer a Pro</button></div></div>';
       return;
