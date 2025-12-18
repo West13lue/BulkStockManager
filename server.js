@@ -2618,6 +2618,187 @@ router.get("/api/analytics/dashboard", (req, res) => {
 });
 
 // ============================================
+// ANALYTICS PRO - Ventes Shopify & Marges
+// ============================================
+
+router.get("/api/analytics/sales", async (req, res) => {
+  try {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+
+    // Verifier le plan PRO
+    if (planManager) {
+      const check = planManager.checkLimit(shop, "view_analytics");
+      if (!check.allowed) {
+        return res.status(403).json({ error: "plan_limit", message: check.reason });
+      }
+    }
+
+    const period = parseInt(req.query.period, 10) || 30;
+    const now = new Date();
+    const fromDate = new Date(now.getTime() - period * 24 * 60 * 60 * 1000);
+
+    // Recuperer les commandes Shopify
+    const client = shopifyFor(shop);
+    if (!client) return apiError(res, 500, "Client Shopify non disponible");
+
+    const orders = await client.order.list({
+      status: "any",
+      created_at_min: fromDate.toISOString(),
+      limit: 250,
+    });
+
+    // Recuperer les produits avec leur CMP
+    const snapshot = stock.getCatalogSnapshot ? stock.getCatalogSnapshot(shop) : { products: [] };
+    const products = Array.isArray(snapshot.products) ? snapshot.products : [];
+    const productMap = {};
+    products.forEach(p => {
+      productMap[p.productId] = {
+        name: p.name,
+        cmp: p.averageCostPerGram || 0,
+        totalGrams: p.totalGrams || 0,
+      };
+    });
+
+    // Analyser les ventes
+    let totalRevenue = 0;
+    let totalCost = 0;
+    let totalQuantitySold = 0;
+    let totalGramsSold = 0;
+    const productSales = {};
+    const dailySales = {};
+
+    (orders || []).forEach(order => {
+      if (order.financial_status === "refunded" || order.cancelled_at) return;
+
+      const orderDate = order.created_at.slice(0, 10);
+      if (!dailySales[orderDate]) {
+        dailySales[orderDate] = { date: orderDate, revenue: 0, cost: 0, margin: 0, orders: 0 };
+      }
+      dailySales[orderDate].orders++;
+
+      (order.line_items || []).forEach(item => {
+        const productId = String(item.product_id);
+        const variantId = String(item.variant_id);
+        const quantity = item.quantity || 0;
+        const price = parseFloat(item.price) || 0;
+        const lineTotal = price * quantity;
+
+        totalRevenue += lineTotal;
+        totalQuantitySold += quantity;
+        dailySales[orderDate].revenue += lineTotal;
+
+        // Trouver le produit pour calculer le cout
+        const product = productMap[productId];
+        let gramsPerUnit = 0;
+        let lineCost = 0;
+
+        if (product) {
+          // Chercher la variante pour les gramsPerUnit
+          const fullProduct = products.find(p => p.productId === productId);
+          if (fullProduct && fullProduct.variants) {
+            const variant = fullProduct.variants.find(v => String(v.variantId) === variantId);
+            gramsPerUnit = variant?.gramsPerUnit || 1;
+          }
+          
+          const gramsSold = gramsPerUnit * quantity;
+          lineCost = gramsSold * product.cmp;
+          totalCost += lineCost;
+          totalGramsSold += gramsSold;
+          dailySales[orderDate].cost += lineCost;
+
+          // Agreger par produit
+          if (!productSales[productId]) {
+            productSales[productId] = {
+              productId,
+              name: product.name || item.title,
+              quantitySold: 0,
+              gramsSold: 0,
+              revenue: 0,
+              cost: 0,
+              margin: 0,
+              marginPercent: 0,
+              cmp: product.cmp,
+            };
+          }
+          productSales[productId].quantitySold += quantity;
+          productSales[productId].gramsSold += gramsSold;
+          productSales[productId].revenue += lineTotal;
+          productSales[productId].cost += lineCost;
+        }
+      });
+    });
+
+    // Calculer les marges par produit
+    Object.values(productSales).forEach(p => {
+      p.margin = p.revenue - p.cost;
+      p.marginPercent = p.revenue > 0 ? Math.round((p.margin / p.revenue) * 100) : 0;
+    });
+
+    // Calculer les marges journalieres
+    Object.values(dailySales).forEach(d => {
+      d.margin = d.revenue - d.cost;
+      d.marginPercent = d.revenue > 0 ? Math.round((d.margin / d.revenue) * 100) : 0;
+    });
+
+    // Trier et preparer les tops
+    const productList = Object.values(productSales);
+    const topByRevenue = [...productList].sort((a, b) => b.revenue - a.revenue).slice(0, 5);
+    const topByMargin = [...productList].sort((a, b) => b.margin - a.margin).slice(0, 5);
+    const topByMarginPercent = [...productList].filter(p => p.revenue > 10).sort((a, b) => b.marginPercent - a.marginPercent).slice(0, 5);
+    const topByVolume = [...productList].sort((a, b) => b.gramsSold - a.gramsSold).slice(0, 5);
+    const worstByMargin = [...productList].filter(p => p.revenue > 10).sort((a, b) => a.marginPercent - b.marginPercent).slice(0, 5);
+
+    // Calculer totaux
+    const totalMargin = totalRevenue - totalCost;
+    const marginPercent = totalRevenue > 0 ? Math.round((totalMargin / totalRevenue) * 100) : 0;
+    const avgOrderValue = orders.length > 0 ? totalRevenue / orders.length : 0;
+    const avgCMP = totalGramsSold > 0 ? totalCost / totalGramsSold : 0;
+    const avgSellingPrice = totalGramsSold > 0 ? totalRevenue / totalGramsSold : 0;
+
+    // Timeline pour graphique
+    const timeline = Object.values(dailySales).sort((a, b) => a.date.localeCompare(b.date));
+
+    res.json({
+      period: { days: period, from: fromDate.toISOString().slice(0, 10), to: now.toISOString().slice(0, 10) },
+      
+      // KPIs Ventes
+      kpis: {
+        totalRevenue: Math.round(totalRevenue * 100) / 100,
+        totalCost: Math.round(totalCost * 100) / 100,
+        totalMargin: Math.round(totalMargin * 100) / 100,
+        marginPercent,
+        totalOrders: orders.length,
+        totalQuantitySold,
+        totalGramsSold: Math.round(totalGramsSold),
+        avgOrderValue: Math.round(avgOrderValue * 100) / 100,
+        avgCMP: Math.round(avgCMP * 100) / 100,
+        avgSellingPrice: Math.round(avgSellingPrice * 100) / 100,
+      },
+
+      // Top produits
+      topProducts: {
+        byRevenue: topByRevenue,
+        byMargin: topByMargin,
+        byMarginPercent: topByMarginPercent,
+        byVolume: topByVolume,
+        worstMargin: worstByMargin,
+      },
+
+      // Timeline pour graphiques
+      timeline,
+
+      // Tous les produits vendus
+      products: productList.sort((a, b) => b.revenue - a.revenue),
+    });
+
+  } catch (e) {
+    logEvent("analytics_sales_error", { error: e.message }, "error");
+    return apiError(res, 500, "Erreur: " + e.message);
+  }
+});
+
+// ============================================
 // ROUTES PRO (Batches, Suppliers, PO, Forecast, Kits, Inventory)
 // ============================================
 try {

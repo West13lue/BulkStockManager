@@ -1554,26 +1554,194 @@
   function renderAnalytics(c) {
     if (!hasFeature("hasAnalytics")) {
       c.innerHTML =
-        '<div class="page-header"><h1 class="page-title">Analytics</h1></div>' +
+        '<div class="page-header"><h1 class="page-title"><i data-lucide="bar-chart-3"></i> Analytics</h1></div>' +
         '<div class="card" style="min-height:400px;display:flex;align-items:center;justify-content:center"><div class="text-center">' +
-        '<div class="lock-icon"><i data-lucide="lock"></i></div><h2>Fonctionnalite PRO</h2>' +
-        '<p class="text-secondary">Passez au plan Pro pour acceder aux analytics avances.</p>' +
-        '<button class="btn btn-upgrade mt-lg" onclick="app.showUpgradeModal()">Passer a Pro</button></div></div>';
+        '<div class="lock-icon"><i data-lucide="lock"></i></div><h2>' + t("msg.featureLocked", "Fonctionnalite PRO") + '</h2>' +
+        '<p class="text-secondary">Debloquez les marges, profits et analyses avancees avec le plan PRO</p>' +
+        '<div class="analytics-preview">' +
+        '<div class="preview-kpi blurred"><span class="preview-value">12 450 EUR</span><span class="preview-label">CA total</span></div>' +
+        '<div class="preview-kpi blurred"><span class="preview-value">4 230 EUR</span><span class="preview-label">Marge brute</span></div>' +
+        '<div class="preview-kpi blurred"><span class="preview-value">34%</span><span class="preview-label">Marge %</span></div>' +
+        '</div>' +
+        '<button class="btn btn-upgrade mt-lg" onclick="app.showUpgradeModal()">Passer a PRO</button></div></div>';
       return;
     }
 
     // Afficher loading puis charger les donnees
     c.innerHTML =
-      '<div class="page-header"><div><h1 class="page-title">Analytics</h1><p class="page-subtitle">Analyse de votre stock</p></div>' +
+      '<div class="page-header"><div><h1 class="page-title"><i data-lucide="bar-chart-3"></i> Analytics PRO</h1><p class="page-subtitle">Ventes, marges et performance</p></div>' +
       '<div class="page-actions">' +
       '<select class="form-select" id="analyticsPeriod" onchange="app.changeAnalyticsPeriod(this.value)">' +
       '<option value="7"' + (analyticsPeriod === "7" ? " selected" : "") + '>7 derniers jours</option>' +
       '<option value="30"' + (analyticsPeriod === "30" ? " selected" : "") + '>30 derniers jours</option>' +
       '<option value="90"' + (analyticsPeriod === "90" ? " selected" : "") + '>90 derniers jours</option>' +
-      '</select></div></div>' +
+      '</select>' +
+      '<div class="analytics-tabs">' +
+      '<button class="tab-btn active" data-tab="sales" onclick="app.switchAnalyticsTab(\'sales\')">Ventes</button>' +
+      '<button class="tab-btn" data-tab="stock" onclick="app.switchAnalyticsTab(\'stock\')">Stock</button>' +
+      '</div>' +
+      '</div></div>' +
       '<div id="analyticsContent"><div class="text-center" style="padding:60px"><div class="spinner"></div><p class="text-secondary mt-md">Chargement des analytics...</p></div></div>';
 
-    loadAnalytics();
+    analyticsTab = "sales";
+    loadAnalyticsSales();
+  }
+
+  var analyticsTab = "sales";
+  var analyticsSalesData = null;
+
+  function switchAnalyticsTab(tab) {
+    analyticsTab = tab;
+    document.querySelectorAll(".analytics-tabs .tab-btn").forEach(function(btn) {
+      btn.classList.toggle("active", btn.dataset.tab === tab);
+    });
+    
+    if (tab === "sales") {
+      if (analyticsSalesData) {
+        renderSalesAnalytics();
+      } else {
+        loadAnalyticsSales();
+      }
+    } else {
+      if (analyticsData) {
+        renderAnalyticsContent();
+      } else {
+        loadAnalytics();
+      }
+    }
+  }
+
+  async function loadAnalyticsSales() {
+    try {
+      document.getElementById("analyticsContent").innerHTML = 
+        '<div class="text-center" style="padding:60px"><div class="spinner"></div><p class="text-secondary mt-md">Chargement des ventes...</p></div>';
+      
+      var res = await authFetch(apiUrl("/analytics/sales?period=" + analyticsPeriod));
+      if (!res.ok) {
+        var err = await res.json().catch(function() { return {}; });
+        if (err.error === "plan_limit") {
+          showUpgradeModal();
+          return;
+        }
+        document.getElementById("analyticsContent").innerHTML = 
+          '<div class="card"><div class="card-body text-center"><p class="text-danger">Erreur: ' + (err.error || err.message || "Impossible de charger") + '</p></div></div>';
+        return;
+      }
+      analyticsSalesData = await res.json();
+      renderSalesAnalytics();
+    } catch (e) {
+      document.getElementById("analyticsContent").innerHTML = 
+        '<div class="card"><div class="card-body text-center"><p class="text-danger">Erreur: ' + e.message + '</p></div></div>';
+    }
+  }
+
+  function renderSalesAnalytics() {
+    if (!analyticsSalesData) return;
+    var d = analyticsSalesData;
+    var k = d.kpis || {};
+
+    // KPI Cards - Ventes & Marges
+    var marginClass = k.marginPercent >= 30 ? "success" : k.marginPercent >= 15 ? "warning" : "danger";
+    
+    var kpiCards = 
+      '<div class="analytics-kpis analytics-kpis-sales">' +
+      '<div class="kpi-card kpi-large"><div class="kpi-icon"><i data-lucide="trending-up"></i></div><div class="kpi-value">' + formatCurrency(k.totalRevenue || 0) + '</div><div class="kpi-label">Chiffre d\'affaires</div><div class="kpi-sub">' + (k.totalOrders || 0) + ' commandes</div></div>' +
+      '<div class="kpi-card kpi-large"><div class="kpi-icon"><i data-lucide="piggy-bank"></i></div><div class="kpi-value">' + formatCurrency(k.totalMargin || 0) + '</div><div class="kpi-label">Marge brute</div><div class="kpi-sub ' + marginClass + '">' + (k.marginPercent || 0) + '% de marge</div></div>' +
+      '<div class="kpi-card"><div class="kpi-value">' + formatCurrency(k.totalCost || 0) + '</div><div class="kpi-label">Cout des ventes</div></div>' +
+      '<div class="kpi-card"><div class="kpi-value">' + formatWeight(k.totalGramsSold || 0) + '</div><div class="kpi-label">Quantite vendue</div></div>' +
+      '<div class="kpi-card"><div class="kpi-value">' + formatCurrency(k.avgOrderValue || 0) + '</div><div class="kpi-label">Panier moyen</div></div>' +
+      '<div class="kpi-card"><div class="kpi-value">' + formatPricePerUnit(k.avgSellingPrice || 0) + '</div><div class="kpi-label">Prix vente moy.</div></div>' +
+      '<div class="kpi-card"><div class="kpi-value">' + formatPricePerUnit(k.avgCMP || 0) + '</div><div class="kpi-label">CMP moyen</div></div>' +
+      '</div>';
+
+    // Top produits par CA
+    var tops = d.topProducts || {};
+    var topRevenueHtml = '<div class="top-list"><h4><i data-lucide="trophy"></i> Top CA</h4>';
+    (tops.byRevenue || []).forEach(function(p, i) {
+      topRevenueHtml += '<div class="top-item"><span class="top-rank">' + (i + 1) + '</span><span class="top-name">' + esc(p.name) + '</span><span class="top-value">' + formatCurrency(p.revenue) + '</span></div>';
+    });
+    if (!(tops.byRevenue || []).length) topRevenueHtml += '<p class="text-secondary text-sm">Aucune vente</p>';
+    topRevenueHtml += '</div>';
+
+    // Top produits par marge
+    var topMarginHtml = '<div class="top-list"><h4><i data-lucide="piggy-bank"></i> Top Marge EUR</h4>';
+    (tops.byMargin || []).forEach(function(p, i) {
+      topMarginHtml += '<div class="top-item"><span class="top-rank success">' + (i + 1) + '</span><span class="top-name">' + esc(p.name) + '</span><span class="top-value success">' + formatCurrency(p.margin) + '</span></div>';
+    });
+    if (!(tops.byMargin || []).length) topMarginHtml += '<p class="text-secondary text-sm">Aucune vente</p>';
+    topMarginHtml += '</div>';
+
+    // Top produits par marge %
+    var topMarginPctHtml = '<div class="top-list"><h4><i data-lucide="percent"></i> Top Marge %</h4>';
+    (tops.byMarginPercent || []).forEach(function(p, i) {
+      topMarginPctHtml += '<div class="top-item"><span class="top-rank success">' + (i + 1) + '</span><span class="top-name">' + esc(p.name) + '</span><span class="top-value success">' + p.marginPercent + '%</span></div>';
+    });
+    if (!(tops.byMarginPercent || []).length) topMarginPctHtml += '<p class="text-secondary text-sm">Pas assez de donnees</p>';
+    topMarginPctHtml += '</div>';
+
+    // Top produits par volume
+    var topVolumeHtml = '<div class="top-list"><h4><i data-lucide="scale"></i> Top Volume</h4>';
+    (tops.byVolume || []).forEach(function(p, i) {
+      topVolumeHtml += '<div class="top-item"><span class="top-rank">' + (i + 1) + '</span><span class="top-name">' + esc(p.name) + '</span><span class="top-value">' + formatWeight(p.gramsSold) + '</span></div>';
+    });
+    if (!(tops.byVolume || []).length) topVolumeHtml += '<p class="text-secondary text-sm">Aucune vente</p>';
+    topVolumeHtml += '</div>';
+
+    // Pires marges
+    var worstMarginHtml = '<div class="top-list"><h4><i data-lucide="alert-triangle"></i> A optimiser (marge faible)</h4>';
+    (tops.worstMargin || []).forEach(function(p, i) {
+      var badgeClass = p.marginPercent < 10 ? "danger" : "warning";
+      worstMarginHtml += '<div class="top-item"><span class="top-rank ' + badgeClass + '">' + (i + 1) + '</span><span class="top-name">' + esc(p.name) + '</span><span class="top-value ' + badgeClass + '">' + p.marginPercent + '%</span></div>';
+    });
+    if (!(tops.worstMargin || []).length) worstMarginHtml += '<p class="text-secondary text-sm">Tous vos produits ont une bonne marge!</p>';
+    worstMarginHtml += '</div>';
+
+    var topsSection = 
+      '<div class="analytics-section">' +
+      '<div class="section-header" onclick="app.toggleSection(\'topsales\')">' +
+      '<h3>Performance produits</h3><span class="section-toggle" id="toggle-topsales">-</span></div>' +
+      '<div class="section-content" id="section-topsales">' +
+      '<div class="tops-grid tops-grid-5">' + topRevenueHtml + topMarginHtml + topMarginPctHtml + topVolumeHtml + worstMarginHtml + '</div>' +
+      '</div></div>';
+
+    // Tableau des produits vendus
+    var productsHtml = '';
+    var products = d.products || [];
+    if (products.length > 0) {
+      productsHtml = '<table class="data-table"><thead><tr>' +
+        '<th>Produit</th><th>Qte vendue</th><th>CA</th><th>Cout</th><th>Marge</th><th>Marge %</th><th>Action</th>' +
+        '</tr></thead><tbody>';
+      products.slice(0, 20).forEach(function(p) {
+        var marginClass = p.marginPercent >= 30 ? "success" : p.marginPercent >= 15 ? "" : "danger";
+        productsHtml += '<tr>' +
+          '<td>' + esc(p.name) + '</td>' +
+          '<td>' + formatWeight(p.gramsSold) + '</td>' +
+          '<td>' + formatCurrency(p.revenue) + '</td>' +
+          '<td>' + formatCurrency(p.cost) + '</td>' +
+          '<td class="' + marginClass + '">' + formatCurrency(p.margin) + '</td>' +
+          '<td class="' + marginClass + '">' + p.marginPercent + '%</td>' +
+          '<td>' + (p.marginPercent < 15 ? '<button class="btn btn-ghost btn-xs" onclick="app.showToast(\'Augmentez le prix ou reduisez le CMP\',\'info\')">Optimiser</button>' : '') + '</td>' +
+          '</tr>';
+      });
+      productsHtml += '</tbody></table>';
+      if (products.length > 20) {
+        productsHtml += '<p class="text-secondary text-sm mt-sm">' + (products.length - 20) + ' autres produits...</p>';
+      }
+    } else {
+      productsHtml = '<div class="empty-state-small"><p class="text-secondary">Aucune vente sur cette periode</p></div>';
+    }
+
+    var productsSection = 
+      '<div class="analytics-section">' +
+      '<div class="section-header" onclick="app.toggleSection(\'soldproducts\')">' +
+      '<h3>Detail des ventes par produit</h3><span class="section-toggle" id="toggle-soldproducts">-</span></div>' +
+      '<div class="section-content" id="section-soldproducts">' + productsHtml + '</div></div>';
+
+    // Assembler
+    document.getElementById("analyticsContent").innerHTML = kpiCards + topsSection + productsSection;
+    
+    // Refresh Lucide icons
+    if (typeof lucide !== "undefined") lucide.createIcons();
   }
 
   async function loadAnalytics() {
@@ -2012,6 +2180,7 @@
     // Analytics
     changeAnalyticsPeriod: changeAnalyticsPeriod,
     toggleSection: toggleSection,
+    switchAnalyticsTab: switchAnalyticsTab,
     // Settings
     updateSetting: updateSetting,
     updateNestedSetting: updateNestedSetting,

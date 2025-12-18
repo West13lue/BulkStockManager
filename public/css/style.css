@@ -2956,3 +2956,189 @@ html, body {
   height: 28px;
   margin-right: 8px;
 }
+
+/* ============================================
+   ANALYTICS PRO - Ventes & Marges
+   ============================================ */
+
+.analytics-tabs {
+  display: flex;
+  gap: 4px;
+  background: var(--bg-tertiary);
+  padding: 4px;
+  border-radius: 8px;
+}
+
+.analytics-tabs .tab-btn {
+  padding: 8px 16px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.analytics-tabs .tab-btn:hover {
+  color: var(--text-primary);
+}
+
+.analytics-tabs .tab-btn.active {
+  background: var(--accent-primary);
+  color: white;
+}
+
+.analytics-kpis-sales {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr) repeat(5, 1fr);
+  gap: var(--space-md);
+}
+
+@media (max-width: 1200px) {
+  .analytics-kpis-sales {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 768px) {
+  .analytics-kpis-sales {
+    grid-template-columns: 1fr;
+  }
+}
+
+.kpi-card.kpi-large {
+  grid-row: span 1;
+  padding: var(--space-lg);
+  background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-tertiary) 100%);
+  border: 1px solid var(--border);
+}
+
+.kpi-card .kpi-icon {
+  margin-bottom: var(--space-sm);
+  color: var(--accent-primary);
+}
+
+.kpi-card .kpi-icon svg {
+  width: 24px;
+  height: 24px;
+}
+
+.kpi-card .kpi-sub.success {
+  color: var(--success);
+}
+
+.kpi-card .kpi-sub.warning {
+  color: var(--warning);
+}
+
+.kpi-card .kpi-sub.danger {
+  color: var(--danger);
+}
+
+.tops-grid-5 {
+  grid-template-columns: repeat(5, 1fr);
+}
+
+@media (max-width: 1400px) {
+  .tops-grid-5 {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (max-width: 900px) {
+  .tops-grid-5 {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 600px) {
+  .tops-grid-5 {
+    grid-template-columns: 1fr;
+  }
+}
+
+.top-list h4 {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-md);
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.top-list h4 svg {
+  width: 16px;
+  height: 16px;
+}
+
+.top-value.success {
+  color: var(--success);
+  font-weight: 600;
+}
+
+.top-value.danger {
+  color: var(--danger);
+}
+
+.top-rank.success {
+  background: var(--success);
+}
+
+.top-rank.warning {
+  background: var(--warning);
+}
+
+.top-rank.danger {
+  background: var(--danger);
+}
+
+/* Analytics Preview (locked state) */
+.analytics-preview {
+  display: flex;
+  gap: var(--space-lg);
+  margin: var(--space-xl) 0;
+  justify-content: center;
+}
+
+.preview-kpi {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: var(--space-lg);
+  background: var(--bg-secondary);
+  border-radius: 12px;
+  min-width: 120px;
+}
+
+.preview-kpi.blurred {
+  filter: blur(4px);
+  opacity: 0.6;
+}
+
+.preview-value {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.preview-label {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  margin-top: 4px;
+}
+
+/* Table enhancements */
+.data-table td.success {
+  color: var(--success);
+  font-weight: 500;
+}
+
+.data-table td.danger {
+  color: var(--danger);
+}
+
+.btn-xs {
+  padding: 4px 8px;
+  font-size: 11px;
+}
