@@ -265,6 +265,11 @@
         var data = await res.json();
         settingsData = data.settings || {};
         settingsOptions = data.options || {};
+        
+        // Initialiser i18n avec la langue des settings
+        if (typeof I18N !== "undefined" && settingsData.general) {
+          I18N.init(settingsData.general.language);
+        }
       }
     } catch (e) {
       console.warn("[Settings] Silent load failed:", e);
@@ -380,19 +385,19 @@
     }).length;
 
     c.innerHTML =
-      '<div class="page-header"><div><h1 class="page-title">Tableau de bord</h1><p class="page-subtitle">Vue d\'ensemble</p></div>' +
-      '<div class="page-actions"><button class="btn btn-secondary" onclick="app.syncShopify()">Sync</button>' +
-      '<button class="btn btn-primary" onclick="app.showAddProductModal()">+ Produit</button></div></div>' +
+      '<div class="page-header"><div><h1 class="page-title">' + t("dashboard.title", "Tableau de bord") + '</h1><p class="page-subtitle">' + t("dashboard.subtitle", "Vue d\'ensemble") + '</p></div>' +
+      '<div class="page-actions"><button class="btn btn-secondary" onclick="app.syncShopify()">' + t("dashboard.sync", "Sync") + '</button>' +
+      '<button class="btn btn-primary" onclick="app.showAddProductModal()">' + t("dashboard.addProduct", "+ Produit") + '</button></div></div>' +
       '<div class="stats-grid">' +
       '<div class="stat-card"><div class="stat-icon"><i data-lucide="boxes"></i></div><div class="stat-value">' +
       state.products.length +
-      '</div><div class="stat-label">Produits</div></div>' +
+      '</div><div class="stat-label">' + t("dashboard.products", "Produits") + '</div></div>' +
       '<div class="stat-card"><div class="stat-icon"><i data-lucide="scale"></i></div><div class="stat-value">' +
       formatWeight(totalStock) +
-      '</div><div class="stat-label">Stock total</div></div>' +
+      '</div><div class="stat-label">' + t("dashboard.totalStock", "Stock total") + '</div></div>' +
       '<div class="stat-card"><div class="stat-icon"><i data-lucide="coins"></i></div><div class="stat-value">' +
       formatCurrency(totalValue) +
-      '</div><div class="stat-label">Valeur</div></div>' +
+      '</div><div class="stat-label">' + t("dashboard.value", "Valeur") + '</div></div>' +
       '<div class="stat-card"><div class="stat-icon">âš ï¸</div><div class="stat-value">' +
       lowStock +
       '</div><div class="stat-label">Stock bas</div></div>' +
@@ -478,7 +483,7 @@
           "<td>" + esc(p.name || p.title || "Sans nom") + "</td>" +
           '<td class="cell-categories" onclick="event.stopPropagation();app.showAssignCategoriesModal(\'' + esc(p.productId) + '\')">' + catChips + '</td>' +
           "<td>" + formatWeight(s) + "</td>" +
-          "<td>" + formatCurrency(cost) + "/g</td>" +
+          "<td>" + formatPricePerUnit(cost) + "</td>" +
           "<td>" + formatCurrency(s * cost) + "</td>" +
           '<td><span class="stock-badge ' + st.c + '">' + st.i + " " + st.l + "</span></td>" +
           '<td class="cell-actions" onclick="event.stopPropagation()">' +
@@ -713,10 +718,15 @@
         body: JSON.stringify(body),
       });
       if (res.ok) {
-        showToast("Parametre enregistre", "success");
+        showToast(t("settings.saved", "Parametre enregistre"), "success");
         // Mettre a jour le cache local
         if (!settingsData[section]) settingsData[section] = {};
         settingsData[section][key] = value;
+        
+        // Si c'est la langue, mettre a jour i18n
+        if (section === "general" && key === "language" && typeof I18N !== "undefined") {
+          I18N.setLang(value);
+        }
         
         // Rafraichir l'affichage si c'est un parametre d'affichage
         if (section === "currency" || section === "units" || section === "general") {
@@ -725,10 +735,10 @@
         }
       } else {
         var e = await res.json();
-        showToast(e.error || "Erreur", "error");
+        showToast(e.error || t("msg.error", "Erreur"), "error");
       }
     } catch (e) {
-      showToast("Erreur: " + e.message, "error");
+      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
     }
   }
 
@@ -814,7 +824,7 @@
       content:
         '<div class="form-group"><label class="form-label">Nom</label><input class="form-input" id="pName" placeholder="CBD Premium"></div>' +
         '<div style="display:flex;gap:16px"><div class="form-group" style="flex:1"><label class="form-label">Stock (g)</label><input type="number" class="form-input" id="pStock" value="0"></div>' +
-        '<div class="form-group" style="flex:1"><label class="form-label">Cout (EUR/g)</label><input type="number" class="form-input" id="pCost" value="0" step="0.01"></div></div>',
+        '<div class="form-group" style="flex:1"><label class="form-label">Cout (" + getCurrencySymbol() + "/" + getWeightUnit() + ")</label><input type="number" class="form-input" id="pCost" value="0" step="0.01"></div></div>',
       footer:
         '<button class="btn btn-ghost" onclick="app.closeModal()">Annuler</button><button class="btn btn-primary" onclick="app.saveProduct()">Ajouter</button>',
     });
@@ -917,7 +927,7 @@
         opts +
         '</select></div>' +
         '<div style="display:flex;gap:16px"><div class="form-group" style="flex:1"><label class="form-label">Quantite (g)</label><input type="number" class="form-input" id="rQty" placeholder="500"></div>' +
-        '<div class="form-group" style="flex:1"><label class="form-label">Prix (EUR/g)</label><input type="number" class="form-input" id="rPrice" placeholder="4.50" step="0.01"></div></div>',
+        '<div class="form-group" style="flex:1"><label class="form-label">Prix (" + getCurrencySymbol() + "/" + getWeightUnit() + ")</label><input type="number" class="form-input" id="rPrice" placeholder="4.50" step="0.01"></div></div>',
       footer:
         '<button class="btn btn-ghost" onclick="app.closeModal()">Annuler</button><button class="btn btn-primary" onclick="app.saveRestock()">Valider</button>',
     });
@@ -1300,6 +1310,27 @@
     }
   }
   
+  // Helper: obtenir l'unite de poids courante
+  function getWeightUnit() {
+    if (settingsData && settingsData.units && settingsData.units.weightUnit) {
+      return settingsData.units.weightUnit;
+    }
+    return "g";
+  }
+  
+  // Helper: obtenir le symbole de devise courant
+  function getCurrencySymbol() {
+    if (settingsData && settingsData.currency && settingsData.currency.symbol) {
+      return settingsData.currency.symbol;
+    }
+    return "EUR";
+  }
+  
+  // Helper: formater un prix par unite de poids (ex: "1.50 EUR/g")
+  function formatPricePerUnit(value) {
+    return formatCurrency(value) + "/" + getWeightUnit();
+  }
+  
   function getStatus(g) {
     // Utiliser les seuils des settings si disponibles
     var criticalThreshold = 50;
@@ -1424,7 +1455,7 @@
       // Stats grid
       '<div class="product-detail-stats">' +
       '<div class="detail-stat"><div class="detail-stat-value">' + formatWeight(p.totalGrams) + '</div><div class="detail-stat-label">Stock total</div></div>' +
-      '<div class="detail-stat"><div class="detail-stat-value">' + formatCurrency(p.averageCostPerGram) + '/g</div><div class="detail-stat-label">Cout moyen (CMP)</div></div>' +
+      '<div class="detail-stat"><div class="detail-stat-value">' + formatPricePerUnit(p.averageCostPerGram) + '</div><div class="detail-stat-label">Cout moyen (CMP)</div></div>' +
       '<div class="detail-stat"><div class="detail-stat-value">' + formatCurrency(p.stockValue) + '</div><div class="detail-stat-label">Valeur stock</div></div>' +
       '<div class="detail-stat"><div class="detail-stat-value">' + summary.variantCount + '</div><div class="detail-stat-label">Variantes</div></div>' +
       '</div>' +
@@ -1478,8 +1509,8 @@
     showModal({
       title: "Modifier le cout moyen (CMP)",
       content:
-        '<p class="text-secondary mb-md">Le CMP actuel est de <strong>' + formatCurrency(currentCMP) + '/g</strong>.</p>' +
-        '<div class="form-group"><label class="form-label">Nouveau CMP (€/g)</label>' +
+        '<p class="text-secondary mb-md">Le CMP actuel est de <strong>' + formatPricePerUnit(currentCMP) + '</strong>.</p>' +
+        '<div class="form-group"><label class="form-label">Nouveau CMP (" + getCurrencySymbol() + "/" + getWeightUnit() + ")</label>' +
         '<input type="number" class="form-input" id="newCMP" value="' + currentCMP + '" step="0.01" min="0"></div>' +
         '<p class="form-hint">⚠️ La modification manuelle du CMP ecrase le calcul automatique.</p>',
       footer:
