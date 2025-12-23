@@ -4010,3 +4010,140 @@ html, body {
   height: 14px;
   margin-right: 4px;
 }
+
+/* ============================================
+   SUPPLIERS
+   ============================================ */
+
+.supplier-row {
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.supplier-row:hover {
+  background: var(--bg-tertiary);
+}
+
+.supplier-name-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.supplier-code {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  font-family: monospace;
+  background: var(--bg-tertiary);
+  padding: 2px 6px;
+  border-radius: 4px;
+  display: inline-block;
+  margin-left: 8px;
+}
+
+.supplier-detail-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-lg);
+  padding-bottom: var(--space-md);
+  border-bottom: 1px solid var(--border);
+}
+
+.supplier-detail-header h2 {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+/* Detail tabs */
+.detail-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: var(--space-lg);
+  background: var(--bg-tertiary);
+  padding: 4px;
+  border-radius: 8px;
+}
+
+.detail-tab {
+  padding: 8px 16px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.detail-tab:hover {
+  color: var(--text-primary);
+}
+
+.detail-tab.active {
+  background: var(--accent-primary);
+  color: white;
+}
+
+.supplier-tab-content {
+  animation: fadeIn 0.2s;
+}
+
+/* Form sections */
+.form-section {
+  margin-bottom: var(--space-lg);
+  padding-bottom: var(--space-lg);
+  border-bottom: 1px solid var(--border);
+}
+
+.form-section:last-of-type {
+  border-bottom: none;
+}
+
+.form-section h4 {
+  margin-bottom: var(--space-md);
+  color: var(--text-secondary);
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* Analytics mini grid */
+.analytics-mini-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-md);
+}
+
+@media (max-width: 768px) {
+  .analytics-mini-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.analytics-mini-card {
+  background: var(--bg-tertiary);
+  padding: var(--space-md);
+  border-radius: 8px;
+  text-align: center;
+}
+
+.analytics-mini-value {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.analytics-mini-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+}
+
+/* Animation */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}

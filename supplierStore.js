@@ -1,4 +1,4 @@
-// supplierStore.js — Gestion des fournisseurs
+// supplierStore.js aEUR Gestion des fournisseurs
 // Carnet d'adresses, historique achats, comparaison prix
 
 const fs = require("fs");
@@ -36,7 +36,7 @@ function generateId() {
 {
   id: "sup_123",
   name: "CBD Wholesale France",
-  code: "CBDWF",  // Code court pour référence
+  code: "CBDWF",  // Code court pour rfrence
   
   // Contact
   contact: {
@@ -58,11 +58,11 @@ function generateId() {
   terms: {
     currency: "EUR",
     paymentTerms: "30 days",      // net30, net60, immediate, etc.
-    minOrderAmount: 500,          // Commande minimum €
+    minOrderAmount: 500,          // Commande minimum a
     minOrderGrams: 1000,          // Commande minimum g
-    deliveryDays: 3,              // Délai de livraison moyen
+    deliveryDays: 3,              // Dlai de livraison moyen
     shippingCost: 15,             // Frais de port fixes
-    freeShippingThreshold: 1000,  // Franco de port à partir de
+    freeShippingThreshold: 1000,  // Franco de port  partir de
   },
   
   // Produits fournis (optionnel - lien avec products)
@@ -71,14 +71,14 @@ function generateId() {
   ],
   
   // Notes & tags
-  notes: "Excellent rapport qualité/prix",
+  notes: "Excellent rapport qualit/prix",
   tags: ["premium", "bio", "france"],
   
   // Statut
   status: "active" | "inactive" | "blocked",
   rating: 4.5,  // Note sur 5
   
-  // Métadonnées
+  // Mtadonnes
   createdAt: "2025-01-01T00:00:00Z",
   updatedAt: "2025-01-15T00:00:00Z",
 }
@@ -123,18 +123,18 @@ function saveSuppliers(shop, suppliers) {
 }
 
 /**
- * Crée un nouveau fournisseur
+ * Cre un nouveau fournisseur
  */
 function createSupplier(shop, supplierData) {
   const suppliers = loadSuppliers(shop);
   
-  // Vérifier unicité du code
+  // Vrifier unicit du code
   if (supplierData.code) {
     const existing = suppliers.find(s => 
       s.code && s.code.toLowerCase() === supplierData.code.toLowerCase()
     );
     if (existing) {
-      throw new Error(`Code fournisseur déjà utilisé: ${supplierData.code}`);
+      throw new Error(`Code fournisseur dj utilis: ${supplierData.code}`);
     }
   }
   
@@ -189,14 +189,14 @@ function createSupplier(shop, supplierData) {
 }
 
 /**
- * Met à jour un fournisseur
+ * Met  jour un fournisseur
  */
 function updateSupplier(shop, supplierId, updates) {
   const suppliers = loadSuppliers(shop);
   const index = suppliers.findIndex(s => s.id === supplierId);
   
   if (index === -1) {
-    throw new Error(`Fournisseur non trouvé: ${supplierId}`);
+    throw new Error(`Fournisseur non trouv: ${supplierId}`);
   }
   
   const supplier = suppliers[index];
@@ -247,7 +247,7 @@ function deleteSupplier(shop, supplierId, hardDelete = false) {
 }
 
 /**
- * Récupère un fournisseur par ID
+ * Rcupre un fournisseur par ID
  */
 function getSupplier(shop, supplierId) {
   const suppliers = loadSuppliers(shop);
@@ -255,7 +255,7 @@ function getSupplier(shop, supplierId) {
 }
 
 /**
- * Récupère un fournisseur par code
+ * Rcupre un fournisseur par code
  */
 function getSupplierByCode(shop, code) {
   const suppliers = loadSuppliers(shop);
@@ -294,14 +294,14 @@ function listSuppliers(shop, options = {}) {
 // ============================================
 
 /**
- * Ajoute/met à jour le prix d'un produit chez un fournisseur
+ * Ajoute/met  jour le prix d'un produit chez un fournisseur
  */
 function setProductPrice(shop, supplierId, productId, pricePerGram, options = {}) {
   const suppliers = loadSuppliers(shop);
   const index = suppliers.findIndex(s => s.id === supplierId);
   
   if (index === -1) {
-    throw new Error(`Fournisseur non trouvé: ${supplierId}`);
+    throw new Error(`Fournisseur non trouv: ${supplierId}`);
   }
   
   const supplier = suppliers[index];
@@ -348,7 +348,7 @@ function removeProductPrice(shop, supplierId, productId) {
 }
 
 /**
- * Récupère tous les fournisseurs pour un produit donné
+ * Rcupre tous les fournisseurs pour un produit donn
  */
 function getSuppliersForProduct(shop, productId) {
   const suppliers = loadSuppliers(shop);

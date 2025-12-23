@@ -52,6 +52,14 @@ try {
   console.warn("BatchStore non disponible:", e.message);
 }
 
+// --- Supplier Store (multi-shop) - PRO
+let supplierStore = null;
+try {
+  supplierStore = require("./supplierStore");
+} catch (e) {
+  console.warn("SupplierStore non disponible:", e.message);
+}
+
 // --- Analytics (multi-shop) aÅ“â€¦ NOUVEAU
 let analyticsStore = null;
 let analyticsManager = null;
@@ -2806,6 +2814,243 @@ router.get("/api/analytics/sales", async (req, res) => {
     logEvent("analytics_sales_error", { error: e.message }, "error");
     return apiError(res, 500, "Erreur: " + e.message);
   }
+});
+
+// ============================================
+// FOURNISSEURS API (Plan PRO)
+// ============================================
+
+// Liste des fournisseurs
+router.get("/api/suppliers", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+
+    // Verifier le plan (hasSuppliers)
+    if (planManager) {
+      const check = planManager.checkLimit(shop, "view_suppliers");
+      if (!check.allowed) {
+        return res.status(403).json({ error: "plan_limit", message: check.reason, upgrade: check.upgrade });
+      }
+    }
+
+    if (!supplierStore) return apiError(res, 500, "Module fournisseurs non disponible");
+
+    const { status, search, tag } = req.query;
+    const suppliers = supplierStore.listSuppliers(shop, { status, search, tag });
+    const stats = supplierStore.getSupplierStats(shop);
+
+    // Enrichir avec les stats de commandes si disponible
+    const enriched = suppliers.map(s => {
+      // Compter les lots lies
+      let lotsCount = 0;
+      let totalPurchased = 0;
+      if (batchStore) {
+        const snapshot = stock.getCatalogSnapshot ? stock.getCatalogSnapshot(shop) : { products: [] };
+        (snapshot.products || []).forEach(p => {
+          const batches = batchStore.loadBatches(shop, p.productId);
+          batches.forEach(b => {
+            if (b.supplierId === s.id) {
+              lotsCount++;
+              totalPurchased += b.initialGrams || 0;
+            }
+          });
+        });
+      }
+
+      return {
+        ...s,
+        lotsCount,
+        totalPurchased,
+        productsCount: (s.products || []).length,
+      };
+    });
+
+    res.json({ suppliers: enriched, stats });
+  });
+});
+
+// Detail d'un fournisseur
+router.get("/api/suppliers/:id", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    if (!supplierStore) return apiError(res, 500, "Module fournisseurs non disponible");
+
+    const supplier = supplierStore.getSupplier(shop, req.params.id);
+    if (!supplier) return apiError(res, 404, "Fournisseur non trouve");
+
+    // Enrichir avec les produits details
+    const snapshot = stock.getCatalogSnapshot ? stock.getCatalogSnapshot(shop) : { products: [] };
+    const productMap = {};
+    (snapshot.products || []).forEach(p => { productMap[p.productId] = p; });
+
+    const productsEnriched = (supplier.products || []).map(sp => {
+      const product = productMap[sp.productId];
+      return {
+        ...sp,
+        productName: product ? product.name : "Produit inconnu",
+        currentStock: product ? product.totalGrams : 0,
+      };
+    });
+
+    // Recuperer les lots de ce fournisseur
+    let lots = [];
+    if (batchStore) {
+      (snapshot.products || []).forEach(p => {
+        const batches = batchStore.loadBatches(shop, p.productId);
+        batches.forEach(b => {
+          if (b.supplierId === supplier.id) {
+            lots.push({
+              ...b,
+              productName: p.name,
+            });
+          }
+        });
+      });
+    }
+    lots.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+    // Calculer les analytics
+    const analytics = {
+      totalLots: lots.length,
+      totalPurchased: lots.reduce((s, l) => s + (l.initialGrams || 0), 0),
+      totalSpent: lots.reduce((s, l) => s + ((l.initialGrams || 0) * (l.purchasePricePerGram || 0)), 0),
+      avgPricePerGram: 0,
+      lastPurchase: lots.length > 0 ? lots[0].createdAt : null,
+    };
+    if (analytics.totalPurchased > 0) {
+      analytics.avgPricePerGram = analytics.totalSpent / analytics.totalPurchased;
+    }
+
+    res.json({ 
+      supplier: { ...supplier, products: productsEnriched }, 
+      lots: lots.slice(0, 20),
+      analytics 
+    });
+  });
+});
+
+// Creer un fournisseur
+router.post("/api/suppliers", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+
+    // Verifier limite du plan
+    if (planManager) {
+      const check = planManager.checkLimit(shop, "create_supplier");
+      if (!check.allowed) {
+        return res.status(403).json({ error: "plan_limit", message: check.reason });
+      }
+    }
+
+    if (!supplierStore) return apiError(res, 500, "Module fournisseurs non disponible");
+
+    // Verifier limite Free (1 fournisseur max)
+    const currentSuppliers = supplierStore.loadSuppliers(shop);
+    const plan = planManager ? planManager.getEffectivePlan(shop) : { plan: "enterprise" };
+    if (plan.plan === "free" && currentSuppliers.length >= 1) {
+      return res.status(403).json({ 
+        error: "plan_limit", 
+        message: "Plan Free limite a 1 fournisseur. Passez a Starter pour plus.",
+        upgrade: true 
+      });
+    }
+
+    try {
+      const supplier = supplierStore.createSupplier(shop, {
+        name: req.body.name,
+        code: req.body.code,
+        type: req.body.type,
+        contact: req.body.contact,
+        address: req.body.address,
+        terms: req.body.terms,
+        notes: req.body.notes,
+        tags: req.body.tags,
+      });
+      res.json({ success: true, supplier });
+    } catch (e) {
+      return apiError(res, 400, e.message);
+    }
+  });
+});
+
+// Modifier un fournisseur
+router.put("/api/suppliers/:id", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    if (!supplierStore) return apiError(res, 500, "Module fournisseurs non disponible");
+
+    try {
+      const supplier = supplierStore.updateSupplier(shop, req.params.id, req.body);
+      res.json({ success: true, supplier });
+    } catch (e) {
+      return apiError(res, 404, e.message);
+    }
+  });
+});
+
+// Supprimer un fournisseur
+router.delete("/api/suppliers/:id", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    if (!supplierStore) return apiError(res, 500, "Module fournisseurs non disponible");
+
+    const hard = req.query.hard === "true";
+    try {
+      const result = supplierStore.deleteSupplier(shop, req.params.id, hard);
+      res.json({ success: true, result });
+    } catch (e) {
+      return apiError(res, 404, e.message);
+    }
+  });
+});
+
+// Lier un produit a un fournisseur
+router.post("/api/suppliers/:id/products", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    if (!supplierStore) return apiError(res, 500, "Module fournisseurs non disponible");
+
+    const { productId, pricePerGram, minQuantity, notes } = req.body;
+    if (!productId) return apiError(res, 400, "productId requis");
+
+    try {
+      const result = supplierStore.setProductPrice(shop, req.params.id, productId, pricePerGram || 0, { minQuantity, notes });
+      res.json({ success: true, product: result });
+    } catch (e) {
+      return apiError(res, 400, e.message);
+    }
+  });
+});
+
+// Retirer un produit d'un fournisseur
+router.delete("/api/suppliers/:id/products/:productId", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    if (!supplierStore) return apiError(res, 500, "Module fournisseurs non disponible");
+
+    const result = supplierStore.removeProductPrice(shop, req.params.id, req.params.productId);
+    res.json({ success: true, removed: result });
+  });
+});
+
+// Fournisseurs pour un produit (comparaison prix)
+router.get("/api/products/:productId/suppliers", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    if (!supplierStore) return apiError(res, 500, "Module fournisseurs non disponible");
+
+    const quantity = parseInt(req.query.quantity) || 100;
+    const suppliers = supplierStore.comparePrices(shop, req.params.productId, quantity);
+    res.json({ suppliers });
+  });
 });
 
 // ============================================

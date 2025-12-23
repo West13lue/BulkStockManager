@@ -348,7 +348,7 @@
         renderBatches(c);
         break;
       case "suppliers":
-        renderFeature(c, "hasSuppliers", "Fournisseurs", "factory");
+        renderSuppliers(c);
         break;
       case "orders":
         renderFeature(c, "hasPurchaseOrders", "Commandes", "clipboard-list");
@@ -1077,6 +1077,497 @@
       var data = await res.json();
       showToast(t("batches.markedExpired", "lots marques expires").replace("{count}", data.markedCount), "success");
       loadBatchesData();
+
+    } catch (e) {
+      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
+    }
+  }
+
+  // ============================================
+  // FOURNISSEURS (Plan PRO)
+  // ============================================
+  
+  var suppliersData = null;
+  var supplierFilters = { status: "", search: "" };
+
+  function renderSuppliers(c) {
+    // Verifier le plan
+    if (!hasFeature("hasSuppliers")) {
+      c.innerHTML =
+        '<div class="page-header"><h1 class="page-title"><i data-lucide="factory"></i> ' + t("suppliers.title", "Fournisseurs") + '</h1></div>' +
+        '<div class="card" style="min-height:400px;display:flex;align-items:center;justify-content:center"><div class="text-center">' +
+        '<div class="lock-icon"><i data-lucide="lock"></i></div>' +
+        '<h2>' + t("msg.featureLocked", "Fonctionnalite PRO") + '</h2>' +
+        '<p class="text-secondary">' + t("suppliers.lockedDesc", "Gerez vos fournisseurs, comparez les prix et optimisez vos achats.") + '</p>' +
+        '<div class="feature-preview mt-lg">' +
+        '<div class="preview-item"><i data-lucide="users"></i> ' + t("suppliers.feature1", "Carnet fournisseurs") + '</div>' +
+        '<div class="preview-item"><i data-lucide="git-compare"></i> ' + t("suppliers.feature2", "Comparaison des prix") + '</div>' +
+        '<div class="preview-item"><i data-lucide="file-text"></i> ' + t("suppliers.feature3", "Historique achats") + '</div>' +
+        '</div>' +
+        '<button class="btn btn-upgrade mt-lg" onclick="app.showUpgradeModal()">' + t("action.upgrade", "Passer a PRO") + '</button>' +
+        '</div></div>';
+      return;
+    }
+
+    // Afficher loading
+    c.innerHTML =
+      '<div class="page-header"><div><h1 class="page-title"><i data-lucide="factory"></i> ' + t("suppliers.title", "Fournisseurs") + '</h1>' +
+      '<p class="page-subtitle">' + t("suppliers.subtitle", "Gerez vos fournisseurs et optimisez vos achats") + '</p></div>' +
+      '<div class="page-actions">' +
+      '<button class="btn btn-primary" onclick="app.showAddSupplierModal()"><i data-lucide="plus"></i> ' + t("suppliers.add", "Ajouter") + '</button>' +
+      '</div></div>' +
+      '<div id="suppliersKpis"><div class="text-center py-lg"><div class="spinner"></div></div></div>' +
+      '<div id="suppliersFilters"></div>' +
+      '<div id="suppliersContent"><div class="text-center py-lg"><div class="spinner"></div></div></div>';
+
+    loadSuppliersData();
+  }
+
+  async function loadSuppliersData() {
+    try {
+      var params = new URLSearchParams();
+      if (supplierFilters.status) params.append("status", supplierFilters.status);
+      if (supplierFilters.search) params.append("search", supplierFilters.search);
+
+      var res = await authFetch(apiUrl("/suppliers?" + params.toString()));
+      if (!res.ok) {
+        var err = await res.json().catch(function() { return {}; });
+        if (err.error === "plan_limit") {
+          showUpgradeModal();
+          return;
+        }
+        throw new Error(err.error || "Erreur chargement");
+      }
+
+      suppliersData = await res.json();
+      renderSuppliersKpis();
+      renderSuppliersFilters();
+      renderSuppliersTable();
+
+    } catch (e) {
+      document.getElementById("suppliersContent").innerHTML =
+        '<div class="card"><div class="card-body text-center"><p class="text-danger">' + t("msg.error", "Erreur") + ': ' + e.message + '</p></div></div>';
+    }
+  }
+
+  function renderSuppliersKpis() {
+    if (!suppliersData || !suppliersData.stats) return;
+    var s = suppliersData.stats;
+    var suppliers = suppliersData.suppliers || [];
+    
+    var totalPurchased = suppliers.reduce(function(sum, sup) { return sum + (sup.totalPurchased || 0); }, 0);
+
+    var html =
+      '<div class="stats-grid">' +
+      '<div class="stat-card"><div class="stat-icon"><i data-lucide="factory"></i></div>' +
+      '<div class="stat-value">' + s.total + '</div>' +
+      '<div class="stat-label">' + t("suppliers.total", "Fournisseurs") + '</div></div>' +
+      
+      '<div class="stat-card"><div class="stat-icon"><i data-lucide="check-circle"></i></div>' +
+      '<div class="stat-value">' + s.active + '</div>' +
+      '<div class="stat-label">' + t("suppliers.active", "Actifs") + '</div></div>' +
+      
+      '<div class="stat-card"><div class="stat-icon"><i data-lucide="boxes"></i></div>' +
+      '<div class="stat-value">' + s.withProducts + '</div>' +
+      '<div class="stat-label">' + t("suppliers.withProducts", "Avec produits") + '</div></div>' +
+      
+      '<div class="stat-card"><div class="stat-icon"><i data-lucide="scale"></i></div>' +
+      '<div class="stat-value">' + formatWeight(totalPurchased) + '</div>' +
+      '<div class="stat-label">' + t("suppliers.totalPurchased", "Total achete") + '</div></div>' +
+      '</div>';
+
+    document.getElementById("suppliersKpis").innerHTML = html;
+    if (typeof lucide !== "undefined") lucide.createIcons();
+  }
+
+  function renderSuppliersFilters() {
+    var html =
+      '<div class="toolbar-filters mb-md">' +
+      '<div class="filter-group" style="flex:2">' +
+      '<input type="text" class="form-input" placeholder="' + t("suppliers.search", "Rechercher...") + '" value="' + esc(supplierFilters.search) + '" onkeyup="app.onSupplierSearchChange(event)">' +
+      '</div>' +
+      '<div class="filter-group">' +
+      '<select class="form-select" onchange="app.onSupplierStatusChange(this.value)">' +
+      '<option value="">' + t("suppliers.allStatus", "Tous les statuts") + '</option>' +
+      '<option value="active"' + (supplierFilters.status === "active" ? " selected" : "") + '>' + t("suppliers.statusActive", "Actifs") + '</option>' +
+      '<option value="inactive"' + (supplierFilters.status === "inactive" ? " selected" : "") + '>' + t("suppliers.statusInactive", "Inactifs") + '</option>' +
+      '</select>' +
+      '</div>' +
+      '</div>';
+
+    document.getElementById("suppliersFilters").innerHTML = html;
+  }
+
+  function renderSuppliersTable() {
+    if (!suppliersData || !suppliersData.suppliers) return;
+    var suppliers = suppliersData.suppliers;
+
+    if (suppliers.length === 0) {
+      document.getElementById("suppliersContent").innerHTML =
+        '<div class="card"><div class="card-body">' +
+        '<div class="empty-state"><div class="empty-icon"><i data-lucide="factory"></i></div>' +
+        '<h3>' + t("suppliers.noSuppliers", "Aucun fournisseur") + '</h3>' +
+        '<p class="text-secondary">' + t("suppliers.noSuppliersDesc", "Ajoutez votre premier fournisseur pour commencer.") + '</p>' +
+        '<button class="btn btn-primary mt-md" onclick="app.showAddSupplierModal()">' + t("suppliers.add", "Ajouter un fournisseur") + '</button>' +
+        '</div></div></div>';
+      if (typeof lucide !== "undefined") lucide.createIcons();
+      return;
+    }
+
+    var rows = suppliers.map(function(sup) {
+      var statusBadge = getSupplierStatusBadge(sup.status);
+      var typeBadge = sup.type ? '<span class="badge badge-secondary">' + esc(sup.type) + '</span>' : '';
+      
+      return '<tr class="supplier-row" onclick="app.openSupplierDetails(\'' + esc(sup.id) + '\')">' +
+        '<td><div class="supplier-name-cell"><strong>' + esc(sup.name) + '</strong>' + (sup.code ? '<span class="supplier-code">' + esc(sup.code) + '</span>' : '') + '</div></td>' +
+        '<td>' + typeBadge + '</td>' +
+        '<td>' + (sup.contact ? esc(sup.contact.email || '-') : '-') + '</td>' +
+        '<td>' + (sup.productsCount || 0) + '</td>' +
+        '<td>' + (sup.lotsCount || 0) + '</td>' +
+        '<td>' + formatWeight(sup.totalPurchased || 0) + '</td>' +
+        '<td>' + statusBadge + '</td>' +
+        '<td class="cell-actions" onclick="event.stopPropagation()">' +
+        '<button class="btn btn-ghost btn-xs" onclick="app.showEditSupplierModal(\'' + esc(sup.id) + '\')"><i data-lucide="edit"></i></button>' +
+        '</td>' +
+        '</tr>';
+    }).join("");
+
+    var html =
+      '<div class="card"><div class="card-body" style="padding:0">' +
+      '<table class="data-table">' +
+      '<thead><tr>' +
+      '<th>' + t("suppliers.name", "Nom") + '</th>' +
+      '<th>' + t("suppliers.type", "Type") + '</th>' +
+      '<th>' + t("suppliers.email", "Email") + '</th>' +
+      '<th>' + t("suppliers.products", "Produits") + '</th>' +
+      '<th>' + t("suppliers.lots", "Lots") + '</th>' +
+      '<th>' + t("suppliers.purchased", "Achats") + '</th>' +
+      '<th>' + t("suppliers.status", "Statut") + '</th>' +
+      '<th></th>' +
+      '</tr></thead>' +
+      '<tbody>' + rows + '</tbody>' +
+      '</table></div></div>';
+
+    document.getElementById("suppliersContent").innerHTML = html;
+    if (typeof lucide !== "undefined") lucide.createIcons();
+  }
+
+  function getSupplierStatusBadge(status) {
+    var labels = {
+      active: { class: "success", label: t("suppliers.statusActive", "Actif") },
+      inactive: { class: "secondary", label: t("suppliers.statusInactive", "Inactif") },
+      blocked: { class: "danger", label: t("suppliers.statusBlocked", "Bloque") }
+    };
+    var s = labels[status] || labels.active;
+    return '<span class="badge badge-' + s.class + '">' + s.label + '</span>';
+  }
+
+  var supplierSearchTimeout = null;
+  function onSupplierSearchChange(e) {
+    clearTimeout(supplierSearchTimeout);
+    supplierSearchTimeout = setTimeout(function() {
+      supplierFilters.search = e.target.value;
+      loadSuppliersData();
+    }, 300);
+  }
+
+  function onSupplierStatusChange(status) {
+    supplierFilters.status = status;
+    loadSuppliersData();
+  }
+
+  function showAddSupplierModal() {
+    showModal({
+      title: t("suppliers.add", "Nouveau fournisseur"),
+      size: "lg",
+      content:
+        '<div class="form-section"><h4>' + t("suppliers.generalInfo", "Informations generales") + '</h4>' +
+        '<div class="form-row">' +
+        '<div class="form-group" style="flex:2"><label class="form-label">' + t("suppliers.name", "Nom") + ' *</label>' +
+        '<input type="text" class="form-input" id="supplierName" placeholder="Nom du fournisseur"></div>' +
+        '<div class="form-group" style="flex:1"><label class="form-label">' + t("suppliers.code", "Code") + '</label>' +
+        '<input type="text" class="form-input" id="supplierCode" placeholder="ABC" maxlength="10"></div>' +
+        '</div>' +
+        '<div class="form-row">' +
+        '<div class="form-group" style="flex:1"><label class="form-label">' + t("suppliers.type", "Type") + '</label>' +
+        '<select class="form-select" id="supplierType">' +
+        '<option value="">-- Selectionner --</option>' +
+        '<option value="grossiste">' + t("suppliers.typeWholesaler", "Grossiste") + '</option>' +
+        '<option value="producteur">' + t("suppliers.typeProducer", "Producteur") + '</option>' +
+        '<option value="importateur">' + t("suppliers.typeImporter", "Importateur") + '</option>' +
+        '<option value="distributeur">' + t("suppliers.typeDistributor", "Distributeur") + '</option>' +
+        '<option value="autre">' + t("suppliers.typeOther", "Autre") + '</option>' +
+        '</select></div>' +
+        '<div class="form-group" style="flex:1"><label class="form-label">' + t("suppliers.country", "Pays") + '</label>' +
+        '<input type="text" class="form-input" id="supplierCountry" placeholder="France"></div>' +
+        '</div></div>' +
+        
+        '<div class="form-section"><h4>' + t("suppliers.contact", "Contact") + '</h4>' +
+        '<div class="form-row">' +
+        '<div class="form-group" style="flex:1"><label class="form-label">' + t("suppliers.contactName", "Nom contact") + '</label>' +
+        '<input type="text" class="form-input" id="supplierContactName" placeholder="Jean Dupont"></div>' +
+        '<div class="form-group" style="flex:1"><label class="form-label">' + t("suppliers.email", "Email") + '</label>' +
+        '<input type="email" class="form-input" id="supplierEmail" placeholder="contact@exemple.com"></div>' +
+        '</div>' +
+        '<div class="form-row">' +
+        '<div class="form-group" style="flex:1"><label class="form-label">' + t("suppliers.phone", "Telephone") + '</label>' +
+        '<input type="tel" class="form-input" id="supplierPhone" placeholder="+33 1 23 45 67 89"></div>' +
+        '<div class="form-group" style="flex:1"><label class="form-label">' + t("suppliers.website", "Site web") + '</label>' +
+        '<input type="url" class="form-input" id="supplierWebsite" placeholder="https://..."></div>' +
+        '</div></div>' +
+        
+        '<div class="form-section"><h4>' + t("suppliers.terms", "Conditions commerciales") + '</h4>' +
+        '<div class="form-row">' +
+        '<div class="form-group" style="flex:1"><label class="form-label">' + t("suppliers.paymentTerms", "Paiement") + '</label>' +
+        '<select class="form-select" id="supplierPaymentTerms">' +
+        '<option value="immediate">' + t("suppliers.paymentImmediate", "Comptant") + '</option>' +
+        '<option value="net30">' + t("suppliers.paymentNet30", "30 jours") + '</option>' +
+        '<option value="net60">' + t("suppliers.paymentNet60", "60 jours") + '</option>' +
+        '</select></div>' +
+        '<div class="form-group" style="flex:1"><label class="form-label">' + t("suppliers.deliveryDays", "Delai livraison (j)") + '</label>' +
+        '<input type="number" class="form-input" id="supplierDeliveryDays" placeholder="3" min="0"></div>' +
+        '</div>' +
+        '<div class="form-row">' +
+        '<div class="form-group" style="flex:1"><label class="form-label">' + t("suppliers.minOrder", "Commande min") + ' (' + getCurrencySymbol() + ')</label>' +
+        '<input type="number" class="form-input" id="supplierMinOrder" placeholder="500" min="0" step="0.01"></div>' +
+        '<div class="form-group" style="flex:1"><label class="form-label">' + t("suppliers.moq", "MOQ") + ' (' + getWeightUnit() + ')</label>' +
+        '<input type="number" class="form-input" id="supplierMOQ" placeholder="1000" min="0"></div>' +
+        '</div></div>' +
+        
+        '<div class="form-group"><label class="form-label">' + t("suppliers.notes", "Notes") + '</label>' +
+        '<textarea class="form-input" id="supplierNotes" rows="2" placeholder="Notes internes..."></textarea></div>',
+      footer:
+        '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.cancel", "Annuler") + '</button>' +
+        '<button class="btn btn-primary" onclick="app.saveSupplier()">' + t("action.save", "Enregistrer") + '</button>'
+    });
+  }
+
+  async function saveSupplier(supplierId) {
+    var name = document.getElementById("supplierName").value.trim();
+    if (!name) {
+      showToast(t("suppliers.errorName", "Le nom est requis"), "error");
+      return;
+    }
+
+    var data = {
+      name: name,
+      code: document.getElementById("supplierCode").value.trim(),
+      type: document.getElementById("supplierType").value,
+      contact: {
+        name: document.getElementById("supplierContactName").value.trim(),
+        email: document.getElementById("supplierEmail").value.trim(),
+        phone: document.getElementById("supplierPhone").value.trim(),
+        website: document.getElementById("supplierWebsite").value.trim(),
+      },
+      address: {
+        country: document.getElementById("supplierCountry").value.trim(),
+      },
+      terms: {
+        paymentTerms: document.getElementById("supplierPaymentTerms").value,
+        deliveryDays: parseInt(document.getElementById("supplierDeliveryDays").value) || 0,
+        minOrderAmount: parseFloat(document.getElementById("supplierMinOrder").value) || 0,
+        minOrderGrams: parseFloat(document.getElementById("supplierMOQ").value) || 0,
+      },
+      notes: document.getElementById("supplierNotes").value.trim(),
+    };
+
+    try {
+      var url = supplierId ? "/suppliers/" + supplierId : "/suppliers";
+      var method = supplierId ? "PUT" : "POST";
+      
+      var res = await authFetch(apiUrl(url), {
+        method: method,
+        body: JSON.stringify(data)
+      });
+
+      if (!res.ok) {
+        var err = await res.json().catch(function() { return {}; });
+        throw new Error(err.error || err.message || "Erreur");
+      }
+
+      closeModal();
+      showToast(t("suppliers.saved", "Fournisseur enregistre"), "success");
+      loadSuppliersData();
+
+    } catch (e) {
+      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
+    }
+  }
+
+  async function openSupplierDetails(supplierId) {
+    try {
+      var res = await authFetch(apiUrl("/suppliers/" + supplierId));
+      if (!res.ok) throw new Error("Fournisseur non trouve");
+
+      var data = await res.json();
+      var sup = data.supplier;
+      var lots = data.lots || [];
+      var analytics = data.analytics || {};
+
+      var statusBadge = getSupplierStatusBadge(sup.status);
+
+      // Onglets
+      var tabs = 
+        '<div class="detail-tabs">' +
+        '<button class="detail-tab active" onclick="app.switchSupplierTab(\'info\')">' + t("suppliers.tabInfo", "Infos") + '</button>' +
+        '<button class="detail-tab" onclick="app.switchSupplierTab(\'products\')">' + t("suppliers.tabProducts", "Produits") + '</button>' +
+        '<button class="detail-tab" onclick="app.switchSupplierTab(\'lots\')">' + t("suppliers.tabLots", "Lots") + '</button>' +
+        '<button class="detail-tab" onclick="app.switchSupplierTab(\'analytics\')">' + t("suppliers.tabAnalytics", "Analytics") + '</button>' +
+        '</div>';
+
+      // Contenu Info
+      var infoContent = 
+        '<div class="detail-section"><h4>' + t("suppliers.contact", "Contact") + '</h4>' +
+        '<div class="detail-row"><span class="detail-label">' + t("suppliers.contactName", "Contact") + '</span><span class="detail-value">' + esc(sup.contact?.name || '-') + '</span></div>' +
+        '<div class="detail-row"><span class="detail-label">' + t("suppliers.email", "Email") + '</span><span class="detail-value">' + (sup.contact?.email ? '<a href="mailto:' + esc(sup.contact.email) + '">' + esc(sup.contact.email) + '</a>' : '-') + '</span></div>' +
+        '<div class="detail-row"><span class="detail-label">' + t("suppliers.phone", "Telephone") + '</span><span class="detail-value">' + esc(sup.contact?.phone || '-') + '</span></div>' +
+        '<div class="detail-row"><span class="detail-label">' + t("suppliers.website", "Site web") + '</span><span class="detail-value">' + (sup.contact?.website ? '<a href="' + esc(sup.contact.website) + '" target="_blank">' + esc(sup.contact.website) + '</a>' : '-') + '</span></div>' +
+        '</div>' +
+        '<div class="detail-section"><h4>' + t("suppliers.terms", "Conditions") + '</h4>' +
+        '<div class="detail-row"><span class="detail-label">' + t("suppliers.paymentTerms", "Paiement") + '</span><span class="detail-value">' + esc(sup.terms?.paymentTerms || '-') + '</span></div>' +
+        '<div class="detail-row"><span class="detail-label">' + t("suppliers.deliveryDays", "Delai livraison") + '</span><span class="detail-value">' + (sup.terms?.deliveryDays || 0) + ' ' + t("common.days", "jours") + '</span></div>' +
+        '<div class="detail-row"><span class="detail-label">' + t("suppliers.minOrder", "Commande min") + '</span><span class="detail-value">' + formatCurrency(sup.terms?.minOrderAmount || 0) + '</span></div>' +
+        '<div class="detail-row"><span class="detail-label">' + t("suppliers.moq", "MOQ") + '</span><span class="detail-value">' + formatWeight(sup.terms?.minOrderGrams || 0) + '</span></div>' +
+        '</div>' +
+        (sup.notes ? '<div class="detail-section"><h4>' + t("suppliers.notes", "Notes") + '</h4><p class="text-secondary">' + esc(sup.notes) + '</p></div>' : '');
+
+      // Contenu Produits
+      var productsContent = '';
+      if ((sup.products || []).length > 0) {
+        var prodRows = sup.products.map(function(p) {
+          return '<tr>' +
+            '<td>' + esc(p.productName || p.productId) + '</td>' +
+            '<td>' + formatPricePerUnit(p.pricePerGram || 0) + '</td>' +
+            '<td>' + formatWeight(p.currentStock || 0) + '</td>' +
+            '<td>' + (p.lastUpdated || '-').slice(0, 10) + '</td>' +
+            '</tr>';
+        }).join('');
+        productsContent = '<table class="data-table data-table-compact"><thead><tr><th>Produit</th><th>Prix</th><th>Stock actuel</th><th>Maj</th></tr></thead><tbody>' + prodRows + '</tbody></table>';
+      } else {
+        productsContent = '<div class="empty-state-small"><p class="text-secondary">' + t("suppliers.noProducts", "Aucun produit lie") + '</p>' +
+          '<button class="btn btn-sm btn-primary mt-sm" onclick="app.showLinkProductModal(\'' + supplierId + '\')">' + t("suppliers.linkProduct", "Lier un produit") + '</button></div>';
+      }
+
+      // Contenu Lots
+      var lotsContent = '';
+      if (lots.length > 0) {
+        var lotRows = lots.slice(0, 10).map(function(l) {
+          return '<tr onclick="app.closeModal();app.openBatchDetails(\'' + l.productId + '\',\'' + l.id + '\')">' +
+            '<td><span class="batch-id">' + esc(l.id) + '</span></td>' +
+            '<td>' + esc(l.productName || '-') + '</td>' +
+            '<td>' + formatWeight(l.initialGrams) + '</td>' +
+            '<td>' + formatPricePerUnit(l.purchasePricePerGram || 0) + '</td>' +
+            '<td>' + (l.createdAt || '').slice(0, 10) + '</td>' +
+            '</tr>';
+        }).join('');
+        lotsContent = '<table class="data-table data-table-compact"><thead><tr><th>Lot</th><th>Produit</th><th>Quantite</th><th>Prix</th><th>Date</th></tr></thead><tbody>' + lotRows + '</tbody></table>';
+        if (lots.length > 10) lotsContent += '<p class="text-secondary text-sm mt-sm">' + (lots.length - 10) + ' autres lots...</p>';
+      } else {
+        lotsContent = '<div class="empty-state-small"><p class="text-secondary">' + t("suppliers.noLots", "Aucun lot de ce fournisseur") + '</p></div>';
+      }
+
+      // Contenu Analytics
+      var analyticsContent = 
+        '<div class="analytics-mini-grid">' +
+        '<div class="analytics-mini-card"><div class="analytics-mini-value">' + analytics.totalLots + '</div><div class="analytics-mini-label">' + t("suppliers.totalLots", "Lots") + '</div></div>' +
+        '<div class="analytics-mini-card"><div class="analytics-mini-value">' + formatWeight(analytics.totalPurchased) + '</div><div class="analytics-mini-label">' + t("suppliers.totalPurchased", "Achete") + '</div></div>' +
+        '<div class="analytics-mini-card"><div class="analytics-mini-value">' + formatCurrency(analytics.totalSpent) + '</div><div class="analytics-mini-label">' + t("suppliers.totalSpent", "Depense") + '</div></div>' +
+        '<div class="analytics-mini-card"><div class="analytics-mini-value">' + formatPricePerUnit(analytics.avgPricePerGram) + '</div><div class="analytics-mini-label">' + t("suppliers.avgPrice", "Prix moyen") + '</div></div>' +
+        '</div>' +
+        (analytics.lastPurchase ? '<p class="text-secondary text-sm mt-md">' + t("suppliers.lastPurchase", "Dernier achat") + ': ' + analytics.lastPurchase.slice(0, 10) + '</p>' : '');
+
+      var content = 
+        '<div class="supplier-detail-header">' +
+        '<div><h2>' + esc(sup.name) + '</h2>' + (sup.code ? '<span class="supplier-code">' + esc(sup.code) + '</span>' : '') + '</div>' +
+        '<div>' + statusBadge + '</div>' +
+        '</div>' +
+        tabs +
+        '<div class="supplier-tab-content" id="supplierTabInfo">' + infoContent + '</div>' +
+        '<div class="supplier-tab-content" id="supplierTabProducts" style="display:none">' + productsContent + '</div>' +
+        '<div class="supplier-tab-content" id="supplierTabLots" style="display:none">' + lotsContent + '</div>' +
+        '<div class="supplier-tab-content" id="supplierTabAnalytics" style="display:none">' + analyticsContent + '</div>';
+
+      showModal({
+        title: t("suppliers.details", "Fiche fournisseur"),
+        size: "xl",
+        content: content,
+        footer:
+          '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.close", "Fermer") + '</button>' +
+          '<button class="btn btn-secondary" onclick="app.showEditSupplierModal(\'' + supplierId + '\')">' + t("action.edit", "Modifier") + '</button>'
+      });
+
+    } catch (e) {
+      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
+    }
+  }
+
+  function switchSupplierTab(tab) {
+    document.querySelectorAll('.detail-tab').forEach(function(btn) {
+      btn.classList.toggle('active', btn.textContent.toLowerCase().includes(tab.toLowerCase().slice(0, 4)));
+    });
+    document.querySelectorAll('.supplier-tab-content').forEach(function(content) {
+      content.style.display = 'none';
+    });
+    var activeContent = document.getElementById('supplierTab' + tab.charAt(0).toUpperCase() + tab.slice(1));
+    if (activeContent) activeContent.style.display = 'block';
+  }
+
+  async function showEditSupplierModal(supplierId) {
+    try {
+      var res = await authFetch(apiUrl("/suppliers/" + supplierId));
+      if (!res.ok) throw new Error("Fournisseur non trouve");
+
+      var data = await res.json();
+      var sup = data.supplier;
+
+      closeModal();
+      showAddSupplierModal();
+
+      // Pre-remplir les champs
+      setTimeout(function() {
+        document.getElementById("supplierName").value = sup.name || '';
+        document.getElementById("supplierCode").value = sup.code || '';
+        document.getElementById("supplierType").value = sup.type || '';
+        document.getElementById("supplierCountry").value = sup.address?.country || '';
+        document.getElementById("supplierContactName").value = sup.contact?.name || '';
+        document.getElementById("supplierEmail").value = sup.contact?.email || '';
+        document.getElementById("supplierPhone").value = sup.contact?.phone || '';
+        document.getElementById("supplierWebsite").value = sup.contact?.website || '';
+        document.getElementById("supplierPaymentTerms").value = sup.terms?.paymentTerms || 'immediate';
+        document.getElementById("supplierDeliveryDays").value = sup.terms?.deliveryDays || '';
+        document.getElementById("supplierMinOrder").value = sup.terms?.minOrderAmount || '';
+        document.getElementById("supplierMOQ").value = sup.terms?.minOrderGrams || '';
+        document.getElementById("supplierNotes").value = sup.notes || '';
+
+        // Modifier le bouton pour update
+        var footer = document.querySelector('.modal-footer');
+        if (footer) {
+          footer.innerHTML = 
+            '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.cancel", "Annuler") + '</button>' +
+            '<button class="btn btn-danger" onclick="app.deleteSupplier(\'' + supplierId + '\')">' + t("action.delete", "Supprimer") + '</button>' +
+            '<button class="btn btn-primary" onclick="app.updateSupplier(\'' + supplierId + '\')">' + t("action.save", "Enregistrer") + '</button>';
+        }
+      }, 100);
+
+    } catch (e) {
+      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
+    }
+  }
+
+  async function updateSupplier(supplierId) {
+    await saveSupplier(supplierId);
+  }
+
+  async function deleteSupplier(supplierId) {
+    if (!confirm(t("suppliers.confirmDelete", "Voulez-vous vraiment supprimer ce fournisseur ?"))) return;
+
+    try {
+      var res = await authFetch(apiUrl("/suppliers/" + supplierId), { method: "DELETE" });
+      if (!res.ok) throw new Error("Erreur");
+
+      closeModal();
+      showToast(t("suppliers.deleted", "Fournisseur supprime"), "success");
+      loadSuppliersData();
 
     } catch (e) {
       showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
@@ -2937,6 +3428,16 @@
     openBatchDetails: openBatchDetails,
     deactivateBatch: deactivateBatch,
     markExpiredBatches: markExpiredBatches,
+    // Suppliers
+    onSupplierSearchChange: onSupplierSearchChange,
+    onSupplierStatusChange: onSupplierStatusChange,
+    showAddSupplierModal: showAddSupplierModal,
+    saveSupplier: saveSupplier,
+    openSupplierDetails: openSupplierDetails,
+    switchSupplierTab: switchSupplierTab,
+    showEditSupplierModal: showEditSupplierModal,
+    updateSupplier: updateSupplier,
+    deleteSupplier: deleteSupplier,
     // Settings
     updateSetting: updateSetting,
     updateNestedSetting: updateNestedSetting,
