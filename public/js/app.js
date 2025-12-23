@@ -427,15 +427,136 @@
       '<div class="stat-card"><div class="stat-icon"><i data-lucide="coins"></i></div><div class="stat-value">' +
       formatCurrency(totalValue) +
       '</div><div class="stat-label">' + t("dashboard.value", "Valeur") + '</div></div>' +
-      '<div class="stat-card"><div class="stat-icon">âš ï¸</div><div class="stat-value">' +
+      '<div class="stat-card stat-warning"><div class="stat-icon"><i data-lucide="alert-triangle"></i></div><div class="stat-value">' +
       lowStock +
-      '</div><div class="stat-label">Stock bas</div></div>' +
+      '</div><div class="stat-label">' + t("dashboard.lowStock", "Stock bas") + '</div></div>' +
       "</div>" +
-      '<div class="card mt-lg"><div class="card-header"><h3 class="card-title">Produits</h3>' +
-      '<button class="btn btn-ghost btn-sm" onclick="app.navigateTo(\'products\')">Voir tout</button></div>' +
+      
+      '<div class="dashboard-grid">' +
+      '<div class="card"><div class="card-header"><h3 class="card-title"><i data-lucide="boxes"></i> ' + t("dashboard.products", "Produits") + '</h3>' +
+      '<button class="btn btn-ghost btn-sm" onclick="app.navigateTo(\'products\')">' + t("dashboard.viewAll", "Voir tout") + '</button></div>' +
       '<div class="card-body" style="padding:0">' +
       (state.products.length ? renderTable(state.products.slice(0, 5)) : renderEmpty()) +
-      "</div></div>";
+      "</div></div>" +
+      
+      '<div class="card"><div class="card-header"><h3 class="card-title"><i data-lucide="activity"></i> ' + t("dashboard.recentMovements", "Mouvements recents") + '</h3>' +
+      '</div>' +
+      '<div class="card-body" id="dashboardMovements"><div class="text-center py-lg"><div class="spinner"></div></div></div></div>' +
+      
+      '</div>';
+    
+    loadDashboardMovements();
+    if (typeof lucide !== "undefined") lucide.createIcons();
+  }
+
+  async function loadDashboardMovements() {
+    try {
+      var res = await authFetch(apiUrl("/movements?limit=10"));
+      var container = document.getElementById("dashboardMovements");
+      if (!container) return;
+      
+      if (!res.ok) {
+        container.innerHTML = '<p class="text-secondary text-center">' + t("msg.error", "Erreur") + '</p>';
+        return;
+      }
+      
+      var data = await res.json();
+      var movements = data.movements || [];
+      
+      if (movements.length === 0) {
+        container.innerHTML = '<div class="empty-state-small"><div class="empty-icon"><i data-lucide="activity"></i></div><p class="text-secondary">' + t("dashboard.noMovements", "Aucun mouvement") + '</p></div>';
+        if (typeof lucide !== "undefined") lucide.createIcons();
+        return;
+      }
+      
+      var html = '<div class="movements-list">';
+      movements.forEach(function(m) {
+        var typeIcon = getMovementIcon(m.type);
+        var typeClass = getMovementClass(m.type);
+        var typeLabel = getMovementLabel(m.type);
+        var delta = m.delta || 0;
+        var deltaStr = delta >= 0 ? '+' + formatWeight(delta) : formatWeight(delta);
+        var dateStr = formatRelativeDate(m.createdAt || m.date);
+        
+        html += '<div class="movement-item">' +
+          '<div class="movement-icon ' + typeClass + '"><i data-lucide="' + typeIcon + '"></i></div>' +
+          '<div class="movement-info">' +
+          '<div class="movement-product">' + esc(m.productName || m.product || 'Produit') + '</div>' +
+          '<div class="movement-meta"><span class="movement-type">' + typeLabel + '</span><span class="movement-date">' + dateStr + '</span></div>' +
+          '</div>' +
+          '<div class="movement-delta ' + typeClass + '">' + deltaStr + '</div>' +
+          '</div>';
+      });
+      html += '</div>';
+      
+      container.innerHTML = html;
+      if (typeof lucide !== "undefined") lucide.createIcons();
+      
+    } catch (e) {
+      var container = document.getElementById("dashboardMovements");
+      if (container) {
+        container.innerHTML = '<p class="text-secondary text-center">' + t("msg.error", "Erreur") + '</p>';
+      }
+    }
+  }
+
+  function getMovementIcon(type) {
+    var icons = {
+      'restock': 'package-plus',
+      'sale': 'shopping-cart',
+      'adjustment': 'sliders',
+      'transfer': 'repeat',
+      'return': 'rotate-ccw',
+      'loss': 'trash-2',
+      'production': 'factory',
+      'inventory': 'clipboard-check'
+    };
+    return icons[type] || 'activity';
+  }
+
+  function getMovementClass(type) {
+    var classes = {
+      'restock': 'success',
+      'sale': 'primary',
+      'adjustment': 'warning',
+      'transfer': 'info',
+      'return': 'info',
+      'loss': 'danger',
+      'production': 'success',
+      'inventory': 'secondary'
+    };
+    return classes[type] || '';
+  }
+
+  function getMovementLabel(type) {
+    var labels = {
+      'restock': t("movement.restock", "Reappro"),
+      'sale': t("movement.sale", "Vente"),
+      'adjustment': t("movement.adjustment", "Ajustement"),
+      'transfer': t("movement.transfer", "Transfert"),
+      'return': t("movement.return", "Retour"),
+      'loss': t("movement.loss", "Perte"),
+      'production': t("movement.production", "Production"),
+      'inventory': t("movement.inventory", "Inventaire")
+    };
+    return labels[type] || type;
+  }
+
+  function formatRelativeDate(dateStr) {
+    if (!dateStr) return '';
+    var date = new Date(dateStr);
+    var now = new Date();
+    var diffMs = now - date;
+    var diffMins = Math.floor(diffMs / 60000);
+    var diffHours = Math.floor(diffMs / 3600000);
+    var diffDays = Math.floor(diffMs / 86400000);
+    
+    if (diffMins < 1) return t("time.justNow", "A l\'instant");
+    if (diffMins < 60) return diffMins + ' ' + t("time.minutesAgo", "min");
+    if (diffHours < 24) return diffHours + ' ' + t("time.hoursAgo", "h");
+    if (diffDays < 7) return diffDays + ' ' + t("time.daysAgo", "j");
+    
+    return date.toLocaleDateString();
   }
 
   function renderProducts(c) {

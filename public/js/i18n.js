@@ -110,6 +110,23 @@ var I18N = {
       "plan.products": "produits",
       "plan.unlimited": "Illimite",
       "plan.changePlan": "Changer de plan",
+      // Mouvements
+      "dashboard.recentMovements": "Mouvements recents",
+      "dashboard.noMovements": "Aucun mouvement",
+      "movement.restock": "Reappro",
+      "movement.sale": "Vente",
+      "movement.adjustment": "Ajustement",
+      "movement.transfer": "Transfert",
+      "movement.return": "Retour",
+      "movement.loss": "Perte",
+      "movement.production": "Production",
+      "movement.inventory": "Inventaire",
+      
+      // Temps
+      "time.justNow": "A l'instant",
+      "time.minutesAgo": "min",
+      "time.hoursAgo": "h",
+      "time.daysAgo": "j",
     },
     
     en: {
@@ -216,6 +233,23 @@ var I18N = {
       "plan.products": "products",
       "plan.unlimited": "Unlimited",
       "plan.changePlan": "Change plan",
+      // Movements
+      "dashboard.recentMovements": "Recent movements",
+      "dashboard.noMovements": "No movements",
+      "movement.restock": "Restock",
+      "movement.sale": "Sale",
+      "movement.adjustment": "Adjustment",
+      "movement.transfer": "Transfer",
+      "movement.return": "Return",
+      "movement.loss": "Loss",
+      "movement.production": "Production",
+      "movement.inventory": "Inventory",
+      
+      // Time
+      "time.justNow": "Just now",
+      "time.minutesAgo": "min ago",
+      "time.hoursAgo": "h ago",
+      "time.daysAgo": "d ago",
     },
     
     de: {

@@ -3513,3 +3513,195 @@ html, body {
     z-index: 100;
   }
 }
+
+/* ============================================
+   DASHBOARD GRID & MOVEMENTS
+   ============================================ */
+
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-lg);
+  margin-top: var(--space-lg);
+}
+
+@media (max-width: 1024px) {
+  .dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Movements list */
+.movements-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.movement-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-md);
+  border-bottom: 1px solid var(--border);
+  transition: background 0.15s;
+}
+
+.movement-item:last-child {
+  border-bottom: none;
+}
+
+.movement-item:hover {
+  background: var(--bg-tertiary);
+}
+
+.movement-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-tertiary);
+  flex-shrink: 0;
+}
+
+.movement-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.movement-icon.success {
+  background: rgba(34, 197, 94, 0.15);
+  color: var(--success);
+}
+
+.movement-icon.primary {
+  background: rgba(99, 102, 241, 0.15);
+  color: var(--accent-primary);
+}
+
+.movement-icon.warning {
+  background: rgba(245, 158, 11, 0.15);
+  color: var(--warning);
+}
+
+.movement-icon.danger {
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--danger);
+}
+
+.movement-icon.info {
+  background: rgba(59, 130, 246, 0.15);
+  color: #3b82f6;
+}
+
+.movement-icon.secondary {
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+
+.movement-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.movement-product {
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.movement-meta {
+  display: flex;
+  gap: var(--space-sm);
+  font-size: 12px;
+  color: var(--text-tertiary);
+  margin-top: 2px;
+}
+
+.movement-type {
+  color: var(--text-secondary);
+}
+
+.movement-date {
+  color: var(--text-tertiary);
+}
+
+.movement-delta {
+  font-weight: 600;
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.movement-delta.success {
+  color: var(--success);
+}
+
+.movement-delta.primary {
+  color: var(--accent-primary);
+}
+
+.movement-delta.warning {
+  color: var(--warning);
+}
+
+.movement-delta.danger {
+  color: var(--danger);
+}
+
+/* Empty state small */
+.empty-state-small {
+  padding: var(--space-xl);
+  text-align: center;
+}
+
+.empty-state-small .empty-icon {
+  margin-bottom: var(--space-md);
+}
+
+.empty-state-small .empty-icon svg {
+  width: 40px;
+  height: 40px;
+  color: var(--text-tertiary);
+  opacity: 0.5;
+}
+
+/* Spinner */
+.spinner {
+  width: 24px;
+  height: 24px;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent-primary);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  margin: 0 auto;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.py-lg {
+  padding-top: var(--space-lg);
+  padding-bottom: var(--space-lg);
+}
+
+/* Card title with icon */
+.card-title i,
+.card-title svg {
+  width: 18px;
+  height: 18px;
+  margin-right: var(--space-xs);
+  vertical-align: middle;
+}
+
+/* Stat card warning */
+.stat-card.stat-warning {
+  border-left: 3px solid var(--warning);
+}
+
+.stat-card.stat-warning .stat-icon {
+  color: var(--warning);
+}
