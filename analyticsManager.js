@@ -1,14 +1,14 @@
-// analyticsManager.js — Logique métier des calculs analytics
-// Transforme les données brutes en KPIs, timeseries, et stats produits
+// analyticsManager.js aEUR Logique mtier des calculs analytics
+// Transforme les donnes brutes en KPIs, timeseries, et stats produits
 
 const analyticsStore = require("./analyticsStore");
 
-// Import conditionnel du stockManager pour récupérer le CMP
+// Import conditionnel du stockManager pour rcuprer le CMP
 let stockManager = null;
 try {
   stockManager = require("./stockManager");
 } catch (e) {
-  console.warn("analyticsManager: stockManager non disponible, CMP snapshot désactivé");
+  console.warn("analyticsManager: stockManager non disponible, CMP snapshot dsactiv");
 }
 
 // ============================================
@@ -59,7 +59,7 @@ function formatDateKey(d, bucket = "day") {
     case "day":
       return iso.slice(0, 10); // "2025-01-15"
     case "week":
-      // ISO week (lundi = début)
+      // ISO week (lundi = dbut)
       const day = date.getDay();
       const diff = date.getDate() - day + (day === 0 ? -6 : 1);
       const monday = new Date(date.setDate(diff));
@@ -79,12 +79,12 @@ function formatDateKey(d, bucket = "day") {
  * Transforme un payload de commande Shopify en ventes individuelles
  * et les enregistre dans le store
  * 
- * ✅ CALCUL SUR PRIX RÉEL : après réductions, hors shipping/cadeaux
- * ✅ COLLECTE MINIMALE : pas de données personnelles client
+ * a... CALCUL SUR PRIX REL : aprs rductions, hors shipping/cadeaux
+ * a... COLLECTE MINIMALE : pas de donnes personnelles client
  * 
  * @param {string} shop - Domaine de la boutique
  * @param {Object} orderPayload - Payload du webhook orders/create
- * @returns {Array} Liste des ventes enregistrées
+ * @returns {Array} Liste des ventes enregistres
  */
 async function recordSaleFromOrder(shop, orderPayload) {
   if (!orderPayload) return [];
@@ -94,19 +94,19 @@ async function recordSaleFromOrder(shop, orderPayload) {
   const orderDate = orderPayload.created_at || new Date().toISOString();
   const currency = String(orderPayload.currency || "EUR").toUpperCase();
   
-  // Vérifier le statut financier (ignorer les commandes annulées/non payées)
+  // Vrifier le statut financier (ignorer les commandes annules/non payes)
   const financialStatus = String(orderPayload.financial_status || "").toLowerCase();
   if (["voided", "refunded"].includes(financialStatus)) {
-    console.log(`[Analytics] Commande ${orderId} ignorée (status: ${financialStatus})`);
+    console.log(`[Analytics] Commande ${orderId} ignore (status: ${financialStatus})`);
     return [];
   }
 
-  // ❌ PAS DE DONNÉES CLIENT - On ne stocke rien sur le client
+  // a PAS DE DONNES CLIENT - On ne stocke rien sur le client
   // Pas de: customer.id, customer.email, customer.name, addresses
 
   const lineItems = Array.isArray(orderPayload.line_items) ? orderPayload.line_items : [];
   
-  // Calculer le total des réductions au niveau commande pour répartition
+  // Calculer le total des rductions au niveau commande pour rpartition
   const orderDiscounts = calculateOrderDiscounts(orderPayload);
   const orderSubtotal = lineItems.reduce((sum, li) => sum + (toNum(li.price, 0) * toNum(li.quantity, 0)), 0);
   
@@ -118,32 +118,32 @@ async function recordSaleFromOrder(shop, orderPayload) {
     
     if (!productId) continue;
 
-    // Quantité commandée
+    // Quantit commande
     const quantity = toNum(li.quantity, 0);
     if (quantity <= 0) continue;
 
-    // ✅ PRIX RÉEL après réductions
+    // a... PRIX REL aprs rductions
     const unitPrice = toNum(li.price, 0);
     const grossPrice = unitPrice * quantity;
     
-    // Réductions sur cette ligne
+    // Rductions sur cette ligne
     const lineDiscounts = calculateLineDiscounts(li);
     
-    // Répartition proportionnelle des réductions commande
+    // Rpartition proportionnelle des rductions commande
     const proportionalOrderDiscount = orderSubtotal > 0 
       ? (grossPrice / orderSubtotal) * orderDiscounts 
       : 0;
     
     const totalDiscount = lineDiscounts + proportionalOrderDiscount;
     
-    // ✅ Revenu NET = prix brut - réductions (hors shipping/taxes)
+    // a... Revenu NET = prix brut - rductions (hors shipping/taxes)
     const netRevenue = Math.max(0, grossPrice - totalDiscount);
 
-    // Déterminer les grammes par unité depuis le variant title/sku
+    // Dterminer les grammes par unit depuis le variant title/sku
     const gramsPerUnit = parseGramsFromLineItem(li);
     const totalGrams = gramsPerUnit * quantity;
 
-    // Récupérer le CMP actuel du produit (snapshot)
+    // Rcuprer le CMP actuel du produit (snapshot)
     let costPerGram = 0;
     let categoryIds = [];
     
@@ -151,7 +151,7 @@ async function recordSaleFromOrder(shop, orderPayload) {
       costPerGram = stockManager.getProductCMPSnapshot(shop, productId);
     }
     
-    // Récupérer les catégories si disponible
+    // Rcuprer les catgories si disponible
     if (stockManager && typeof stockManager.getStockSnapshot === "function") {
       const snapshot = stockManager.getStockSnapshot(shop);
       const productData = snapshot?.[productId];
@@ -160,12 +160,12 @@ async function recordSaleFromOrder(shop, orderPayload) {
       }
     }
 
-    // ✅ Calculer coût et marge sur le REVENU NET (prix réel)
+    // a... Calculer cot et marge sur le REVENU NET (prix rel)
     const totalCost = roundTo(totalGrams * costPerGram, 2);
     const margin = roundTo(netRevenue - totalCost, 2);
     const marginPercent = netRevenue > 0 ? roundTo((margin / netRevenue) * 100, 2) : 0;
 
-    // Enregistrer la vente (SANS données client)
+    // Enregistrer la vente (SANS donnes client)
     const sale = analyticsStore.addSale({
       orderId,
       orderNumber,
@@ -180,7 +180,7 @@ async function recordSaleFromOrder(shop, orderPayload) {
       gramsPerUnit,
       totalGrams,
       
-      // ✅ Prix réels
+      // a... Prix rels
       grossPrice: roundTo(grossPrice, 2),
       discountAmount: roundTo(totalDiscount, 2),
       netRevenue: roundTo(netRevenue, 2),
@@ -194,7 +194,7 @@ async function recordSaleFromOrder(shop, orderPayload) {
       categoryIds,
       source: "webhook",
       
-      // ❌ PAS DE: customerId, customerEmail
+      // a PAS DE: customerId, customerEmail
     }, shop);
 
     sales.push(sale);
@@ -204,7 +204,7 @@ async function recordSaleFromOrder(shop, orderPayload) {
 }
 
 /**
- * Calcule les réductions au niveau commande (codes promo globaux, etc.)
+ * Calcule les rductions au niveau commande (codes promo globaux, etc.)
  */
 function calculateOrderDiscounts(orderPayload) {
   let total = 0;
@@ -216,10 +216,10 @@ function calculateOrderDiscounts(orderPayload) {
     }
   }
   
-  // discount_applications (Shopify plus récent)
+  // discount_applications (Shopify plus rcent)
   if (Array.isArray(orderPayload.discount_applications)) {
     for (const da of orderPayload.discount_applications) {
-      if (da.target_type === "line_item") continue; // Déjà dans line_item
+      if (da.target_type === "line_item") continue; // Dj dans line_item
       total += toNum(da.value, 0);
     }
   }
@@ -233,7 +233,7 @@ function calculateOrderDiscounts(orderPayload) {
 }
 
 /**
- * Calcule les réductions sur une ligne spécifique
+ * Calcule les rductions sur une ligne spcifique
  */
 function calculateLineDiscounts(lineItem) {
   let total = 0;
@@ -274,10 +274,15 @@ function parseGramsFromLineItem(li) {
   }
 
   // Fallback: grams field de Shopify
+  // ATTENTION: li.grams = poids TOTAL de la ligne, pas par unite!
+  // On doit diviser par la quantite pour obtenir gramsPerUnit
   if (li.grams && Number(li.grams) > 0) {
-    return Number(li.grams);
+    const quantity = Number(li.quantity) || 1;
+    const gramsPerUnit = Number(li.grams) / quantity;
+    if (gramsPerUnit > 0) return gramsPerUnit;
   }
 
+  // Si aucune info trouvee, retourner 0 (sera gere ailleurs)
   return 0;
 }
 
@@ -286,8 +291,8 @@ function parseGramsFromLineItem(li) {
 // ============================================
 
 /**
- * Calcule les KPIs globaux pour une période
- * ✅ Utilise netRevenue (prix réel après réductions)
+ * Calcule les KPIs globaux pour une priode
+ * a... Utilise netRevenue (prix rel aprs rductions)
  */
 function calculateSummary(shop, from, to) {
   const sales = analyticsStore.listSales({ shop, from, to, limit: 50000 });
@@ -311,11 +316,11 @@ function calculateSummary(shop, from, to) {
     };
   }
 
-  // Calculer les métriques
+  // Calculer les mtriques
   const orderIds = new Set(sales.map(s => s.orderId).filter(Boolean));
   
   const totals = sales.reduce((acc, s) => {
-    // ✅ Utiliser netRevenue (prix réel) au lieu de lineTotal
+    // a... Utiliser netRevenue (prix rel) au lieu de lineTotal
     acc.revenue += toNum(s.netRevenue || s.lineTotal, 0);
     acc.grossRevenue += toNum(s.grossPrice || s.lineTotal, 0);
     acc.discounts += toNum(s.discountAmount, 0);
@@ -335,9 +340,9 @@ function calculateSummary(shop, from, to) {
     period: { from, to },
     totalOrders: sales.length,
     uniqueOrders,
-    totalRevenue: roundTo(totals.revenue, 2),         // CA net (après réductions)
+    totalRevenue: roundTo(totals.revenue, 2),         // CA net (aprs rductions)
     totalGrossRevenue: roundTo(totals.grossRevenue, 2), // CA brut
-    totalDiscounts: roundTo(totals.discounts, 2),     // Total réductions
+    totalDiscounts: roundTo(totals.discounts, 2),     // Total rductions
     totalCost: roundTo(totals.cost, 2),
     totalMargin: roundTo(totals.margin, 2),
     averageMarginPercent: roundTo(avgMarginPercent, 2),
@@ -350,8 +355,8 @@ function calculateSummary(shop, from, to) {
 }
 
 /**
- * Calcule les données pour les graphiques (timeseries)
- * ✅ Utilise netRevenue (prix réel après réductions)
+ * Calcule les donnes pour les graphiques (timeseries)
+ * a... Utilise netRevenue (prix rel aprs rductions)
  */
 function calculateTimeseries(shop, from, to, bucket = "day") {
   const sales = analyticsStore.listSales({ shop, from, to, limit: 50000 });
@@ -412,7 +417,7 @@ function calculateTimeseries(shop, from, to, bucket = "day") {
 }
 
 /**
- * Calcule les stats pour un produit spécifique
+ * Calcule les stats pour un produit spcifique
  */
 function calculateProductStats(shop, productId, from, to) {
   const sales = analyticsStore.getSalesByProduct(shop, productId, from, to);
@@ -476,7 +481,7 @@ function compareProducts(shop, productIds, from, to) {
 
   const products = productIds.map(pid => calculateProductStats(shop, pid, from, to));
   
-  // Trier par revenu décroissant
+  // Trier par revenu dcroissant
   products.sort((a, b) => b.totalRevenue - a.totalRevenue);
 
   return {
@@ -530,7 +535,7 @@ function getTopProducts(shop, from, to, { by = "revenue", limit = 10 } = {}) {
     grams: roundTo(p.grams, 2),
   }));
 
-  // Trier selon le critère demandé
+  // Trier selon le critre demand
   const sortKey = {
     revenue: "revenue",
     margin: "margin",
@@ -556,7 +561,7 @@ function getTopProducts(shop, from, to, { by = "revenue", limit = 10 } = {}) {
 }
 
 /**
- * Retourne les stats par catégorie
+ * Retourne les stats par catgorie
  */
 function getCategoryAnalytics(shop, from, to) {
   const sales = analyticsStore.listSales({ shop, from, to, limit: 50000 });
@@ -609,7 +614,7 @@ function getCategoryAnalytics(shop, from, to) {
 }
 
 /**
- * Liste les commandes récentes (pour le tableau)
+ * Liste les commandes rcentes (pour le tableau)
  */
 function listRecentOrders(shop, from, to, limit = 50) {
   const sales = analyticsStore.listSales({ shop, from, to, limit: 5000 });

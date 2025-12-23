@@ -98,10 +98,14 @@ function createSalesOrder(shop, soData) {
     // Lignes
     lines: (soData.lines || []).map((line, idx) => {
       const qty = Number(line.quantity || line.qty || 0);
+      const gramsPerUnit = Number(line.gramsPerUnit || line.grams || 1);
+      const totalGrams = qty * gramsPerUnit;
       const salePrice = Number(line.salePrice || line.price || 0);
-      const costPrice = Number(line.costPrice || line.costAtSale || 0);
+      const costPricePerGram = Number(line.costPrice || line.costAtSale || 0);
+      
+      // Calcul correct: CA = qty * prix unitaire, Cout = totalGrams * cout/g
       const saleTotal = qty * salePrice;
-      const costTotal = qty * costPrice;
+      const costTotal = totalGrams * costPricePerGram; // CORRECTION: utiliser totalGrams
       
       return {
         id: line.id || `line_${idx + 1}`,
@@ -109,13 +113,13 @@ function createSalesOrder(shop, soData) {
         variantId: line.variantId ? String(line.variantId) : null,
         productName: line.productName || line.title || "",
         sku: line.sku || "",
-        quantity: qty, // en grammes ou unites
-        gramsPerUnit: Number(line.gramsPerUnit || 1),
-        totalGrams: qty * Number(line.gramsPerUnit || 1),
+        quantity: qty, // nombre d'unites vendues
+        gramsPerUnit: gramsPerUnit, // grammes par unite (variante)
+        totalGrams: totalGrams, // total grammes consommes
         saleUnitPrice: salePrice,
         saleTotal,
-        costUnitPrice: costPrice, // CMP au moment de la vente
-        costTotal,
+        costUnitPrice: costPricePerGram, // CMP par gramme
+        costTotal, // cout total = totalGrams * CMP
         grossMargin: saleTotal - costTotal,
         marginPercent: saleTotal > 0 ? Math.round(((saleTotal - costTotal) / saleTotal) * 100) : 0,
         // Lots consommes (FIFO)
@@ -343,23 +347,40 @@ function getSalesStats(shop, options = {}) {
 /**
  * Import depuis Shopify
  */
-function importFromShopify(shop, shopifyOrders, productCostMap = {}) {
+function importFromShopify(shop, shopifyOrders, productCostMap = {}, variantGramsMap = {}) {
   const results = { imported: 0, skipped: 0, errors: [] };
   
   for (const so of shopifyOrders) {
     try {
       // Convertir le format Shopify
       const lines = (so.line_items || []).map(item => {
-        const costPrice = productCostMap[item.product_id] || 0;
+        const costPricePerGram = productCostMap[item.product_id] || 0;
+        
+        // Shopify: item.grams = poids TOTAL de la ligne (qty * gramsPerUnit)
+        // On doit calculer gramsPerUnit = item.grams / item.quantity
+        const totalLineGrams = item.grams || 0;
+        const quantity = item.quantity || 1;
+        
+        // Si on a un mapping de variantes, l'utiliser en priorite
+        let gramsPerUnit = variantGramsMap[item.variant_id] || 0;
+        
+        // Sinon, calculer depuis les donnees Shopify
+        if (!gramsPerUnit && totalLineGrams > 0 && quantity > 0) {
+          gramsPerUnit = totalLineGrams / quantity;
+        }
+        
+        // Fallback: 1g par defaut (sera recalcule si le produit est configure)
+        if (!gramsPerUnit) gramsPerUnit = 1;
+        
         return {
           productId: String(item.product_id),
           variantId: item.variant_id ? String(item.variant_id) : null,
           productName: item.title || item.name,
           sku: item.sku || "",
-          quantity: item.quantity,
-          gramsPerUnit: item.grams || 1,
+          quantity: quantity,
+          gramsPerUnit: gramsPerUnit, // Grammes par unite vendue
           salePrice: parseFloat(item.price) || 0,
-          costPrice,
+          costPrice: costPricePerGram, // CMP par gramme
         };
       });
       

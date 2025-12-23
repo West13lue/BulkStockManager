@@ -3358,7 +3358,20 @@ router.post("/api/sales-orders/import-shopify", async (req, res) => {
     // Recuperer les CMP des produits pour calculer les marges
     const snapshot = stock.getCatalogSnapshot ? stock.getCatalogSnapshot(shop) : { products: [] };
     const productCostMap = {};
-    (snapshot.products || []).forEach(p => { productCostMap[p.productId] = p.averageCostPerGram || 0; });
+    const variantGramsMap = {};
+    
+    (snapshot.products || []).forEach(p => { 
+      productCostMap[p.productId] = p.averageCostPerGram || 0;
+      
+      // Construire le mapping des grammes par variante
+      if (Array.isArray(p.variants)) {
+        p.variants.forEach(v => {
+          if (v.inventoryItemId && v.grams) {
+            variantGramsMap[v.variantId] = v.grams;
+          }
+        });
+      }
+    });
 
     try {
       // Recuperer les commandes Shopify via l'API
@@ -3375,7 +3388,7 @@ router.post("/api/sales-orders/import-shopify", async (req, res) => {
         limit: 250,
       });
 
-      const result = salesOrderStore.importFromShopify(shop, shopifyOrders || [], productCostMap);
+      const result = salesOrderStore.importFromShopify(shop, shopifyOrders || [], productCostMap, variantGramsMap);
       res.json({ success: true, ...result });
     } catch (e) {
       return apiError(res, 500, "Erreur import: " + e.message);
