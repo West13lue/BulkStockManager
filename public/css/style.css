@@ -3705,3 +3705,308 @@ html, body {
 .stat-card.stat-warning .stat-icon {
   color: var(--warning);
 }
+
+/* ============================================
+   LOTS & DLC
+   ============================================ */
+
+.stats-grid-5 {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: var(--space-md);
+}
+
+@media (max-width: 1200px) {
+  .stats-grid-5 {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (max-width: 768px) {
+  .stats-grid-5 {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.stat-card.stat-danger {
+  border-left: 3px solid var(--danger);
+}
+
+.stat-card.stat-danger .stat-icon {
+  color: var(--danger);
+}
+
+/* Batch row */
+.batch-row {
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.batch-row:hover {
+  background: var(--bg-tertiary);
+}
+
+.batch-id {
+  font-family: monospace;
+  font-size: 12px;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+/* Feature preview */
+.feature-preview {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  align-items: center;
+}
+
+.preview-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+.preview-item svg {
+  width: 18px;
+  height: 18px;
+  color: var(--accent-primary);
+}
+
+/* Batch detail grid */
+.batch-detail-grid {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: var(--space-lg);
+}
+
+@media (max-width: 768px) {
+  .batch-detail-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.batch-detail-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+}
+
+.batch-detail-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+  background: var(--bg-tertiary);
+  padding: var(--space-md);
+  border-radius: 8px;
+}
+
+.detail-section h4 {
+  margin-bottom: var(--space-sm);
+  color: var(--text-secondary);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.detail-row {
+  display: flex;
+  justify-content: space-between;
+  padding: var(--space-xs) 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.detail-row:last-child {
+  border-bottom: none;
+}
+
+.detail-label {
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.detail-value {
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+/* Batch progress bar */
+.batch-progress {
+  height: 8px;
+  background: var(--bg-tertiary);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-top: var(--space-sm);
+}
+
+.batch-progress-bar {
+  height: 100%;
+  background: var(--accent-primary);
+  border-radius: 4px;
+  transition: width 0.3s;
+}
+
+/* Movement item small */
+.movement-item-small {
+  display: flex;
+  justify-content: space-between;
+  padding: var(--space-xs) 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+
+.movement-item-small:last-child {
+  border-bottom: none;
+}
+
+.movement-date-small {
+  color: var(--text-tertiary);
+}
+
+.movement-type-small {
+  color: var(--text-secondary);
+  text-transform: capitalize;
+}
+
+.movement-delta-small {
+  font-weight: 500;
+}
+
+/* Badges */
+.badge-info {
+  background: rgba(59, 130, 246, 0.15);
+  color: #3b82f6;
+}
+
+/* Form row */
+.form-row {
+  display: flex;
+  gap: var(--space-md);
+}
+
+@media (max-width: 480px) {
+  .form-row {
+    flex-direction: column;
+  }
+}
+
+/* Toolbar filters */
+.toolbar-filters {
+  display: flex;
+  gap: var(--space-md);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-md);
+}
+
+.filter-group {
+  min-width: 150px;
+}
+
+@media (max-width: 768px) {
+  .filter-group {
+    flex: 1;
+    min-width: 100px;
+  }
+}
+
+/* ============================================
+   LOTS IN PRODUCT DETAIL
+   ============================================ */
+
+.product-lots-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.product-lot-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-md);
+  background: var(--bg-tertiary);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.product-lot-item:hover {
+  background: var(--bg-secondary);
+  transform: translateX(4px);
+}
+
+.lot-item-header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 120px;
+}
+
+.lot-item-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.lot-item-stock {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.lot-stock-value {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.lot-stock-label {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.lot-item-progress {
+  height: 4px;
+  background: var(--bg-secondary);
+  border-radius: 2px;
+  overflow: hidden;
+  margin: 6px 0;
+}
+
+.lot-progress-bar {
+  height: 100%;
+  background: var(--accent-primary);
+  border-radius: 2px;
+}
+
+.lot-item-meta {
+  display: flex;
+  gap: var(--space-md);
+  font-size: 12px;
+}
+
+.lot-dlc {
+  color: var(--text-secondary);
+}
+
+.lot-item-value {
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.empty-state-inline {
+  text-align: center;
+  padding: var(--space-lg);
+}
+
+/* Product detail actions with icons */
+.product-detail-actions .btn svg,
+.product-detail-actions .btn i {
+  width: 14px;
+  height: 14px;
+  margin-right: 4px;
+}

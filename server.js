@@ -44,6 +44,14 @@ const catalogStore = require("./catalogStore");
 // --- Movements (multi-shop)
 const movementStore = require("./movementStore");
 
+// --- Batch/Lots tracking (multi-shop) - PRO
+let batchStore = null;
+try {
+  batchStore = require("./batchStore");
+} catch (e) {
+  console.warn("BatchStore non disponible:", e.message);
+}
+
 // --- Analytics (multi-shop) aÅ“â€¦ NOUVEAU
 let analyticsStore = null;
 let analyticsManager = null;
@@ -2798,6 +2806,312 @@ router.get("/api/analytics/sales", async (req, res) => {
     logEvent("analytics_sales_error", { error: e.message }, "error");
     return apiError(res, 500, "Erreur: " + e.message);
   }
+});
+
+// ============================================
+// LOTS & DLC API (Plan PRO)
+// ============================================
+
+// Liste tous les lots (tous produits)
+router.get("/api/lots", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+
+    // Verifier le plan PRO
+    if (planManager) {
+      const check = planManager.checkLimit(shop, "view_batches");
+      if (!check.allowed) {
+        return res.status(403).json({ error: "plan_limit", message: check.reason, upgrade: check.upgrade });
+      }
+    }
+
+    if (!batchStore) return apiError(res, 500, "Module lots non disponible");
+
+    const { status, productId, expiringDays, supplierId } = req.query;
+    
+    // Recuperer tous les produits
+    const snapshot = stock.getCatalogSnapshot ? stock.getCatalogSnapshot(shop) : { products: [] };
+    const products = Array.isArray(snapshot.products) ? snapshot.products : [];
+    
+    const allLots = [];
+    const now = new Date();
+
+    products.forEach(product => {
+      if (productId && product.productId !== productId) return;
+      
+      const batches = batchStore.loadBatches(shop, product.productId);
+      
+      batches.forEach(batch => {
+        // Filtres
+        if (status && batch.status !== status) return;
+        if (supplierId && batch.supplierId !== supplierId) return;
+        
+        // Calculer jours restants
+        let daysLeft = null;
+        let expiryStatus = "ok";
+        if (batch.expiryDate) {
+          const expiry = new Date(batch.expiryDate);
+          daysLeft = Math.ceil((expiry - now) / (1000 * 60 * 60 * 24));
+          
+          if (daysLeft <= 0) expiryStatus = "expired";
+          else if (daysLeft <= 7) expiryStatus = "critical";
+          else if (daysLeft <= 15) expiryStatus = "warning";
+          else if (daysLeft <= 30) expiryStatus = "watch";
+        }
+        
+        // Filtre expiring
+        if (expiringDays && daysLeft !== null && daysLeft > parseInt(expiringDays)) return;
+        
+        allLots.push({
+          ...batch,
+          productName: product.name,
+          productId: product.productId,
+          daysLeft,
+          expiryStatus,
+          valueRemaining: (batch.currentGrams || 0) * (batch.purchasePricePerGram || 0),
+        });
+      });
+    });
+
+    // Trier par urgence DLC puis par date de reception
+    allLots.sort((a, b) => {
+      if (a.daysLeft !== null && b.daysLeft !== null) {
+        return a.daysLeft - b.daysLeft;
+      }
+      if (a.daysLeft !== null) return -1;
+      if (b.daysLeft !== null) return 1;
+      return new Date(b.receivedAt) - new Date(a.receivedAt);
+    });
+
+    // KPIs
+    const kpis = {
+      totalLots: allLots.length,
+      activeLots: allLots.filter(l => l.status === "active").length,
+      expiringWithin30: allLots.filter(l => l.daysLeft !== null && l.daysLeft > 0 && l.daysLeft <= 30).length,
+      expiredLots: allLots.filter(l => l.expiryStatus === "expired").length,
+      criticalLots: allLots.filter(l => l.expiryStatus === "critical").length,
+      totalValueAtRisk: allLots.filter(l => l.daysLeft !== null && l.daysLeft <= 30).reduce((s, l) => s + l.valueRemaining, 0),
+      totalValue: allLots.filter(l => l.status === "active").reduce((s, l) => s + l.valueRemaining, 0),
+    };
+
+    res.json({ lots: allLots, kpis });
+  });
+});
+
+// Detail d'un lot
+router.get("/api/lots/:productId/:lotId", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    if (!batchStore) return apiError(res, 500, "Module lots non disponible");
+
+    const { productId, lotId } = req.params;
+    const batch = batchStore.getBatch(shop, productId, lotId);
+    
+    if (!batch) return apiError(res, 404, "Lot non trouve");
+
+    // Recuperer les mouvements lies a ce lot
+    let movements = [];
+    if (movementStore && movementStore.loadMovements) {
+      const allMovements = movementStore.loadMovements(shop);
+      movements = allMovements.filter(m => m.batchId === lotId || m.lotId === lotId).slice(0, 50);
+    }
+
+    // Calculer jours restants
+    let daysLeft = null;
+    if (batch.expiryDate) {
+      const expiry = new Date(batch.expiryDate);
+      daysLeft = Math.ceil((expiry - new Date()) / (1000 * 60 * 60 * 24));
+    }
+
+    res.json({ 
+      lot: { 
+        ...batch, 
+        daysLeft,
+        valueRemaining: (batch.currentGrams || 0) * (batch.purchasePricePerGram || 0),
+      }, 
+      movements 
+    });
+  });
+});
+
+// Creer un lot
+router.post("/api/lots/:productId", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    
+    if (planManager) {
+      const check = planManager.checkLimit(shop, "create_batch");
+      if (!check.allowed) {
+        return res.status(403).json({ error: "plan_limit", message: check.reason });
+      }
+    }
+
+    if (!batchStore) return apiError(res, 500, "Module lots non disponible");
+
+    const { productId } = req.params;
+    const batchData = req.body;
+
+    const batch = batchStore.createBatch(shop, productId, {
+      grams: batchData.grams || batchData.quantity,
+      purchasePricePerGram: batchData.costPerGram || batchData.purchasePricePerGram,
+      expiryType: batchData.expiryType || "dlc",
+      expiryDate: batchData.expiryDate,
+      supplierId: batchData.supplierId,
+      supplierBatchRef: batchData.supplierRef || batchData.supplierBatchRef,
+      notes: batchData.notes,
+      receivedAt: batchData.receivedAt,
+    });
+
+    // Enregistrer le mouvement
+    if (movementStore && movementStore.addMovement) {
+      movementStore.addMovement(shop, {
+        type: "restock",
+        productId,
+        delta: batch.initialGrams,
+        batchId: batch.id,
+        reason: "Nouveau lot: " + batch.id,
+      });
+    }
+
+    res.json({ success: true, lot: batch });
+  });
+});
+
+// Modifier un lot
+router.put("/api/lots/:productId/:lotId", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    if (!batchStore) return apiError(res, 500, "Module lots non disponible");
+
+    const { productId, lotId } = req.params;
+    const updates = req.body;
+
+    try {
+      const batch = batchStore.updateBatch(shop, productId, lotId, {
+        expiryDate: updates.expiryDate,
+        expiryType: updates.expiryType,
+        notes: updates.notes,
+        status: updates.status,
+        supplierId: updates.supplierId,
+        supplierBatchRef: updates.supplierBatchRef,
+      });
+      res.json({ success: true, lot: batch });
+    } catch (e) {
+      return apiError(res, 404, e.message);
+    }
+  });
+});
+
+// Ajuster la quantite d'un lot
+router.post("/api/lots/:productId/:lotId/adjust", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    if (!batchStore) return apiError(res, 500, "Module lots non disponible");
+
+    const { productId, lotId } = req.params;
+    const { delta, reason } = req.body;
+
+    const batches = batchStore.loadBatches(shop, productId);
+    const idx = batches.findIndex(b => b.id === lotId);
+    if (idx === -1) return apiError(res, 404, "Lot non trouve");
+
+    const batch = batches[idx];
+    const oldGrams = batch.currentGrams;
+    batch.currentGrams = Math.max(0, batch.currentGrams + Number(delta));
+    batch.usedGrams = batch.initialGrams - batch.currentGrams;
+    batch.updatedAt = new Date().toISOString();
+
+    if (batch.currentGrams <= 0 && batch.status === "active") {
+      batch.status = "depleted";
+    }
+
+    batches[idx] = batch;
+    batchStore.saveBatches ? null : null; // saveBatches n'est pas exporte, on refait
+    
+    // Sauvegarder manuellement
+    const fs = require("fs");
+    const path = require("path");
+    const DATA_DIR = process.env.DATA_DIR || "/var/data";
+    const shopDir = path.join(DATA_DIR, shop.replace(/[^a-z0-9._-]/g, "_"));
+    const batchDir = path.join(shopDir, "batches");
+    if (!fs.existsSync(batchDir)) fs.mkdirSync(batchDir, { recursive: true });
+    const file = path.join(batchDir, productId + ".json");
+    fs.writeFileSync(file, JSON.stringify({ productId, batches, updatedAt: new Date().toISOString() }, null, 2));
+
+    // Enregistrer le mouvement
+    if (movementStore && movementStore.addMovement) {
+      movementStore.addMovement(shop, {
+        type: "adjustment",
+        productId,
+        delta: Number(delta),
+        batchId: lotId,
+        reason: reason || "Ajustement lot",
+      });
+    }
+
+    res.json({ success: true, lot: batch, oldGrams, newGrams: batch.currentGrams });
+  });
+});
+
+// Supprimer / Desactiver un lot
+router.delete("/api/lots/:productId/:lotId", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    if (!batchStore) return apiError(res, 500, "Module lots non disponible");
+
+    const { productId, lotId } = req.params;
+    const { hard } = req.query;
+
+    try {
+      const result = batchStore.deleteBatch(shop, productId, lotId, hard === "true");
+      res.json({ success: true, result });
+    } catch (e) {
+      return apiError(res, 404, e.message);
+    }
+  });
+});
+
+// Marquer les lots expires automatiquement
+router.post("/api/lots/mark-expired", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    if (!batchStore) return apiError(res, 500, "Module lots non disponible");
+
+    const result = batchStore.markExpiredBatches(shop);
+    res.json({ success: true, ...result });
+  });
+});
+
+// Lots proches de l'expiration (alertes)
+router.get("/api/lots/expiring", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    if (!batchStore) return apiError(res, 500, "Module lots non disponible");
+
+    const days = parseInt(req.query.days) || 30;
+    const lots = batchStore.getExpiringBatches(shop, { daysThreshold: days });
+
+    // Enrichir avec les noms de produits
+    const snapshot = stock.getCatalogSnapshot ? stock.getCatalogSnapshot(shop) : { products: [] };
+    const productMap = {};
+    (snapshot.products || []).forEach(p => { productMap[p.productId] = p.name; });
+
+    const enriched = lots.map(l => ({
+      ...l,
+      productName: productMap[l.productId] || "Produit inconnu",
+      valueAtRisk: (l.currentGrams || 0) * (l.purchasePricePerGram || 0),
+    }));
+
+    res.json({ lots: enriched, count: enriched.length });
+  });
 });
 
 // ============================================

@@ -345,7 +345,7 @@
         renderProducts(c);
         break;
       case "batches":
-        renderFeature(c, "hasBatchTracking", "Lots et DLC", "tags");
+        renderBatches(c);
         break;
       case "suppliers":
         renderFeature(c, "hasSuppliers", "Fournisseurs", "factory");
@@ -605,6 +605,482 @@
       '<div class="card"><div class="card-body" style="padding:0">' +
       (state.products.length ? renderTable(state.products) : renderEmpty()) +
       "</div></div>";
+  }
+
+  // ============================================
+  // LOTS & DLC (Plan PRO)
+  // ============================================
+  
+  var batchesData = null;
+  var batchFilters = { status: "", productId: "", expiring: "" };
+
+  function renderBatches(c) {
+    // Verifier le plan PRO
+    if (!hasFeature("hasBatchTracking")) {
+      c.innerHTML =
+        '<div class="page-header"><h1 class="page-title"><i data-lucide="tags"></i> ' + t("batches.title", "Lots & DLC") + '</h1></div>' +
+        '<div class="card" style="min-height:400px;display:flex;align-items:center;justify-content:center"><div class="text-center">' +
+        '<div class="lock-icon"><i data-lucide="lock"></i></div>' +
+        '<h2>' + t("msg.featureLocked", "Fonctionnalite PRO") + '</h2>' +
+        '<p class="text-secondary">' + t("batches.lockedDesc", "Gerez vos lots, tracez vos DLC et anticipez les pertes avec le plan Pro.") + '</p>' +
+        '<div class="feature-preview mt-lg">' +
+        '<div class="preview-item"><i data-lucide="layers"></i> ' + t("batches.feature1", "Tracabilite complete") + '</div>' +
+        '<div class="preview-item"><i data-lucide="calendar-clock"></i> ' + t("batches.feature2", "Alertes DLC automatiques") + '</div>' +
+        '<div class="preview-item"><i data-lucide="arrow-down-up"></i> ' + t("batches.feature3", "FIFO / FEFO automatique") + '</div>' +
+        '</div>' +
+        '<button class="btn btn-upgrade mt-lg" onclick="app.showUpgradeModal()">' + t("action.upgrade", "Passer a PRO") + '</button>' +
+        '</div></div>';
+      return;
+    }
+
+    // Afficher loading
+    c.innerHTML =
+      '<div class="page-header"><div><h1 class="page-title"><i data-lucide="tags"></i> ' + t("batches.title", "Lots & DLC") + '</h1>' +
+      '<p class="page-subtitle">' + t("batches.subtitle", "Tracabilite et gestion des dates limites") + '</p></div>' +
+      '<div class="page-actions">' +
+      '<button class="btn btn-secondary" onclick="app.markExpiredBatches()"><i data-lucide="alert-triangle"></i> ' + t("batches.markExpired", "Marquer expires") + '</button>' +
+      '<button class="btn btn-primary" onclick="app.showAddBatchModal()"><i data-lucide="plus"></i> ' + t("batches.addBatch", "Nouveau lot") + '</button>' +
+      '</div></div>' +
+      '<div id="batchesKpis"><div class="text-center py-lg"><div class="spinner"></div></div></div>' +
+      '<div id="batchesFilters"></div>' +
+      '<div id="batchesContent"><div class="text-center py-lg"><div class="spinner"></div></div></div>';
+
+    loadBatchesData();
+  }
+
+  async function loadBatchesData() {
+    try {
+      var params = new URLSearchParams();
+      if (batchFilters.status) params.append("status", batchFilters.status);
+      if (batchFilters.productId) params.append("productId", batchFilters.productId);
+      if (batchFilters.expiring) params.append("expiringDays", batchFilters.expiring);
+
+      var res = await authFetch(apiUrl("/lots?" + params.toString()));
+      if (!res.ok) {
+        var err = await res.json().catch(function() { return {}; });
+        if (err.error === "plan_limit") {
+          showUpgradeModal();
+          return;
+        }
+        throw new Error(err.error || "Erreur chargement");
+      }
+
+      batchesData = await res.json();
+      renderBatchesKpis();
+      renderBatchesFilters();
+      renderBatchesTable();
+
+    } catch (e) {
+      document.getElementById("batchesContent").innerHTML =
+        '<div class="card"><div class="card-body text-center"><p class="text-danger">' + t("msg.error", "Erreur") + ': ' + e.message + '</p></div></div>';
+    }
+  }
+
+  function renderBatchesKpis() {
+    if (!batchesData || !batchesData.kpis) return;
+    var k = batchesData.kpis;
+
+    var html =
+      '<div class="stats-grid stats-grid-5">' +
+      '<div class="stat-card"><div class="stat-icon"><i data-lucide="layers"></i></div>' +
+      '<div class="stat-value">' + k.totalLots + '</div>' +
+      '<div class="stat-label">' + t("batches.totalLots", "Total lots") + '</div></div>' +
+      
+      '<div class="stat-card"><div class="stat-icon"><i data-lucide="check-circle"></i></div>' +
+      '<div class="stat-value">' + k.activeLots + '</div>' +
+      '<div class="stat-label">' + t("batches.activeLots", "Lots actifs") + '</div></div>' +
+      
+      '<div class="stat-card stat-warning"><div class="stat-icon"><i data-lucide="clock"></i></div>' +
+      '<div class="stat-value">' + k.expiringWithin30 + '</div>' +
+      '<div class="stat-label">' + t("batches.expiringSoon", "Expirent sous 30j") + '</div></div>' +
+      
+      '<div class="stat-card stat-danger"><div class="stat-icon"><i data-lucide="alert-octagon"></i></div>' +
+      '<div class="stat-value">' + k.expiredLots + '</div>' +
+      '<div class="stat-label">' + t("batches.expiredLots", "Expires") + '</div></div>' +
+      
+      '<div class="stat-card"><div class="stat-icon"><i data-lucide="alert-triangle"></i></div>' +
+      '<div class="stat-value">' + formatCurrency(k.totalValueAtRisk) + '</div>' +
+      '<div class="stat-label">' + t("batches.valueAtRisk", "Valeur a risque") + '</div></div>' +
+      '</div>';
+
+    document.getElementById("batchesKpis").innerHTML = html;
+    if (typeof lucide !== "undefined") lucide.createIcons();
+  }
+
+  function renderBatchesFilters() {
+    // Options produits
+    var productOptions = '<option value="">' + t("batches.allProducts", "Tous les produits") + '</option>';
+    state.products.forEach(function(p) {
+      productOptions += '<option value="' + esc(p.productId) + '"' + (batchFilters.productId === p.productId ? ' selected' : '') + '>' + esc(p.name) + '</option>';
+    });
+
+    var html =
+      '<div class="toolbar-filters mb-md">' +
+      '<div class="filter-group">' +
+      '<select class="form-select" onchange="app.onBatchProductChange(this.value)">' + productOptions + '</select>' +
+      '</div>' +
+      '<div class="filter-group">' +
+      '<select class="form-select" onchange="app.onBatchStatusChange(this.value)">' +
+      '<option value="">' + t("batches.allStatus", "Tous les statuts") + '</option>' +
+      '<option value="active"' + (batchFilters.status === "active" ? " selected" : "") + '>' + t("batches.statusActive", "Actifs") + '</option>' +
+      '<option value="depleted"' + (batchFilters.status === "depleted" ? " selected" : "") + '>' + t("batches.statusDepleted", "Epuises") + '</option>' +
+      '<option value="expired"' + (batchFilters.status === "expired" ? " selected" : "") + '>' + t("batches.statusExpired", "Expires") + '</option>' +
+      '</select>' +
+      '</div>' +
+      '<div class="filter-group">' +
+      '<select class="form-select" onchange="app.onBatchExpiringChange(this.value)">' +
+      '<option value="">' + t("batches.allDates", "Toutes les dates") + '</option>' +
+      '<option value="7"' + (batchFilters.expiring === "7" ? " selected" : "") + '>' + t("batches.expiring7", "Expire sous 7j") + '</option>' +
+      '<option value="15"' + (batchFilters.expiring === "15" ? " selected" : "") + '>' + t("batches.expiring15", "Expire sous 15j") + '</option>' +
+      '<option value="30"' + (batchFilters.expiring === "30" ? " selected" : "") + '>' + t("batches.expiring30", "Expire sous 30j") + '</option>' +
+      '</select>' +
+      '</div>' +
+      '</div>';
+
+    document.getElementById("batchesFilters").innerHTML = html;
+  }
+
+  function renderBatchesTable() {
+    if (!batchesData || !batchesData.lots) return;
+    var lots = batchesData.lots;
+
+    if (lots.length === 0) {
+      document.getElementById("batchesContent").innerHTML =
+        '<div class="card"><div class="card-body">' +
+        '<div class="empty-state"><div class="empty-icon"><i data-lucide="package-open"></i></div>' +
+        '<h3>' + t("batches.noLots", "Aucun lot") + '</h3>' +
+        '<p class="text-secondary">' + t("batches.noLotsDesc", "Creez votre premier lot pour commencer la tracabilite.") + '</p>' +
+        '<button class="btn btn-primary mt-md" onclick="app.showAddBatchModal()">' + t("batches.addBatch", "Nouveau lot") + '</button>' +
+        '</div></div></div>';
+      if (typeof lucide !== "undefined") lucide.createIcons();
+      return;
+    }
+
+    var rows = lots.map(function(lot) {
+      var statusBadge = getBatchStatusBadge(lot);
+      var dlcBadge = getBatchDlcBadge(lot);
+      
+      return '<tr class="batch-row" onclick="app.openBatchDetails(\'' + esc(lot.productId) + '\',\'' + esc(lot.id) + '\')">' +
+        '<td><span class="batch-id">' + esc(lot.id) + '</span></td>' +
+        '<td>' + esc(lot.productName || "Produit") + '</td>' +
+        '<td>' + formatWeight(lot.currentGrams) + ' / ' + formatWeight(lot.initialGrams) + '</td>' +
+        '<td>' + (lot.expiryDate ? lot.expiryDate : '-') + '</td>' +
+        '<td>' + dlcBadge + '</td>' +
+        '<td>' + formatPricePerUnit(lot.purchasePricePerGram || 0) + '</td>' +
+        '<td>' + formatCurrency(lot.valueRemaining || 0) + '</td>' +
+        '<td>' + statusBadge + '</td>' +
+        '<td class="cell-actions" onclick="event.stopPropagation()">' +
+        '<button class="btn btn-ghost btn-xs" onclick="app.showAdjustBatchModal(\'' + esc(lot.productId) + '\',\'' + esc(lot.id) + '\')"><i data-lucide="sliders"></i></button>' +
+        '</td>' +
+        '</tr>';
+    }).join("");
+
+    var html =
+      '<div class="card"><div class="card-body" style="padding:0">' +
+      '<table class="data-table">' +
+      '<thead><tr>' +
+      '<th>' + t("batches.lotId", "Lot") + '</th>' +
+      '<th>' + t("batches.product", "Produit") + '</th>' +
+      '<th>' + t("batches.stock", "Stock") + '</th>' +
+      '<th>' + t("batches.dlc", "DLC") + '</th>' +
+      '<th>' + t("batches.daysLeft", "Jours") + '</th>' +
+      '<th>' + t("batches.cost", "Cout") + '</th>' +
+      '<th>' + t("batches.value", "Valeur") + '</th>' +
+      '<th>' + t("batches.status", "Statut") + '</th>' +
+      '<th></th>' +
+      '</tr></thead>' +
+      '<tbody>' + rows + '</tbody>' +
+      '</table></div></div>';
+
+    document.getElementById("batchesContent").innerHTML = html;
+    if (typeof lucide !== "undefined") lucide.createIcons();
+  }
+
+  function getBatchStatusBadge(lot) {
+    var status = lot.status || "active";
+    var labels = {
+      active: { class: "success", label: t("batches.statusActive", "Actif") },
+      depleted: { class: "secondary", label: t("batches.statusDepleted", "Epuise") },
+      expired: { class: "danger", label: t("batches.statusExpired", "Expire") },
+      recalled: { class: "warning", label: t("batches.statusRecalled", "Rappele") }
+    };
+    var s = labels[status] || labels.active;
+    return '<span class="badge badge-' + s.class + '">' + s.label + '</span>';
+  }
+
+  function getBatchDlcBadge(lot) {
+    if (lot.daysLeft === null || lot.daysLeft === undefined) {
+      return '<span class="text-secondary">-</span>';
+    }
+    
+    var days = lot.daysLeft;
+    if (days <= 0) {
+      return '<span class="badge badge-danger">' + t("batches.expired", "Expire") + '</span>';
+    } else if (days <= 7) {
+      return '<span class="badge badge-danger">' + days + 'j</span>';
+    } else if (days <= 15) {
+      return '<span class="badge badge-warning">' + days + 'j</span>';
+    } else if (days <= 30) {
+      return '<span class="badge badge-info">' + days + 'j</span>';
+    }
+    return '<span class="text-success">' + days + 'j</span>';
+  }
+
+  function onBatchProductChange(productId) {
+    batchFilters.productId = productId;
+    loadBatchesData();
+  }
+
+  function onBatchStatusChange(status) {
+    batchFilters.status = status;
+    loadBatchesData();
+  }
+
+  function onBatchExpiringChange(days) {
+    batchFilters.expiring = days;
+    loadBatchesData();
+  }
+
+  function showAddBatchModal() {
+    // Options produits
+    var productOptions = state.products.map(function(p) {
+      return '<option value="' + esc(p.productId) + '">' + esc(p.name) + '</option>';
+    }).join("");
+
+    showModal({
+      title: t("batches.addBatch", "Nouveau lot"),
+      size: "md",
+      content:
+        '<div class="form-group"><label class="form-label">' + t("batches.product", "Produit") + ' *</label>' +
+        '<select class="form-select" id="batchProduct">' + productOptions + '</select></div>' +
+        
+        '<div class="form-row">' +
+        '<div class="form-group" style="flex:1"><label class="form-label">' + t("batches.quantity", "Quantite") + ' (' + getWeightUnit() + ') *</label>' +
+        '<input type="number" class="form-input" id="batchGrams" placeholder="500" step="0.1"></div>' +
+        '<div class="form-group" style="flex:1"><label class="form-label">' + t("batches.costPerUnit", "Cout") + ' (' + getCurrencySymbol() + '/' + getWeightUnit() + ')</label>' +
+        '<input type="number" class="form-input" id="batchCost" placeholder="4.50" step="0.01"></div>' +
+        '</div>' +
+        
+        '<div class="form-row">' +
+        '<div class="form-group" style="flex:1"><label class="form-label">' + t("batches.expiryType", "Type date") + '</label>' +
+        '<select class="form-select" id="batchExpiryType">' +
+        '<option value="dlc">DLC (Date Limite Consommation)</option>' +
+        '<option value="dluo">DLUO / DDM (A consommer de preference)</option>' +
+        '<option value="none">Aucune</option>' +
+        '</select></div>' +
+        '<div class="form-group" style="flex:1"><label class="form-label">' + t("batches.expiryDate", "Date limite") + '</label>' +
+        '<input type="date" class="form-input" id="batchExpiryDate"></div>' +
+        '</div>' +
+        
+        '<div class="form-group"><label class="form-label">' + t("batches.supplierRef", "Ref. fournisseur") + '</label>' +
+        '<input type="text" class="form-input" id="batchSupplierRef" placeholder="LOT-FOURNISSEUR-001"></div>' +
+        
+        '<div class="form-group"><label class="form-label">' + t("batches.notes", "Notes") + '</label>' +
+        '<textarea class="form-input" id="batchNotes" rows="2" placeholder="Notes optionnelles..."></textarea></div>',
+      footer:
+        '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.cancel", "Annuler") + '</button>' +
+        '<button class="btn btn-primary" onclick="app.saveBatch()">' + t("action.save", "Enregistrer") + '</button>'
+    });
+  }
+
+  async function saveBatch() {
+    var productId = document.getElementById("batchProduct").value;
+    var grams = parseFloat(document.getElementById("batchGrams").value);
+    var costPerGram = parseFloat(document.getElementById("batchCost").value) || 0;
+    var expiryType = document.getElementById("batchExpiryType").value;
+    var expiryDate = document.getElementById("batchExpiryDate").value;
+    var supplierRef = document.getElementById("batchSupplierRef").value;
+    var notes = document.getElementById("batchNotes").value;
+
+    if (!productId || !grams || grams <= 0) {
+      showToast(t("batches.errorRequired", "Produit et quantite requis"), "error");
+      return;
+    }
+
+    try {
+      var res = await authFetch(apiUrl("/lots/" + productId), {
+        method: "POST",
+        body: JSON.stringify({
+          grams: grams,
+          costPerGram: costPerGram,
+          expiryType: expiryType,
+          expiryDate: expiryDate || null,
+          supplierRef: supplierRef,
+          notes: notes
+        })
+      });
+
+      if (!res.ok) {
+        var err = await res.json().catch(function() { return {}; });
+        throw new Error(err.error || "Erreur");
+      }
+
+      closeModal();
+      showToast(t("batches.lotCreated", "Lot cree avec succes"), "success");
+      loadBatchesData();
+
+    } catch (e) {
+      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
+    }
+  }
+
+  function showAdjustBatchModal(productId, lotId) {
+    showModal({
+      title: t("batches.adjustBatch", "Ajuster le lot"),
+      content:
+        '<div class="form-group"><label class="form-label">' + t("batches.adjustment", "Ajustement") + ' (' + getWeightUnit() + ')</label>' +
+        '<input type="number" class="form-input" id="adjustDelta" placeholder="-50 ou +100"></div>' +
+        '<div class="form-group"><label class="form-label">' + t("batches.reason", "Raison") + '</label>' +
+        '<input type="text" class="form-input" id="adjustReason" placeholder="Perte, correction inventaire..."></div>',
+      footer:
+        '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.cancel", "Annuler") + '</button>' +
+        '<button class="btn btn-primary" onclick="app.saveAdjustBatch(\'' + productId + '\',\'' + lotId + '\')">' + t("action.save", "Enregistrer") + '</button>'
+    });
+  }
+
+  async function saveAdjustBatch(productId, lotId) {
+    var delta = parseFloat(document.getElementById("adjustDelta").value);
+    var reason = document.getElementById("adjustReason").value;
+
+    if (isNaN(delta) || delta === 0) {
+      showToast(t("batches.errorAdjustment", "Entrez une valeur d'ajustement"), "error");
+      return;
+    }
+
+    try {
+      var res = await authFetch(apiUrl("/lots/" + productId + "/" + lotId + "/adjust"), {
+        method: "POST",
+        body: JSON.stringify({ delta: delta, reason: reason })
+      });
+
+      if (!res.ok) {
+        var err = await res.json().catch(function() { return {}; });
+        throw new Error(err.error || "Erreur");
+      }
+
+      closeModal();
+      showToast(t("batches.lotAdjusted", "Lot ajuste"), "success");
+      loadBatchesData();
+
+    } catch (e) {
+      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
+    }
+  }
+
+  async function openBatchDetails(productId, lotId) {
+    try {
+      var res = await authFetch(apiUrl("/lots/" + productId + "/" + lotId));
+      if (!res.ok) throw new Error("Lot non trouve");
+
+      var data = await res.json();
+      var lot = data.lot;
+      var movements = data.movements || [];
+
+      var statusBadge = getBatchStatusBadge(lot);
+      var dlcBadge = getBatchDlcBadge(lot);
+
+      // Historique mouvements
+      var movementsHtml = movements.length > 0 
+        ? movements.slice(0, 10).map(function(m) {
+            return '<div class="movement-item-small">' +
+              '<span class="movement-date-small">' + (m.createdAt || m.date || "").slice(0, 10) + '</span>' +
+              '<span class="movement-type-small">' + (m.type || "?") + '</span>' +
+              '<span class="movement-delta-small">' + (m.delta >= 0 ? "+" : "") + formatWeight(m.delta) + '</span>' +
+              '</div>';
+          }).join("")
+        : '<p class="text-secondary">' + t("batches.noMovements", "Aucun mouvement") + '</p>';
+
+      showModal({
+        title: t("batches.lotDetails", "Details du lot") + " " + lot.id,
+        size: "lg",
+        content:
+          '<div class="batch-detail-grid">' +
+          '<div class="batch-detail-main">' +
+          
+          '<div class="detail-section">' +
+          '<h4>' + t("batches.info", "Informations") + '</h4>' +
+          '<div class="detail-row"><span class="detail-label">' + t("batches.product", "Produit") + '</span><span class="detail-value">' + esc(lot.productName || productId) + '</span></div>' +
+          '<div class="detail-row"><span class="detail-label">' + t("batches.status", "Statut") + '</span><span class="detail-value">' + statusBadge + '</span></div>' +
+          '<div class="detail-row"><span class="detail-label">' + t("batches.received", "Recu le") + '</span><span class="detail-value">' + (lot.receivedAt || "").slice(0, 10) + '</span></div>' +
+          '</div>' +
+          
+          '<div class="detail-section">' +
+          '<h4>' + t("batches.stock", "Stock") + '</h4>' +
+          '<div class="detail-row"><span class="detail-label">' + t("batches.initial", "Initial") + '</span><span class="detail-value">' + formatWeight(lot.initialGrams) + '</span></div>' +
+          '<div class="detail-row"><span class="detail-label">' + t("batches.remaining", "Restant") + '</span><span class="detail-value">' + formatWeight(lot.currentGrams) + '</span></div>' +
+          '<div class="detail-row"><span class="detail-label">' + t("batches.used", "Utilise") + '</span><span class="detail-value">' + formatWeight(lot.usedGrams || 0) + '</span></div>' +
+          '<div class="batch-progress"><div class="batch-progress-bar" style="width:' + Math.round(((lot.currentGrams || 0) / (lot.initialGrams || 1)) * 100) + '%"></div></div>' +
+          '</div>' +
+          
+          '<div class="detail-section">' +
+          '<h4>' + t("batches.expiry", "Peremption") + '</h4>' +
+          '<div class="detail-row"><span class="detail-label">' + t("batches.type", "Type") + '</span><span class="detail-value">' + (lot.expiryType || "none").toUpperCase() + '</span></div>' +
+          '<div class="detail-row"><span class="detail-label">' + t("batches.date", "Date") + '</span><span class="detail-value">' + (lot.expiryDate || "-") + '</span></div>' +
+          '<div class="detail-row"><span class="detail-label">' + t("batches.daysLeft", "Jours restants") + '</span><span class="detail-value">' + dlcBadge + '</span></div>' +
+          '</div>' +
+          
+          '<div class="detail-section">' +
+          '<h4>' + t("batches.cost", "Cout") + '</h4>' +
+          '<div class="detail-row"><span class="detail-label">' + t("batches.costPerUnit", "Cout unitaire") + '</span><span class="detail-value">' + formatPricePerUnit(lot.purchasePricePerGram || 0) + '</span></div>' +
+          '<div class="detail-row"><span class="detail-label">' + t("batches.totalCost", "Cout total") + '</span><span class="detail-value">' + formatCurrency(lot.totalCost || 0) + '</span></div>' +
+          '<div class="detail-row"><span class="detail-label">' + t("batches.valueRemaining", "Valeur restante") + '</span><span class="detail-value">' + formatCurrency(lot.valueRemaining || 0) + '</span></div>' +
+          '</div>' +
+          
+          '</div>' +
+          
+          '<div class="batch-detail-sidebar">' +
+          '<div class="detail-section">' +
+          '<h4>' + t("batches.history", "Historique") + '</h4>' +
+          movementsHtml +
+          '</div>' +
+          
+          (lot.notes ? '<div class="detail-section"><h4>' + t("batches.notes", "Notes") + '</h4><p class="text-secondary">' + esc(lot.notes) + '</p></div>' : '') +
+          '</div>' +
+          
+          '</div>',
+        footer:
+          '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.close", "Fermer") + '</button>' +
+          '<button class="btn btn-secondary" onclick="app.showAdjustBatchModal(\'' + productId + '\',\'' + lotId + '\')">' + t("batches.adjust", "Ajuster") + '</button>' +
+          (lot.status === "active" ? '<button class="btn btn-danger" onclick="app.deactivateBatch(\'' + productId + '\',\'' + lotId + '\')">' + t("batches.deactivate", "Desactiver") + '</button>' : '')
+      });
+
+    } catch (e) {
+      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
+    }
+  }
+
+  async function deactivateBatch(productId, lotId) {
+    if (!confirm(t("batches.confirmDeactivate", "Voulez-vous vraiment desactiver ce lot ?"))) return;
+
+    try {
+      var res = await authFetch(apiUrl("/lots/" + productId + "/" + lotId), {
+        method: "PUT",
+        body: JSON.stringify({ status: "recalled" })
+      });
+
+      if (!res.ok) throw new Error("Erreur");
+
+      closeModal();
+      showToast(t("batches.lotDeactivated", "Lot desactive"), "success");
+      loadBatchesData();
+
+    } catch (e) {
+      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
+    }
+  }
+
+  async function markExpiredBatches() {
+    try {
+      var res = await authFetch(apiUrl("/lots/mark-expired"), { method: "POST" });
+      if (!res.ok) throw new Error("Erreur");
+
+      var data = await res.json();
+      showToast(t("batches.markedExpired", "lots marques expires").replace("{count}", data.markedCount), "success");
+      loadBatchesData();
+
+    } catch (e) {
+      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
+    }
   }
 
   function renderTable(products) {
@@ -1612,10 +2088,19 @@
 
       // Actions rapides
       '<div class="product-detail-actions">' +
-      '<button class="btn btn-primary btn-sm" onclick="app.closeModal();app.showRestockModal(\'' + p.productId + '\')">📦 Reappro</button>' +
-      '<button class="btn btn-secondary btn-sm" onclick="app.closeModal();app.showAdjustModal(\'' + p.productId + '\')">✏️ Ajuster</button>' +
-      '<button class="btn btn-ghost btn-sm" onclick="app.showEditCMPModal(\'' + p.productId + '\',' + p.averageCostPerGram + ')">💰 Modifier CMP</button>' +
+      '<button class="btn btn-primary btn-sm" onclick="app.closeModal();app.showRestockModal(\'' + p.productId + '\')"><i data-lucide="package-plus"></i> Reappro</button>' +
+      '<button class="btn btn-secondary btn-sm" onclick="app.closeModal();app.showAdjustModal(\'' + p.productId + '\')"><i data-lucide="sliders"></i> Ajuster</button>' +
+      '<button class="btn btn-ghost btn-sm" onclick="app.showEditCMPModal(\'' + p.productId + '\',' + p.averageCostPerGram + ')"><i data-lucide="coins"></i> Modifier CMP</button>' +
+      (hasFeature("hasBatchTracking") ? '<button class="btn btn-ghost btn-sm" onclick="app.closeModal();app.showAddBatchForProduct(\'' + p.productId + '\',\'' + esc(p.name).replace(/'/g, "\\'") + '\')"><i data-lucide="layers"></i> + Lot</button>' : '') +
       '</div>' +
+
+      // Section Lots (si PRO)
+      (hasFeature("hasBatchTracking") ? 
+        '<div class="product-detail-section">' +
+        '<h3 class="section-title"><i data-lucide="layers"></i> Lots actifs</h3>' +
+        '<div id="productLotsContainer" data-product-id="' + p.productId + '"><div class="text-center py-md"><div class="spinner"></div></div></div>' +
+        '</div>'
+        : '') +
 
       // Graphique capacite de vente
       '<div class="product-detail-section">' +
@@ -1651,6 +2136,115 @@
       size: "xl",
       content: content,
       footer: '<button class="btn btn-ghost" onclick="app.closeModal()">Fermer</button>',
+    });
+
+    // Charger les lots du produit si PRO
+    if (hasFeature("hasBatchTracking")) {
+      loadProductLots(p.productId);
+    }
+    
+    // Refresh icons
+    if (typeof lucide !== "undefined") lucide.createIcons();
+  }
+
+  async function loadProductLots(productId) {
+    var container = document.getElementById("productLotsContainer");
+    if (!container) return;
+
+    try {
+      var res = await authFetch(apiUrl("/lots?productId=" + productId));
+      if (!res.ok) throw new Error("Erreur");
+
+      var data = await res.json();
+      var lots = data.lots || [];
+
+      if (lots.length === 0) {
+        container.innerHTML = 
+          '<div class="empty-state-inline">' +
+          '<p class="text-secondary">' + t("batches.noLotsForProduct", "Aucun lot pour ce produit") + '</p>' +
+          '<button class="btn btn-sm btn-primary mt-sm" onclick="app.closeModal();app.showAddBatchForProduct(\'' + productId + '\')">' +
+          '<i data-lucide="plus"></i> ' + t("batches.createFirstLot", "Creer le premier lot") +
+          '</button>' +
+          '</div>';
+        if (typeof lucide !== "undefined") lucide.createIcons();
+        return;
+      }
+
+      // Afficher les lots
+      var lotsHtml = '<div class="product-lots-list">';
+      lots.forEach(function(lot) {
+        var dlcBadge = getBatchDlcBadge(lot);
+        var statusBadge = getBatchStatusBadge(lot);
+        var progress = Math.round(((lot.currentGrams || 0) / (lot.initialGrams || 1)) * 100);
+
+        lotsHtml += 
+          '<div class="product-lot-item" onclick="app.closeModal();app.openBatchDetails(\'' + lot.productId + '\',\'' + lot.id + '\')">' +
+          '<div class="lot-item-header">' +
+          '<span class="batch-id">' + esc(lot.id) + '</span>' +
+          statusBadge +
+          '</div>' +
+          '<div class="lot-item-body">' +
+          '<div class="lot-item-stock">' +
+          '<span class="lot-stock-value">' + formatWeight(lot.currentGrams) + '</span>' +
+          '<span class="lot-stock-label">/ ' + formatWeight(lot.initialGrams) + '</span>' +
+          '</div>' +
+          '<div class="lot-item-progress"><div class="lot-progress-bar" style="width:' + progress + '%"></div></div>' +
+          '<div class="lot-item-meta">' +
+          '<span class="lot-dlc">' + (lot.expiryDate ? 'DLC: ' + lot.expiryDate : 'Sans DLC') + '</span>' +
+          '<span class="lot-days">' + dlcBadge + '</span>' +
+          '</div>' +
+          '</div>' +
+          '<div class="lot-item-value">' + formatCurrency(lot.valueRemaining || 0) + '</div>' +
+          '</div>';
+      });
+      lotsHtml += '</div>';
+
+      lotsHtml += '<button class="btn btn-sm btn-ghost mt-sm" onclick="app.closeModal();app.showAddBatchForProduct(\'' + productId + '\')">' +
+        '<i data-lucide="plus"></i> ' + t("batches.addAnotherLot", "Ajouter un lot") +
+        '</button>';
+
+      container.innerHTML = lotsHtml;
+      if (typeof lucide !== "undefined") lucide.createIcons();
+
+    } catch (e) {
+      container.innerHTML = '<p class="text-secondary text-sm">' + t("msg.error", "Erreur") + '</p>';
+    }
+  }
+
+  function showAddBatchForProduct(productId, productName) {
+    // Ouvrir le modal de création de lot avec le produit pré-sélectionné
+    showModal({
+      title: t("batches.addBatchFor", "Nouveau lot pour") + ' ' + (productName || 'ce produit'),
+      size: "md",
+      content:
+        '<input type="hidden" id="batchProduct" value="' + esc(productId) + '">' +
+        
+        '<div class="form-row">' +
+        '<div class="form-group" style="flex:1"><label class="form-label">' + t("batches.quantity", "Quantite") + ' (' + getWeightUnit() + ') *</label>' +
+        '<input type="number" class="form-input" id="batchGrams" placeholder="500" step="0.1" autofocus></div>' +
+        '<div class="form-group" style="flex:1"><label class="form-label">' + t("batches.costPerUnit", "Cout") + ' (' + getCurrencySymbol() + '/' + getWeightUnit() + ')</label>' +
+        '<input type="number" class="form-input" id="batchCost" placeholder="4.50" step="0.01"></div>' +
+        '</div>' +
+        
+        '<div class="form-row">' +
+        '<div class="form-group" style="flex:1"><label class="form-label">' + t("batches.expiryType", "Type date") + '</label>' +
+        '<select class="form-select" id="batchExpiryType">' +
+        '<option value="dlc">DLC (Date Limite Consommation)</option>' +
+        '<option value="dluo">DLUO / DDM</option>' +
+        '<option value="none">Aucune</option>' +
+        '</select></div>' +
+        '<div class="form-group" style="flex:1"><label class="form-label">' + t("batches.expiryDate", "Date limite") + '</label>' +
+        '<input type="date" class="form-input" id="batchExpiryDate"></div>' +
+        '</div>' +
+        
+        '<div class="form-group"><label class="form-label">' + t("batches.supplierRef", "Ref. fournisseur") + '</label>' +
+        '<input type="text" class="form-input" id="batchSupplierRef" placeholder="LOT-FOURNISSEUR-001"></div>' +
+        
+        '<div class="form-group"><label class="form-label">' + t("batches.notes", "Notes") + '</label>' +
+        '<textarea class="form-input" id="batchNotes" rows="2" placeholder="Notes optionnelles..."></textarea></div>',
+      footer:
+        '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.cancel", "Annuler") + '</button>' +
+        '<button class="btn btn-primary" onclick="app.saveBatch()">' + t("action.save", "Enregistrer") + '</button>'
     });
   }
 
@@ -2331,6 +2925,18 @@
     changeAnalyticsPeriod: changeAnalyticsPeriod,
     toggleSection: toggleSection,
     switchAnalyticsTab: switchAnalyticsTab,
+    // Batches / Lots
+    onBatchProductChange: onBatchProductChange,
+    onBatchStatusChange: onBatchStatusChange,
+    onBatchExpiringChange: onBatchExpiringChange,
+    showAddBatchModal: showAddBatchModal,
+    showAddBatchForProduct: showAddBatchForProduct,
+    saveBatch: saveBatch,
+    showAdjustBatchModal: showAdjustBatchModal,
+    saveAdjustBatch: saveAdjustBatch,
+    openBatchDetails: openBatchDetails,
+    deactivateBatch: deactivateBatch,
+    markExpiredBatches: markExpiredBatches,
     // Settings
     updateSetting: updateSetting,
     updateNestedSetting: updateNestedSetting,

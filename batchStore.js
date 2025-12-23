@@ -1,5 +1,5 @@
-// batchStore.js — Gestion des lots (Batch Tracking) avec DLC/DLUO
-// Traçabilité complète, alertes péremption, FIFO automatique
+// batchStore.js aEUR Gestion des lots (Batch Tracking) avec DLC/DLUO
+// Traabilit complte, alertes premption, FIFO automatique
 
 const fs = require("fs");
 const path = require("path");
@@ -47,12 +47,12 @@ function generateBatchId() {
   id: "LOT-20250115-AB12",
   productId: "123456",
   
-  // Quantités
+  // Quantits
   initialGrams: 500,
   currentGrams: 350,
   usedGrams: 150,
   
-  // Coût
+  // Cot
   purchasePricePerGram: 4.50,
   totalCost: 2250,
   
@@ -60,7 +60,7 @@ function generateBatchId() {
   createdAt: "2025-01-15T10:00:00Z",
   receivedAt: "2025-01-15T10:00:00Z",
   
-  // Péremption
+  // Premption
   expiryType: "dlc" | "dluo" | "none",
   expiryDate: "2025-07-15",
   
@@ -75,9 +75,9 @@ function generateBatchId() {
   status: "active" | "depleted" | "expired" | "recalled",
   
   // Notes
-  notes: "Qualité premium",
+  notes: "Qualit premium",
   
-  // Métadonnées
+  // Mtadonnes
   updatedAt: "2025-01-15T10:00:00Z",
 }
 */
@@ -122,7 +122,7 @@ function saveBatches(shop, productId, batches) {
 }
 
 /**
- * Crée un nouveau lot
+ * Cre un nouveau lot
  */
 function createBatch(shop, productId, batchData) {
   const batches = loadBatches(shop, productId);
@@ -131,12 +131,12 @@ function createBatch(shop, productId, batchData) {
     id: batchData.id || generateBatchId(),
     productId: String(productId),
     
-    // Quantités
+    // Quantits
     initialGrams: Number(batchData.grams || batchData.initialGrams || 0),
     currentGrams: Number(batchData.grams || batchData.initialGrams || 0),
     usedGrams: 0,
     
-    // Coût
+    // Cot
     purchasePricePerGram: Number(batchData.purchasePricePerGram || batchData.costPerGram || 0),
     totalCost: 0,
     
@@ -144,7 +144,7 @@ function createBatch(shop, productId, batchData) {
     createdAt: new Date().toISOString(),
     receivedAt: batchData.receivedAt || new Date().toISOString(),
     
-    // Péremption
+    // Premption
     expiryType: batchData.expiryType || "none", // dlc | dluo | none
     expiryDate: batchData.expiryDate || null,
     
@@ -162,7 +162,7 @@ function createBatch(shop, productId, batchData) {
     updatedAt: new Date().toISOString(),
   };
   
-  // Calculer le coût total
+  // Calculer le cot total
   batch.totalCost = batch.initialGrams * batch.purchasePricePerGram;
   
   batches.push(batch);
@@ -172,14 +172,14 @@ function createBatch(shop, productId, batchData) {
 }
 
 /**
- * Met à jour un lot
+ * Met  jour un lot
  */
 function updateBatch(shop, productId, batchId, updates) {
   const batches = loadBatches(shop, productId);
   const index = batches.findIndex(b => b.id === batchId);
   
   if (index === -1) {
-    throw new Error(`Lot non trouvé: ${batchId}`);
+    throw new Error(`Lot non trouv: ${batchId}`);
   }
   
   const batch = batches[index];
@@ -216,31 +216,31 @@ function deleteBatch(shop, productId, batchId, hardDelete = false) {
 }
 
 // ============================================
-// DÉSTOCKAGE FIFO
+// DSTOCKAGE FIFO
 // ============================================
 
 /**
- * Déstocke des grammes en FIFO (First In, First Out)
+ * Dstocke des grammes en FIFO (First In, First Out)
  * Utilise les lots les plus anciens en premier
  * 
- * @returns {Array} Liste des lots utilisés avec quantités
+ * @returns {Array} Liste des lots utiliss avec quantits
  */
 function deductGramsFIFO(shop, productId, gramsToDeduct) {
   const batches = loadBatches(shop, productId);
   let remaining = Number(gramsToDeduct);
   const deductions = [];
   
-  // Trier par date de réception (plus ancien en premier) puis par date d'expiration
+  // Trier par date de rception (plus ancien en premier) puis par date d'expiration
   const activeBatches = batches
     .filter(b => b.status === "active" && b.currentGrams > 0)
     .sort((a, b) => {
-      // Priorité aux lots qui expirent bientôt
+      // Priorit aux lots qui expirent bientt
       if (a.expiryDate && b.expiryDate) {
         return new Date(a.expiryDate) - new Date(b.expiryDate);
       }
       if (a.expiryDate) return -1;
       if (b.expiryDate) return 1;
-      // Sinon FIFO par date de réception
+      // Sinon FIFO par date de rception
       return new Date(a.receivedAt) - new Date(b.receivedAt);
     });
   
@@ -251,12 +251,12 @@ function deductGramsFIFO(shop, productId, gramsToDeduct) {
     const toDeduct = Math.min(available, remaining);
     
     if (toDeduct > 0) {
-      // Mettre à jour le lot
+      // Mettre  jour le lot
       batch.currentGrams -= toDeduct;
       batch.usedGrams += toDeduct;
       batch.updatedAt = new Date().toISOString();
       
-      // Marquer comme épuisé si vide
+      // Marquer comme puis si vide
       if (batch.currentGrams <= 0) {
         batch.status = "depleted";
       }
@@ -281,7 +281,7 @@ function deductGramsFIFO(shop, productId, gramsToDeduct) {
     remaining,
     batches: deductions,
     totalCost: deductions.reduce((sum, d) => sum + d.totalCost, 0),
-    // Coût moyen pondéré des grammes déstockés
+    // Cot moyen pondr des grammes dstocks
     averageCostPerGram: deductions.length > 0
       ? deductions.reduce((sum, d) => sum + d.totalCost, 0) / deductions.reduce((sum, d) => sum + d.grams, 0)
       : 0,
@@ -289,7 +289,7 @@ function deductGramsFIFO(shop, productId, gramsToDeduct) {
 }
 
 /**
- * Calcule le coût FIFO pour une quantité donnée (sans déstocker)
+ * Calcule le cot FIFO pour une quantit donne (sans dstocker)
  */
 function calculateFIFOCost(shop, productId, grams) {
   const batches = loadBatches(shop, productId);
@@ -323,11 +323,11 @@ function calculateFIFOCost(shop, productId, grams) {
 }
 
 // ============================================
-// ALERTES PÉREMPTION
+// ALERTES PREMPTION
 // ============================================
 
 /**
- * Récupère les lots qui expirent bientôt
+ * Rcupre les lots qui expirent bientt
  */
 function getExpiringBatches(shop, options = {}) {
   const { productId, daysThreshold = 30 } = options;
@@ -372,7 +372,7 @@ function getExpiringBatches(shop, options = {}) {
 }
 
 /**
- * Récupère les lots expirés
+ * Rcupre les lots expirs
  */
 function getExpiredBatches(shop, productId = null) {
   return getExpiringBatches(shop, { productId, daysThreshold: 0 })
@@ -380,7 +380,7 @@ function getExpiredBatches(shop, productId = null) {
 }
 
 /**
- * Marque automatiquement les lots expirés
+ * Marque automatiquement les lots expirs
  */
 function markExpiredBatches(shop) {
   const expired = getExpiredBatches(shop);
@@ -480,7 +480,7 @@ function getBatchStats(shop, productId) {
 }
 
 /**
- * Résumé global des lots pour un shop
+ * Rsum global des lots pour un shop
  */
 function getShopBatchSummary(shop) {
   const dir = batchDir(shop);
@@ -549,7 +549,7 @@ function getBatch(shop, productId, batchId) {
 }
 
 /**
- * Recherche un lot par référence fournisseur
+ * Recherche un lot par rfrence fournisseur
  */
 function findBatchBySupplierRef(shop, productId, supplierRef) {
   const batches = loadBatches(shop, productId);
@@ -573,7 +573,7 @@ module.exports = {
   deductGramsFIFO,
   calculateFIFOCost,
   
-  // Péremption
+  // Premption
   getExpiringBatches,
   getExpiredBatches,
   markExpiredBatches,
