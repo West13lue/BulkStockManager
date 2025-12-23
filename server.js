@@ -60,6 +60,22 @@ try {
   console.warn("SupplierStore non disponible:", e.message);
 }
 
+// --- Purchase Order Store (multi-shop) - Business
+let purchaseOrderStore = null;
+try {
+  purchaseOrderStore = require("./purchaseOrderStore");
+} catch (e) {
+  console.warn("PurchaseOrderStore non disponible:", e.message);
+}
+
+// --- Sales Order Store (multi-shop) - PRO
+let salesOrderStore = null;
+try {
+  salesOrderStore = require("./salesOrderStore");
+} catch (e) {
+  console.warn("SalesOrderStore non disponible:", e.message);
+}
+
 // --- Analytics (multi-shop) aÅ“â€¦ NOUVEAU
 let analyticsStore = null;
 let analyticsManager = null;
@@ -2937,25 +2953,24 @@ router.post("/api/suppliers", (req, res) => {
     const shop = getShop(req);
     if (!shop) return apiError(res, 400, "Shop introuvable");
 
-    // Verifier limite du plan
-    if (planManager) {
-      const check = planManager.checkLimit(shop, "create_supplier");
-      if (!check.allowed) {
-        return res.status(403).json({ error: "plan_limit", message: check.reason });
-      }
-    }
-
     if (!supplierStore) return apiError(res, 500, "Module fournisseurs non disponible");
 
-    // Verifier limite Free (1 fournisseur max)
+    // Compter les fournisseurs actuels
     const currentSuppliers = supplierStore.loadSuppliers(shop);
-    const plan = planManager ? planManager.getEffectivePlan(shop) : { plan: "enterprise" };
-    if (plan.plan === "free" && currentSuppliers.length >= 1) {
-      return res.status(403).json({ 
-        error: "plan_limit", 
-        message: "Plan Free limite a 1 fournisseur. Passez a Starter pour plus.",
-        upgrade: true 
-      });
+    const currentCount = currentSuppliers.length;
+
+    // Verifier limite du plan avec le comptage
+    if (planManager) {
+      const check = planManager.checkLimit(shop, "create_supplier", { currentSupplierCount: currentCount });
+      if (!check.allowed) {
+        return res.status(403).json({ 
+          error: "plan_limit", 
+          message: check.reason,
+          upgrade: check.upgrade,
+          limit: check.limit,
+          current: check.current
+        });
+      }
     }
 
     try {
@@ -3050,6 +3065,334 @@ router.get("/api/products/:productId/suppliers", (req, res) => {
     const quantity = parseInt(req.query.quantity) || 100;
     const suppliers = supplierStore.comparePrices(shop, req.params.productId, quantity);
     res.json({ suppliers });
+  });
+});
+
+// ============================================
+// COMMANDES D'ACHAT (Purchase Orders) - Business
+// ============================================
+
+// Liste des PO
+router.get("/api/purchase-orders", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+
+    if (planManager) {
+      const check = planManager.checkLimit(shop, "view_purchase_orders");
+      if (!check.allowed) {
+        return res.status(403).json({ error: "plan_limit", message: check.reason, upgrade: check.upgrade });
+      }
+    }
+
+    if (!purchaseOrderStore) return apiError(res, 500, "Module commandes non disponible");
+
+    const { year, status, supplierId, limit } = req.query;
+    const orders = purchaseOrderStore.listPurchaseOrders(shop, {
+      year: year ? parseInt(year) : null,
+      status,
+      supplierId,
+      limit: limit ? parseInt(limit) : 100,
+    });
+
+    const stats = purchaseOrderStore.getPOStats(shop);
+    res.json({ orders, stats });
+  });
+});
+
+// Detail PO
+router.get("/api/purchase-orders/:id", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    if (!purchaseOrderStore) return apiError(res, 500, "Module commandes non disponible");
+
+    const po = purchaseOrderStore.getPurchaseOrder(shop, req.params.id);
+    if (!po) return apiError(res, 404, "Commande non trouvee");
+
+    // Enrichir avec les noms de produits
+    const snapshot = stock.getCatalogSnapshot ? stock.getCatalogSnapshot(shop) : { products: [] };
+    const productMap = {};
+    (snapshot.products || []).forEach(p => { productMap[p.productId] = p; });
+
+    po.lines = po.lines.map(line => ({
+      ...line,
+      productName: line.productName || (productMap[line.productId]?.name) || "Produit inconnu",
+    }));
+
+    res.json({ order: po });
+  });
+});
+
+// Creer PO
+router.post("/api/purchase-orders", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+
+    if (planManager) {
+      const check = planManager.checkLimit(shop, "create_purchase_order");
+      if (!check.allowed) {
+        return res.status(403).json({ error: "plan_limit", message: check.reason });
+      }
+    }
+
+    if (!purchaseOrderStore) return apiError(res, 500, "Module commandes non disponible");
+
+    try {
+      const po = purchaseOrderStore.createPurchaseOrder(shop, req.body);
+      res.json({ success: true, order: po });
+    } catch (e) {
+      return apiError(res, 400, e.message);
+    }
+  });
+});
+
+// Update PO
+router.put("/api/purchase-orders/:id", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    if (!purchaseOrderStore) return apiError(res, 500, "Module commandes non disponible");
+
+    try {
+      const po = purchaseOrderStore.updatePurchaseOrder(shop, req.params.id, req.body);
+      res.json({ success: true, order: po });
+    } catch (e) {
+      return apiError(res, 400, e.message);
+    }
+  });
+});
+
+// Envoyer PO
+router.post("/api/purchase-orders/:id/send", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    if (!purchaseOrderStore) return apiError(res, 500, "Module commandes non disponible");
+
+    try {
+      const po = purchaseOrderStore.sendPurchaseOrder(shop, req.params.id);
+      res.json({ success: true, order: po });
+    } catch (e) {
+      return apiError(res, 400, e.message);
+    }
+  });
+});
+
+// Confirmer PO
+router.post("/api/purchase-orders/:id/confirm", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    if (!purchaseOrderStore) return apiError(res, 500, "Module commandes non disponible");
+
+    try {
+      const po = purchaseOrderStore.confirmPurchaseOrder(shop, req.params.id, req.body.expectedDeliveryAt);
+      res.json({ success: true, order: po });
+    } catch (e) {
+      return apiError(res, 400, e.message);
+    }
+  });
+});
+
+// Recevoir items PO
+router.post("/api/purchase-orders/:id/receive", async (req, res) => {
+  safeJson(req, res, async () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    if (!purchaseOrderStore) return apiError(res, 500, "Module commandes non disponible");
+
+    try {
+      const result = purchaseOrderStore.receiveItems(shop, req.params.id, req.body.lines, {
+        notes: req.body.notes,
+        createBatches: req.body.createBatches !== false,
+      });
+
+      // Creer les lots et mettre a jour le stock
+      if (batchStore && result.batchesToCreate.length > 0) {
+        for (const batchData of result.batchesToCreate) {
+          try {
+            batchStore.createBatch(shop, batchData.productId, {
+              grams: batchData.grams,
+              purchasePricePerGram: batchData.pricePerGram,
+              supplierId: batchData.supplierId,
+              purchaseOrderId: batchData.purchaseOrderId,
+              expiryDate: batchData.expiryDate,
+              expiryType: batchData.expiryType,
+            });
+
+            // Mettre a jour le stock
+            if (stock.addStock) {
+              stock.addStock(shop, batchData.productId, batchData.grams, batchData.pricePerGram);
+            }
+          } catch (e) {
+            console.warn("Erreur creation lot:", e.message);
+          }
+        }
+      }
+
+      res.json({ success: true, ...result });
+    } catch (e) {
+      return apiError(res, 400, e.message);
+    }
+  });
+});
+
+// Annuler PO
+router.post("/api/purchase-orders/:id/cancel", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    if (!purchaseOrderStore) return apiError(res, 500, "Module commandes non disponible");
+
+    try {
+      const po = purchaseOrderStore.cancelPurchaseOrder(shop, req.params.id, req.body.reason);
+      res.json({ success: true, order: po });
+    } catch (e) {
+      return apiError(res, 400, e.message);
+    }
+  });
+});
+
+// Supprimer PO (brouillon seulement)
+router.delete("/api/purchase-orders/:id", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    if (!purchaseOrderStore) return apiError(res, 500, "Module commandes non disponible");
+
+    try {
+      purchaseOrderStore.deletePurchaseOrder(shop, req.params.id);
+      res.json({ success: true });
+    } catch (e) {
+      return apiError(res, 400, e.message);
+    }
+  });
+});
+
+// ============================================
+// COMMANDES DE VENTE (Sales Orders) - PRO
+// ============================================
+
+// Liste des SO
+router.get("/api/sales-orders", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+
+    if (planManager) {
+      const check = planManager.checkLimit(shop, "view_sales_orders");
+      if (!check.allowed) {
+        return res.status(403).json({ error: "plan_limit", message: check.reason, upgrade: check.upgrade });
+      }
+    }
+
+    if (!salesOrderStore) return apiError(res, 500, "Module ventes non disponible");
+
+    const { from, to, status, source, search, limit } = req.query;
+    const orders = salesOrderStore.listSalesOrders(shop, {
+      from, to, status, source, search,
+      limit: limit ? parseInt(limit) : 100,
+    });
+
+    const stats = salesOrderStore.getSalesStats(shop, { from, to });
+    res.json({ orders, stats });
+  });
+});
+
+// Detail SO
+router.get("/api/sales-orders/:id", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    if (!salesOrderStore) return apiError(res, 500, "Module ventes non disponible");
+
+    const so = salesOrderStore.getSalesOrder(shop, req.params.id);
+    if (!so) return apiError(res, 404, "Commande non trouvee");
+
+    res.json({ order: so });
+  });
+});
+
+// Creer SO manuellement
+router.post("/api/sales-orders", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    if (!salesOrderStore) return apiError(res, 500, "Module ventes non disponible");
+
+    // Recuperer les CMP des produits
+    const snapshot = stock.getCatalogSnapshot ? stock.getCatalogSnapshot(shop) : { products: [] };
+    const productMap = {};
+    (snapshot.products || []).forEach(p => { 
+      productMap[p.productId] = { 
+        name: p.name, 
+        cmp: p.averageCostPerGram || 0 
+      }; 
+    });
+
+    // Ajouter les couts aux lignes
+    const lines = (req.body.lines || []).map(line => ({
+      ...line,
+      productName: line.productName || productMap[line.productId]?.name || "Produit",
+      costPrice: line.costPrice || productMap[line.productId]?.cmp || 0,
+    }));
+
+    try {
+      const result = salesOrderStore.createSalesOrder(shop, { ...req.body, lines, source: "manual" });
+      res.json({ success: true, ...result });
+    } catch (e) {
+      return apiError(res, 400, e.message);
+    }
+  });
+});
+
+// Import Shopify
+router.post("/api/sales-orders/import-shopify", async (req, res) => {
+  safeJson(req, res, async () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    if (!salesOrderStore) return apiError(res, 500, "Module ventes non disponible");
+
+    // Recuperer les CMP des produits pour calculer les marges
+    const snapshot = stock.getCatalogSnapshot ? stock.getCatalogSnapshot(shop) : { products: [] };
+    const productCostMap = {};
+    (snapshot.products || []).forEach(p => { productCostMap[p.productId] = p.averageCostPerGram || 0; });
+
+    try {
+      // Recuperer les commandes Shopify via l'API
+      const client = shopifyFor(shop);
+      if (!client) return apiError(res, 500, "Client Shopify non disponible");
+
+      const days = parseInt(req.query.days) || 30;
+      const fromDate = new Date();
+      fromDate.setDate(fromDate.getDate() - days);
+
+      const shopifyOrders = await client.order.list({
+        status: "any",
+        created_at_min: fromDate.toISOString(),
+        limit: 250,
+      });
+
+      const result = salesOrderStore.importFromShopify(shop, shopifyOrders || [], productCostMap);
+      res.json({ success: true, ...result });
+    } catch (e) {
+      return apiError(res, 500, "Erreur import: " + e.message);
+    }
+  });
+});
+
+// Stats ventes
+router.get("/api/sales-orders/stats", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    if (!salesOrderStore) return apiError(res, 500, "Module ventes non disponible");
+
+    const { from, to } = req.query;
+    const stats = salesOrderStore.getSalesStats(shop, { from, to });
+    res.json(stats);
   });
 });
 

@@ -1,5 +1,5 @@
-// purchaseOrderStore.js — Gestion des bons de commande (Purchase Orders)
-// Workflow : Brouillon → Envoyé → Confirmé → Reçu partiellement → Complet
+// purchaseOrderStore.js aEUR Gestion des bons de commande (Purchase Orders)
+// Workflow : Brouillon a Envoy a Confirm a Reu partiellement a Complet
 
 const fs = require("fs");
 const path = require("path");
@@ -17,11 +17,11 @@ const PO_STATUS = {
 
 const PO_STATUS_LABELS = {
   draft: "Brouillon",
-  sent: "Envoyé",
-  confirmed: "Confirmé",
-  partial: "Reçu partiellement",
+  sent: "Envoy",
+  confirmed: "Confirm",
+  partial: "Reu partiellement",
   complete: "Complet",
-  cancelled: "Annulé",
+  cancelled: "Annul",
 };
 
 function sanitizeShop(shop) {
@@ -127,7 +127,7 @@ function getPurchaseOrder(shop, poId) {
 
 function updatePurchaseOrder(shop, poId, updates) {
   const po = getPurchaseOrder(shop, poId);
-  if (!po) throw new Error(`Bon de commande non trouvé: ${poId}`);
+  if (!po) throw new Error(`Bon de commande non trouv: ${poId}`);
   
   const year = po._year;
   const orders = loadOrdersByYear(shop, year);
@@ -168,7 +168,7 @@ function updatePurchaseOrder(shop, poId, updates) {
 function deletePurchaseOrder(shop, poId) {
   const po = getPurchaseOrder(shop, poId);
   if (!po) return false;
-  if (po.status !== PO_STATUS.DRAFT) throw new Error("Seuls les brouillons peuvent être supprimés");
+  if (po.status !== PO_STATUS.DRAFT) throw new Error("Seuls les brouillons peuvent tre supprims");
   
   const year = po._year;
   const orders = loadOrdersByYear(shop, year);
@@ -178,8 +178,8 @@ function deletePurchaseOrder(shop, poId) {
 
 function sendPurchaseOrder(shop, poId) {
   const po = getPurchaseOrder(shop, poId);
-  if (!po) throw new Error(`PO non trouvé: ${poId}`);
-  if (po.status !== PO_STATUS.DRAFT) throw new Error("Seuls les brouillons peuvent être envoyés");
+  if (!po) throw new Error(`PO non trouv: ${poId}`);
+  if (po.status !== PO_STATUS.DRAFT) throw new Error("Seuls les brouillons peuvent tre envoys");
   
   const year = po._year;
   const orders = loadOrdersByYear(shop, year);
@@ -195,8 +195,8 @@ function sendPurchaseOrder(shop, poId) {
 
 function confirmPurchaseOrder(shop, poId, expectedDeliveryAt = null) {
   const po = getPurchaseOrder(shop, poId);
-  if (!po) throw new Error(`PO non trouvé: ${poId}`);
-  if (po.status !== PO_STATUS.SENT) throw new Error("Le PO doit être envoyé avant confirmation");
+  if (!po) throw new Error(`PO non trouv: ${poId}`);
+  if (po.status !== PO_STATUS.SENT) throw new Error("Le PO doit tre envoy avant confirmation");
   
   const year = po._year;
   const orders = loadOrdersByYear(shop, year);
@@ -212,15 +212,15 @@ function confirmPurchaseOrder(shop, poId, expectedDeliveryAt = null) {
 
 function cancelPurchaseOrder(shop, poId, reason = "") {
   const po = getPurchaseOrder(shop, poId);
-  if (!po) throw new Error(`PO non trouvé: ${poId}`);
-  if (po.status === PO_STATUS.COMPLETE) throw new Error("Un PO complet ne peut pas être annulé");
+  if (!po) throw new Error(`PO non trouv: ${poId}`);
+  if (po.status === PO_STATUS.COMPLETE) throw new Error("Un PO complet ne peut pas tre annul");
   
   const year = po._year;
   const orders = loadOrdersByYear(shop, year);
   const index = orders.findIndex(o => o.id === poId);
   
   orders[index].status = PO_STATUS.CANCELLED;
-  orders[index].internalNotes += `\n[ANNULÉ] ${reason}`;
+  orders[index].internalNotes += `\n[ANNUL] ${reason}`;
   orders[index].updatedAt = new Date().toISOString();
   
   saveOrdersByYear(shop, year, orders);
@@ -229,9 +229,9 @@ function cancelPurchaseOrder(shop, poId, reason = "") {
 
 function receiveItems(shop, poId, receivedLines, options = {}) {
   const po = getPurchaseOrder(shop, poId);
-  if (!po) throw new Error(`PO non trouvé: ${poId}`);
+  if (!po) throw new Error(`PO non trouv: ${poId}`);
   if (![PO_STATUS.SENT, PO_STATUS.CONFIRMED, PO_STATUS.PARTIAL].includes(po.status)) {
-    throw new Error("Le PO doit être envoyé ou confirmé pour recevoir des articles");
+    throw new Error("Le PO doit tre envoy ou confirm pour recevoir des articles");
   }
   
   const year = po._year;

@@ -160,9 +160,10 @@
       hasShopifyImport: "starter",
       hasStockValue: "starter",
       hasAdvancedExports: "starter",
+      hasSuppliers: "free", // CHANGE: Disponible des Free
+      hasSupplierAnalytics: "pro", // NOUVEAU: Analytics fournisseurs PRO
       hasAnalytics: "pro",
       hasBatchTracking: "pro",
-      hasSuppliers: "pro",
       hasInventoryCount: "pro",
       hasTrends: "pro",
       hasNotifications: "pro",
@@ -351,7 +352,7 @@
         renderSuppliers(c);
         break;
       case "orders":
-        renderFeature(c, "hasPurchaseOrders", "Commandes", "clipboard-list");
+        renderOrders(c);
         break;
       case "forecast":
         renderFeature(c, "hasForecast", "Previsions", "trending-up");
@@ -885,23 +886,27 @@
 
   async function saveBatch() {
     var productId = document.getElementById("batchProduct").value;
-    var grams = parseFloat(document.getElementById("batchGrams").value);
-    var costPerGram = parseFloat(document.getElementById("batchCost").value) || 0;
+    var qty = parseFloat(document.getElementById("batchGrams").value);
+    var cost = parseFloat(document.getElementById("batchCost").value) || 0;
     var expiryType = document.getElementById("batchExpiryType").value;
     var expiryDate = document.getElementById("batchExpiryDate").value;
     var supplierRef = document.getElementById("batchSupplierRef").value;
     var notes = document.getElementById("batchNotes").value;
 
-    if (!productId || !grams || grams <= 0) {
+    if (!productId || !qty || qty <= 0) {
       showToast(t("batches.errorRequired", "Produit et quantite requis"), "error");
       return;
     }
+
+    // Convertir en grammes pour le backend
+    var gramsValue = toGrams(qty);
+    var costPerGram = toPricePerGram(cost);
 
     try {
       var res = await authFetch(apiUrl("/lots/" + productId), {
         method: "POST",
         body: JSON.stringify({
-          grams: grams,
+          grams: gramsValue,
           costPerGram: costPerGram,
           expiryType: expiryType,
           expiryDate: expiryDate || null,
@@ -939,13 +944,16 @@
   }
 
   async function saveAdjustBatch(productId, lotId) {
-    var delta = parseFloat(document.getElementById("adjustDelta").value);
+    var deltaInput = parseFloat(document.getElementById("adjustDelta").value);
     var reason = document.getElementById("adjustReason").value;
 
-    if (isNaN(delta) || delta === 0) {
+    if (isNaN(deltaInput) || deltaInput === 0) {
       showToast(t("batches.errorAdjustment", "Entrez une valeur d'ajustement"), "error");
       return;
     }
+
+    // Convertir en grammes pour le backend
+    var delta = deltaInput >= 0 ? toGrams(deltaInput) : -toGrams(Math.abs(deltaInput));
 
     try {
       var res = await authFetch(apiUrl("/lots/" + productId + "/" + lotId + "/adjust"), {
@@ -1574,6 +1582,590 @@
     }
   }
 
+  // ============================================
+  // COMMANDES (Plan Business)
+  // ============================================
+  
+  var ordersData = { purchases: null, sales: null };
+  var ordersTab = "purchases";
+  var ordersFilters = { status: "", period: "30" };
+
+  function renderOrders(c) {
+    // Les achats sont Business+, les ventes sont PRO+
+    var hasPurchases = hasFeature("hasPurchaseOrders");
+    var hasSales = hasFeature("hasAnalytics"); // PRO pour voir les ventes/marges
+    
+    if (!hasPurchases && !hasSales) {
+      c.innerHTML =
+        '<div class="page-header"><h1 class="page-title"><i data-lucide="clipboard-list"></i> ' + t("orders.title", "Commandes") + '</h1></div>' +
+        '<div class="card" style="min-height:400px;display:flex;align-items:center;justify-content:center"><div class="text-center">' +
+        '<div class="lock-icon"><i data-lucide="lock"></i></div>' +
+        '<h2>' + t("msg.featureLocked", "Fonctionnalite Business") + '</h2>' +
+        '<p class="text-secondary">' + t("orders.lockedDesc", "Gerez vos commandes d\'achat et suivez vos marges avec le plan Business.") + '</p>' +
+        '<div class="feature-preview mt-lg">' +
+        '<div class="preview-item"><i data-lucide="shopping-cart"></i> ' + t("orders.feature1", "Commandes fournisseurs") + '</div>' +
+        '<div class="preview-item"><i data-lucide="receipt"></i> ' + t("orders.feature2", "Suivi des ventes") + '</div>' +
+        '<div class="preview-item"><i data-lucide="trending-up"></i> ' + t("orders.feature3", "Marges par commande") + '</div>' +
+        '</div>' +
+        '<button class="btn btn-upgrade mt-lg" onclick="app.showUpgradeModal()">' + t("action.upgrade", "Passer a Business") + '</button>' +
+        '</div></div>';
+      return;
+    }
+
+    // Si uniquement ventes (PRO sans Business)
+    if (!hasPurchases) {
+      ordersTab = "sales";
+    }
+
+    c.innerHTML =
+      '<div class="page-header"><div><h1 class="page-title"><i data-lucide="clipboard-list"></i> ' + t("orders.title", "Commandes") + '</h1>' +
+      '<p class="page-subtitle">' + t("orders.subtitle", "Achats fournisseurs et ventes") + '</p></div>' +
+      '<div class="page-actions">' +
+      (hasPurchases ? '<button class="btn btn-primary" onclick="app.showCreatePOModal()"><i data-lucide="plus"></i> ' + t("orders.newPO", "Nouvelle commande") + '</button>' : '') +
+      (hasSales ? '<button class="btn btn-secondary" onclick="app.importShopifyOrders()"><i data-lucide="download"></i> ' + t("orders.importShopify", "Import Shopify") + '</button>' : '') +
+      '</div></div>' +
+      
+      // Tabs Achats / Ventes
+      '<div class="orders-tabs">' +
+      (hasPurchases ? '<button class="orders-tab' + (ordersTab === "purchases" ? " active" : "") + '" onclick="app.switchOrdersTab(\'purchases\')"><i data-lucide="shopping-bag"></i> ' + t("orders.tabPurchases", "Achats") + '</button>' : '') +
+      (hasSales ? '<button class="orders-tab' + (ordersTab === "sales" ? " active" : "") + '" onclick="app.switchOrdersTab(\'sales\')"><i data-lucide="receipt"></i> ' + t("orders.tabSales", "Ventes") + '</button>' : '') +
+      '</div>' +
+      
+      '<div id="ordersKpis"><div class="text-center py-lg"><div class="spinner"></div></div></div>' +
+      '<div id="ordersFilters"></div>' +
+      '<div id="ordersContent"><div class="text-center py-lg"><div class="spinner"></div></div></div>';
+
+    if (ordersTab === "purchases") {
+      loadPurchaseOrders();
+    } else {
+      loadSalesOrders();
+    }
+  }
+
+  function switchOrdersTab(tab) {
+    ordersTab = tab;
+    document.querySelectorAll(".orders-tab").forEach(function(btn) {
+      btn.classList.toggle("active", btn.textContent.toLowerCase().includes(tab === "purchases" ? "achat" : "vente"));
+    });
+    
+    if (tab === "purchases") {
+      loadPurchaseOrders();
+    } else {
+      loadSalesOrders();
+    }
+  }
+
+  // === ACHATS (Purchase Orders) ===
+  
+  async function loadPurchaseOrders() {
+    try {
+      var res = await authFetch(apiUrl("/purchase-orders?limit=100"));
+      if (!res.ok) {
+        var err = await res.json().catch(function() { return {}; });
+        if (err.error === "plan_limit") {
+          showUpgradeModal();
+          return;
+        }
+        throw new Error(err.error || "Erreur");
+      }
+
+      ordersData.purchases = await res.json();
+      renderPurchaseKpis();
+      renderPurchaseFilters();
+      renderPurchaseTable();
+    } catch (e) {
+      document.getElementById("ordersContent").innerHTML =
+        '<div class="card"><div class="card-body text-center"><p class="text-danger">' + e.message + '</p></div></div>';
+    }
+  }
+
+  function renderPurchaseKpis() {
+    if (!ordersData.purchases) return;
+    var s = ordersData.purchases.stats || {};
+    
+    var html =
+      '<div class="stats-grid">' +
+      '<div class="stat-card"><div class="stat-icon"><i data-lucide="file-text"></i></div>' +
+      '<div class="stat-value">' + (s.total || 0) + '</div>' +
+      '<div class="stat-label">' + t("orders.totalPO", "Commandes") + '</div></div>' +
+      
+      '<div class="stat-card"><div class="stat-icon"><i data-lucide="clock"></i></div>' +
+      '<div class="stat-value">' + ((s.byStatus?.sent || 0) + (s.byStatus?.confirmed || 0) + (s.byStatus?.partial || 0)) + '</div>' +
+      '<div class="stat-label">' + t("orders.pending", "En cours") + '</div></div>' +
+      
+      '<div class="stat-card"><div class="stat-icon"><i data-lucide="check-circle"></i></div>' +
+      '<div class="stat-value">' + (s.byStatus?.complete || 0) + '</div>' +
+      '<div class="stat-label">' + t("orders.received", "Recues") + '</div></div>' +
+      
+      '<div class="stat-card"><div class="stat-icon"><i data-lucide="coins"></i></div>' +
+      '<div class="stat-value">' + formatCurrency(s.totalValue || 0) + '</div>' +
+      '<div class="stat-label">' + t("orders.totalValue", "Valeur totale") + '</div></div>' +
+      '</div>';
+
+    document.getElementById("ordersKpis").innerHTML = html;
+    if (typeof lucide !== "undefined") lucide.createIcons();
+  }
+
+  function renderPurchaseFilters() {
+    var html =
+      '<div class="toolbar-filters mb-md">' +
+      '<div class="filter-group">' +
+      '<select class="form-select" onchange="app.onOrderStatusChange(this.value)">' +
+      '<option value="">' + t("orders.allStatus", "Tous les statuts") + '</option>' +
+      '<option value="draft">' + t("orders.statusDraft", "Brouillon") + '</option>' +
+      '<option value="sent">' + t("orders.statusSent", "Envoyee") + '</option>' +
+      '<option value="confirmed">' + t("orders.statusConfirmed", "Confirmee") + '</option>' +
+      '<option value="partial">' + t("orders.statusPartial", "Partielle") + '</option>' +
+      '<option value="complete">' + t("orders.statusComplete", "Complete") + '</option>' +
+      '</select></div></div>';
+    document.getElementById("ordersFilters").innerHTML = html;
+  }
+
+  function renderPurchaseTable() {
+    var orders = ordersData.purchases?.orders || [];
+    
+    if (orders.length === 0) {
+      document.getElementById("ordersContent").innerHTML =
+        '<div class="card"><div class="card-body">' +
+        '<div class="empty-state"><div class="empty-icon"><i data-lucide="shopping-bag"></i></div>' +
+        '<h3>' + t("orders.noPO", "Aucune commande") + '</h3>' +
+        '<p class="text-secondary">' + t("orders.noPODesc", "Creez votre premiere commande fournisseur.") + '</p>' +
+        '<button class="btn btn-primary mt-md" onclick="app.showCreatePOModal()">' + t("orders.newPO", "Nouvelle commande") + '</button>' +
+        '</div></div></div>';
+      if (typeof lucide !== "undefined") lucide.createIcons();
+      return;
+    }
+
+    var rows = orders.map(function(po) {
+      var statusBadge = getPOStatusBadge(po.status);
+      return '<tr class="order-row" onclick="app.openPODetails(\'' + esc(po.id) + '\')">' +
+        '<td><span class="order-number">' + esc(po.number) + '</span></td>' +
+        '<td>' + esc(po.supplierName || '-') + '</td>' +
+        '<td>' + (po.lines?.length || 0) + ' ' + t("orders.items", "articles") + '</td>' +
+        '<td>' + formatCurrency(po.total || 0) + '</td>' +
+        '<td>' + (po.createdAt || '').slice(0, 10) + '</td>' +
+        '<td>' + statusBadge + '</td>' +
+        '</tr>';
+    }).join("");
+
+    document.getElementById("ordersContent").innerHTML =
+      '<div class="card"><div class="card-body" style="padding:0">' +
+      '<table class="data-table"><thead><tr>' +
+      '<th>' + t("orders.number", "N°") + '</th>' +
+      '<th>' + t("orders.supplier", "Fournisseur") + '</th>' +
+      '<th>' + t("orders.lines", "Lignes") + '</th>' +
+      '<th>' + t("orders.total", "Total") + '</th>' +
+      '<th>' + t("orders.date", "Date") + '</th>' +
+      '<th>' + t("orders.status", "Statut") + '</th>' +
+      '</tr></thead><tbody>' + rows + '</tbody></table></div></div>';
+  }
+
+  function getPOStatusBadge(status) {
+    var labels = {
+      draft: { class: "secondary", label: t("orders.statusDraft", "Brouillon") },
+      sent: { class: "info", label: t("orders.statusSent", "Envoyee") },
+      confirmed: { class: "primary", label: t("orders.statusConfirmed", "Confirmee") },
+      partial: { class: "warning", label: t("orders.statusPartial", "Partielle") },
+      complete: { class: "success", label: t("orders.statusComplete", "Complete") },
+      cancelled: { class: "danger", label: t("orders.statusCancelled", "Annulee") }
+    };
+    var s = labels[status] || labels.draft;
+    return '<span class="badge badge-' + s.class + '">' + s.label + '</span>';
+  }
+
+  function showCreatePOModal() {
+    // Options fournisseurs
+    var supplierOptions = '<option value="">' + t("orders.selectSupplier", "Selectionner...") + '</option>';
+    if (suppliersData && suppliersData.suppliers) {
+      suppliersData.suppliers.forEach(function(s) {
+        supplierOptions += '<option value="' + esc(s.id) + '" data-name="' + esc(s.name) + '">' + esc(s.name) + '</option>';
+      });
+    }
+
+    // Options produits
+    var productOptions = state.products.map(function(p) {
+      return '<option value="' + esc(p.productId) + '">' + esc(p.name) + '</option>';
+    }).join("");
+
+    showModal({
+      title: t("orders.newPO", "Nouvelle commande fournisseur"),
+      size: "lg",
+      content:
+        '<div class="form-row">' +
+        '<div class="form-group" style="flex:1"><label class="form-label">' + t("orders.supplier", "Fournisseur") + ' *</label>' +
+        '<select class="form-select" id="poSupplier" onchange="app.onPOSupplierChange(this)">' + supplierOptions + '</select></div>' +
+        '<div class="form-group" style="flex:1"><label class="form-label">' + t("orders.expectedDate", "Date livraison prevue") + '</label>' +
+        '<input type="date" class="form-input" id="poExpectedDate"></div>' +
+        '</div>' +
+        
+        '<div class="form-section"><h4>' + t("orders.lines", "Lignes de commande") + '</h4>' +
+        '<div id="poLines"></div>' +
+        '<button class="btn btn-ghost btn-sm mt-sm" onclick="app.addPOLine()"><i data-lucide="plus"></i> ' + t("orders.addLine", "Ajouter ligne") + '</button>' +
+        '</div>' +
+        
+        '<div class="form-row">' +
+        '<div class="form-group" style="flex:1"><label class="form-label">' + t("orders.shipping", "Frais de port") + '</label>' +
+        '<input type="number" class="form-input" id="poShipping" value="0" step="0.01"></div>' +
+        '<div class="form-group" style="flex:1"><label class="form-label">' + t("orders.otherCosts", "Autres frais") + '</label>' +
+        '<input type="number" class="form-input" id="poOtherCosts" value="0" step="0.01"></div>' +
+        '</div>' +
+        
+        '<div class="po-total-row">' +
+        '<span class="po-total-label">' + t("orders.estimatedTotal", "Total estime") + ':</span>' +
+        '<span class="po-total-value" id="poTotalValue">' + formatCurrency(0) + '</span>' +
+        '</div>' +
+        
+        '<div class="form-group"><label class="form-label">' + t("orders.notes", "Notes") + '</label>' +
+        '<textarea class="form-input" id="poNotes" rows="2"></textarea></div>',
+      footer:
+        '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.cancel", "Annuler") + '</button>' +
+        '<button class="btn btn-primary" onclick="app.savePO()">' + t("action.save", "Creer") + '</button>'
+    });
+
+    // Ajouter une premiere ligne
+    addPOLine();
+    if (typeof lucide !== "undefined") lucide.createIcons();
+  }
+
+  var poLineIndex = 0;
+  function addPOLine() {
+    var container = document.getElementById("poLines");
+    if (!container) return;
+
+    var productOptions = state.products.map(function(p) {
+      return '<option value="' + esc(p.productId) + '" data-cmp="' + (p.averageCostPerGram || 0) + '">' + esc(p.name) + '</option>';
+    }).join("");
+
+    var lineHtml =
+      '<div class="po-line" data-line="' + poLineIndex + '">' +
+      '<select class="form-select po-line-product" onchange="app.updatePOTotal()">' +
+      '<option value="">' + t("orders.selectProduct", "Produit...") + '</option>' + productOptions +
+      '</select>' +
+      '<input type="number" class="form-input po-line-qty" placeholder="' + t("orders.qty", "Qte") + ' (' + getWeightUnit() + ')" onchange="app.updatePOTotal()">' +
+      '<input type="number" class="form-input po-line-price" placeholder="' + t("orders.price", "Prix") + ' (' + getCurrencySymbol() + '/' + getWeightUnit() + ')" step="0.01" onchange="app.updatePOTotal()">' +
+      '<span class="po-line-total">= ' + formatCurrency(0) + '</span>' +
+      '<button class="btn btn-ghost btn-xs" onclick="app.removePOLine(' + poLineIndex + ')"><i data-lucide="x"></i></button>' +
+      '</div>';
+
+    container.insertAdjacentHTML("beforeend", lineHtml);
+    poLineIndex++;
+    if (typeof lucide !== "undefined") lucide.createIcons();
+  }
+
+  function removePOLine(index) {
+    var line = document.querySelector('.po-line[data-line="' + index + '"]');
+    if (line) line.remove();
+    updatePOTotal();
+  }
+
+  function updatePOTotal() {
+    var lines = document.querySelectorAll(".po-line");
+    var subtotal = 0;
+
+    lines.forEach(function(line) {
+      var qty = parseFloat(line.querySelector(".po-line-qty")?.value) || 0;
+      var price = parseFloat(line.querySelector(".po-line-price")?.value) || 0;
+      var lineTotal = qty * price;
+      subtotal += lineTotal;
+      var totalEl = line.querySelector(".po-line-total");
+      if (totalEl) totalEl.textContent = "= " + formatCurrency(lineTotal);
+    });
+
+    var shipping = parseFloat(document.getElementById("poShipping")?.value) || 0;
+    var other = parseFloat(document.getElementById("poOtherCosts")?.value) || 0;
+    var total = subtotal + shipping + other;
+
+    var totalEl = document.getElementById("poTotalValue");
+    if (totalEl) totalEl.textContent = formatCurrency(total);
+  }
+
+  async function savePO() {
+    var supplierId = document.getElementById("poSupplier").value;
+    var supplierName = document.getElementById("poSupplier").selectedOptions[0]?.dataset?.name || "";
+
+    if (!supplierId) {
+      showToast(t("orders.errorSupplier", "Selectionnez un fournisseur"), "error");
+      return;
+    }
+
+    var lines = [];
+    document.querySelectorAll(".po-line").forEach(function(lineEl) {
+      var productId = lineEl.querySelector(".po-line-product")?.value;
+      var productName = lineEl.querySelector(".po-line-product")?.selectedOptions[0]?.textContent || "";
+      var qty = parseFloat(lineEl.querySelector(".po-line-qty")?.value) || 0;
+      var price = parseFloat(lineEl.querySelector(".po-line-price")?.value) || 0;
+
+      if (productId && qty > 0) {
+        // Convertir en grammes pour le backend
+        var gramsValue = toGrams(qty);
+        var pricePerGram = toPricePerGram(price);
+        lines.push({ productId, productName, grams: gramsValue, pricePerGram: pricePerGram });
+      }
+    });
+
+    if (lines.length === 0) {
+      showToast(t("orders.errorLines", "Ajoutez au moins une ligne"), "error");
+      return;
+    }
+
+    try {
+      var res = await authFetch(apiUrl("/purchase-orders"), {
+        method: "POST",
+        body: JSON.stringify({
+          supplierId,
+          supplierName,
+          expectedDeliveryAt: document.getElementById("poExpectedDate")?.value || null,
+          lines,
+          shippingCost: parseFloat(document.getElementById("poShipping")?.value) || 0,
+          otherCosts: parseFloat(document.getElementById("poOtherCosts")?.value) || 0,
+          notes: document.getElementById("poNotes")?.value || "",
+        })
+      });
+
+      if (!res.ok) throw new Error("Erreur");
+
+      closeModal();
+      showToast(t("orders.poCreated", "Commande creee"), "success");
+      loadPurchaseOrders();
+
+    } catch (e) {
+      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
+    }
+  }
+
+  async function openPODetails(poId) {
+    try {
+      var res = await authFetch(apiUrl("/purchase-orders/" + poId));
+      if (!res.ok) throw new Error("Commande non trouvee");
+
+      var data = await res.json();
+      var po = data.order;
+      var statusBadge = getPOStatusBadge(po.status);
+
+      var linesHtml = po.lines.map(function(l) {
+        var received = l.receivedGrams || 0;
+        var ordered = l.orderedGrams || 0;
+        var pct = ordered > 0 ? Math.round((received / ordered) * 100) : 0;
+        return '<tr>' +
+          '<td>' + esc(l.productName || l.productId) + '</td>' +
+          '<td>' + formatWeight(ordered) + '</td>' +
+          '<td>' + formatPricePerUnit(l.pricePerGram || 0) + '</td>' +
+          '<td>' + formatCurrency(l.lineTotal || 0) + '</td>' +
+          '<td>' + formatWeight(received) + ' (' + pct + '%)</td>' +
+          '</tr>';
+      }).join("");
+
+      var actionsHtml = '';
+      if (po.status === 'draft') {
+        actionsHtml = '<button class="btn btn-primary" onclick="app.sendPO(\'' + po.id + '\')">' + t("orders.send", "Envoyer") + '</button>';
+      } else if (po.status === 'sent') {
+        actionsHtml = '<button class="btn btn-primary" onclick="app.confirmPO(\'' + po.id + '\')">' + t("orders.confirm", "Confirmer") + '</button>';
+      } else if (['sent', 'confirmed', 'partial'].includes(po.status)) {
+        actionsHtml = '<button class="btn btn-primary" onclick="app.showReceivePOModal(\'' + po.id + '\')">' + t("orders.receive", "Recevoir") + '</button>';
+      }
+
+      showModal({
+        title: t("orders.poDetails", "Commande") + " " + po.number,
+        size: "lg",
+        content:
+          '<div class="po-detail-header">' +
+          '<div><strong>' + t("orders.supplier", "Fournisseur") + ':</strong> ' + esc(po.supplierName || '-') + '</div>' +
+          '<div>' + statusBadge + '</div>' +
+          '</div>' +
+          '<div class="po-detail-dates">' +
+          '<span>' + t("orders.created", "Creee") + ': ' + (po.createdAt || '').slice(0, 10) + '</span>' +
+          (po.expectedDeliveryAt ? '<span>' + t("orders.expected", "Prevue") + ': ' + po.expectedDeliveryAt.slice(0, 10) + '</span>' : '') +
+          (po.receivedAt ? '<span>' + t("orders.receivedAt", "Recue") + ': ' + po.receivedAt.slice(0, 10) + '</span>' : '') +
+          '</div>' +
+          '<table class="data-table data-table-compact mt-md"><thead><tr>' +
+          '<th>' + t("orders.product", "Produit") + '</th>' +
+          '<th>' + t("orders.ordered", "Commande") + '</th>' +
+          '<th>' + t("orders.unitPrice", "Prix unit.") + '</th>' +
+          '<th>' + t("orders.lineTotal", "Total") + '</th>' +
+          '<th>' + t("orders.received", "Recu") + '</th>' +
+          '</tr></thead><tbody>' + linesHtml + '</tbody></table>' +
+          '<div class="po-total-section">' +
+          '<div class="po-total-row"><span>Sous-total:</span><span>' + formatCurrency(po.subtotal || 0) + '</span></div>' +
+          (po.shippingCost ? '<div class="po-total-row"><span>Frais de port:</span><span>' + formatCurrency(po.shippingCost) + '</span></div>' : '') +
+          '<div class="po-total-row po-total-final"><span>' + t("orders.total", "Total") + ':</span><span>' + formatCurrency(po.total || 0) + '</span></div>' +
+          '</div>',
+        footer:
+          '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.close", "Fermer") + '</button>' +
+          actionsHtml
+      });
+
+    } catch (e) {
+      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
+    }
+  }
+
+  async function sendPO(poId) {
+    try {
+      await authFetch(apiUrl("/purchase-orders/" + poId + "/send"), { method: "POST" });
+      closeModal();
+      showToast(t("orders.poSent", "Commande envoyee"), "success");
+      loadPurchaseOrders();
+    } catch (e) {
+      showToast(t("msg.error", "Erreur"), "error");
+    }
+  }
+
+  async function confirmPO(poId) {
+    try {
+      await authFetch(apiUrl("/purchase-orders/" + poId + "/confirm"), { method: "POST" });
+      closeModal();
+      showToast(t("orders.poConfirmed", "Commande confirmee"), "success");
+      loadPurchaseOrders();
+    } catch (e) {
+      showToast(t("msg.error", "Erreur"), "error");
+    }
+  }
+
+  // === VENTES (Sales Orders) ===
+
+  async function loadSalesOrders() {
+    try {
+      var days = ordersFilters.period || "30";
+      var from = new Date();
+      from.setDate(from.getDate() - parseInt(days));
+
+      var res = await authFetch(apiUrl("/sales-orders?from=" + from.toISOString().slice(0, 10) + "&limit=100"));
+      if (!res.ok) throw new Error("Erreur");
+
+      ordersData.sales = await res.json();
+      renderSalesKpis();
+      renderSalesFilters();
+      renderSalesTable();
+    } catch (e) {
+      document.getElementById("ordersContent").innerHTML =
+        '<div class="card"><div class="card-body text-center"><p class="text-danger">' + e.message + '</p></div></div>';
+    }
+  }
+
+  function renderSalesKpis() {
+    if (!ordersData.sales) return;
+    var s = ordersData.sales.stats || {};
+    
+    var marginClass = (s.avgMarginPercent || 0) >= 30 ? "success" : (s.avgMarginPercent || 0) >= 15 ? "warning" : "danger";
+    
+    var html =
+      '<div class="stats-grid stats-grid-5">' +
+      '<div class="stat-card"><div class="stat-icon"><i data-lucide="shopping-cart"></i></div>' +
+      '<div class="stat-value">' + (s.totalOrders || 0) + '</div>' +
+      '<div class="stat-label">' + t("orders.salesCount", "Commandes") + '</div></div>' +
+      
+      '<div class="stat-card"><div class="stat-icon"><i data-lucide="trending-up"></i></div>' +
+      '<div class="stat-value">' + formatCurrency(s.totalRevenue || 0) + '</div>' +
+      '<div class="stat-label">' + t("orders.revenue", "CA") + '</div></div>' +
+      
+      '<div class="stat-card"><div class="stat-icon"><i data-lucide="piggy-bank"></i></div>' +
+      '<div class="stat-value ' + marginClass + '">' + formatCurrency(s.totalMargin || 0) + '</div>' +
+      '<div class="stat-label">' + t("orders.margin", "Marge") + '</div></div>' +
+      
+      '<div class="stat-card"><div class="stat-icon"><i data-lucide="percent"></i></div>' +
+      '<div class="stat-value ' + marginClass + '">' + (s.avgMarginPercent || 0) + '%</div>' +
+      '<div class="stat-label">' + t("orders.marginPct", "Marge %") + '</div></div>' +
+      
+      '<div class="stat-card"><div class="stat-icon"><i data-lucide="shopping-bag"></i></div>' +
+      '<div class="stat-value">' + formatCurrency(s.avgOrderValue || 0) + '</div>' +
+      '<div class="stat-label">' + t("orders.avgOrder", "Panier moy.") + '</div></div>' +
+      '</div>';
+
+    document.getElementById("ordersKpis").innerHTML = html;
+    if (typeof lucide !== "undefined") lucide.createIcons();
+  }
+
+  function renderSalesFilters() {
+    var html =
+      '<div class="toolbar-filters mb-md">' +
+      '<div class="filter-group">' +
+      '<select class="form-select" onchange="app.onOrderPeriodChange(this.value)">' +
+      '<option value="7"' + (ordersFilters.period === "7" ? " selected" : "") + '>' + t("orders.last7", "7 derniers jours") + '</option>' +
+      '<option value="30"' + (ordersFilters.period === "30" ? " selected" : "") + '>' + t("orders.last30", "30 derniers jours") + '</option>' +
+      '<option value="90"' + (ordersFilters.period === "90" ? " selected" : "") + '>' + t("orders.last90", "90 derniers jours") + '</option>' +
+      '</select></div>' +
+      '<div class="filter-group">' +
+      '<select class="form-select" onchange="app.onOrderSourceChange(this.value)">' +
+      '<option value="">' + t("orders.allSources", "Toutes sources") + '</option>' +
+      '<option value="shopify">Shopify</option>' +
+      '<option value="manual">' + t("orders.manual", "Manuel") + '</option>' +
+      '</select></div></div>';
+    document.getElementById("ordersFilters").innerHTML = html;
+  }
+
+  function renderSalesTable() {
+    var orders = ordersData.sales?.orders || [];
+    
+    if (orders.length === 0) {
+      document.getElementById("ordersContent").innerHTML =
+        '<div class="card"><div class="card-body">' +
+        '<div class="empty-state"><div class="empty-icon"><i data-lucide="receipt"></i></div>' +
+        '<h3>' + t("orders.noSales", "Aucune vente") + '</h3>' +
+        '<p class="text-secondary">' + t("orders.noSalesDesc", "Importez vos ventes Shopify pour voir vos marges.") + '</p>' +
+        '<button class="btn btn-primary mt-md" onclick="app.importShopifyOrders()">' + t("orders.importShopify", "Import Shopify") + '</button>' +
+        '</div></div></div>';
+      if (typeof lucide !== "undefined") lucide.createIcons();
+      return;
+    }
+
+    var rows = orders.map(function(so) {
+      var marginClass = (so.marginPercent || 0) >= 30 ? "success" : (so.marginPercent || 0) >= 15 ? "" : "danger";
+      var sourceBadge = so.source === "shopify" ? '<span class="badge badge-info">Shopify</span>' : '<span class="badge badge-secondary">Manuel</span>';
+      
+      return '<tr class="order-row" onclick="app.openSODetails(\'' + esc(so.id) + '\')">' +
+        '<td><span class="order-number">' + esc(so.number) + '</span></td>' +
+        '<td>' + sourceBadge + '</td>' +
+        '<td>' + formatCurrency(so.total || 0) + '</td>' +
+        '<td>' + formatCurrency(so.totalCost || 0) + '</td>' +
+        '<td class="' + marginClass + '">' + formatCurrency(so.grossMargin || 0) + '</td>' +
+        '<td class="' + marginClass + '">' + (so.marginPercent || 0) + '%</td>' +
+        '<td>' + (so.createdAt || '').slice(0, 10) + '</td>' +
+        '</tr>';
+    }).join("");
+
+    document.getElementById("ordersContent").innerHTML =
+      '<div class="card"><div class="card-body" style="padding:0">' +
+      '<table class="data-table"><thead><tr>' +
+      '<th>' + t("orders.number", "N°") + '</th>' +
+      '<th>' + t("orders.source", "Source") + '</th>' +
+      '<th>' + t("orders.revenue", "CA") + '</th>' +
+      '<th>' + t("orders.cost", "Cout") + '</th>' +
+      '<th>' + t("orders.margin", "Marge") + '</th>' +
+      '<th>%</th>' +
+      '<th>' + t("orders.date", "Date") + '</th>' +
+      '</tr></thead><tbody>' + rows + '</tbody></table></div></div>';
+  }
+
+  async function importShopifyOrders() {
+    showToast(t("orders.importing", "Import en cours..."), "info");
+    
+    try {
+      var res = await authFetch(apiUrl("/sales-orders/import-shopify?days=30"), { method: "POST" });
+      if (!res.ok) throw new Error("Erreur import");
+
+      var data = await res.json();
+      showToast(t("orders.imported", "commandes importees").replace("{count}", data.imported), "success");
+      loadSalesOrders();
+    } catch (e) {
+      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
+    }
+  }
+
+  function onOrderStatusChange(status) {
+    ordersFilters.status = status;
+    loadPurchaseOrders();
+  }
+
+  function onOrderPeriodChange(period) {
+    ordersFilters.period = period;
+    loadSalesOrders();
+  }
+
+  function onOrderSourceChange(source) {
+    ordersFilters.source = source;
+    loadSalesOrders();
+  }
+
   function renderTable(products) {
     var rows = products
       .map(function (p) {
@@ -1747,11 +2339,11 @@
       '<div class="settings-section-body">' +
       
       '<div class="setting-group-title">Seuils de statut</div>' +
-      '<div class="setting-row"><label class="setting-label"><span class="status-dot critical"></span> Seuil critique (g)</label>' +
+      '<div class="setting-row"><label class="setting-label"><span class="status-dot critical"></span> Seuil critique (" + getWeightUnit() + ")</label>' +
       '<div class="setting-input-help"><input type="number" class="form-input setting-input-sm" value="' + criticalThreshold + '" onchange="app.updateSetting(\'stock\',\'criticalThreshold\',parseInt(this.value))">' +
       '<span class="help-text">Stock &lt; ce seuil = Rouge</span></div></div>' +
       
-      '<div class="setting-row"><label class="setting-label"><span class="status-dot low"></span> Seuil bas (g)</label>' +
+      '<div class="setting-row"><label class="setting-label"><span class="status-dot low"></span> Seuil bas (" + getWeightUnit() + ")</label>' +
       '<div class="setting-input-help"><input type="number" class="form-input setting-input-sm" value="' + lowThreshold + '" onchange="app.updateSetting(\'stock\',\'lowStockThreshold\',parseInt(this.value))">' +
       '<span class="help-text">Stock &lt; ce seuil = Jaune</span></div></div>' +
       
@@ -1802,7 +2394,7 @@
         '<div class="settings-section">' +
         '<div class="settings-section-header"><h3>Parametres avances</h3><span class="badge badge-business">BIZ</span></div>' +
         '<div class="settings-section-body">' +
-        '<div class="setting-row"><label class="setting-label">Freebies par commande (g)</label>' +
+        '<div class="setting-row"><label class="setting-label">Freebies par commande (" + getWeightUnit() + ")</label>' +
         '<input type="number" class="form-input setting-input" value="' + ((s.freebies && s.freebies.deductionPerOrder) || 0) + '" onchange="app.updateSetting(\'freebies\',\'deductionPerOrder\',parseFloat(this.value))"></div>' +
         '<div class="setting-row"><label class="setting-label">Freebies actives</label>' +
         '<label class="toggle"><input type="checkbox" ' + (s.freebies && s.freebies.enabled ? 'checked' : '') + ' onchange="app.updateSetting(\'freebies\',\'enabled\',this.checked)"><span class="toggle-slider"></span></label></div>' +
@@ -1940,7 +2532,7 @@
       title: "Ajouter un produit",
       content:
         '<div class="form-group"><label class="form-label">Nom</label><input class="form-input" id="pName" placeholder="CBD Premium"></div>' +
-        '<div style="display:flex;gap:16px"><div class="form-group" style="flex:1"><label class="form-label">Stock (g)</label><input type="number" class="form-input" id="pStock" value="0"></div>' +
+        '<div style="display:flex;gap:16px"><div class="form-group" style="flex:1"><label class="form-label">Stock (" + getWeightUnit() + ")</label><input type="number" class="form-input" id="pStock" value="0"></div>' +
         '<div class="form-group" style="flex:1"><label class="form-label">Cout (" + getCurrencySymbol() + "/" + getWeightUnit() + ")</label><input type="number" class="form-input" id="pCost" value="0" step="0.01"></div></div>',
       footer:
         '<button class="btn btn-ghost" onclick="app.closeModal()">Annuler</button><button class="btn btn-primary" onclick="app.saveProduct()">Ajouter</button>',
@@ -2043,7 +2635,7 @@
         '<div class="form-group"><label class="form-label">Produit</label><select class="form-select" id="rProd">' +
         opts +
         '</select></div>' +
-        '<div style="display:flex;gap:16px"><div class="form-group" style="flex:1"><label class="form-label">Quantite (g)</label><input type="number" class="form-input" id="rQty" placeholder="500"></div>' +
+        '<div style="display:flex;gap:16px"><div class="form-group" style="flex:1"><label class="form-label">Quantite (" + getWeightUnit() + ")</label><input type="number" class="form-input" id="rQty" placeholder="500"></div>' +
         '<div class="form-group" style="flex:1"><label class="form-label">Prix (" + getCurrencySymbol() + "/" + getWeightUnit() + ")</label><input type="number" class="form-input" id="rPrice" placeholder="4.50" step="0.01"></div></div>',
       footer:
         '<button class="btn btn-ghost" onclick="app.closeModal()">Annuler</button><button class="btn btn-primary" onclick="app.saveRestock()">Valider</button>',
@@ -2075,7 +2667,7 @@
         '<div class="form-group"><label class="form-label">Type</label><div style="display:flex;gap:16px">' +
         '<label><input type="radio" name="aType" value="add" checked> Ajouter</label>' +
         '<label><input type="radio" name="aType" value="remove"> Retirer</label></div></div>' +
-        '<div class="form-group"><label class="form-label">Quantite (g)</label><input type="number" class="form-input" id="aQty" placeholder="100"></div>',
+        '<div class="form-group"><label class="form-label">Quantite (" + getWeightUnit() + ")</label><input type="number" class="form-input" id="aQty" placeholder="100"></div>',
       footer:
         '<button class="btn btn-ghost" onclick="app.closeModal()">Annuler</button><button class="btn btn-primary" onclick="app.saveAdjust()">Appliquer</button>',
     });
@@ -2213,10 +2805,15 @@
       showToast("Nom requis", "error");
       return;
     }
+    
+    // Convertir en grammes pour le backend
+    var stockInGrams = toGrams(stockv);
+    var costPerGram = toPricePerGram(cost);
+    
     try {
       var res = await authFetch(apiUrl("/products"), {
         method: "POST",
-        body: JSON.stringify({ name: name, totalGrams: stockv, averageCostPerGram: cost }),
+        body: JSON.stringify({ name: name, totalGrams: stockInGrams, averageCostPerGram: costPerGram }),
       });
       if (res.ok) {
         showToast("Produit ajoute", "success");
@@ -2240,10 +2837,15 @@
       showToast("Champs requis", "error");
       return;
     }
+    
+    // Convertir en grammes pour le backend
+    var qtyInGrams = toGrams(qty);
+    var pricePerGram = toPricePerGram(price);
+    
     try {
       var res = await authFetch(apiUrl("/restock"), {
         method: "POST",
-        body: JSON.stringify({ productId: pid, grams: qty, purchasePricePerGram: price }),
+        body: JSON.stringify({ productId: pid, grams: qtyInGrams, purchasePricePerGram: pricePerGram }),
       });
       if (res.ok) {
         showToast("Stock mis a jour", "success");
@@ -2267,7 +2869,11 @@
       showToast("Champs requis", "error");
       return;
     }
-    var delta = type === "remove" ? -Math.abs(qty) : Math.abs(qty);
+    
+    // Convertir en grammes pour le backend
+    var qtyInGrams = toGrams(qty);
+    var delta = type === "remove" ? -Math.abs(qtyInGrams) : Math.abs(qtyInGrams);
+    
     try {
       var res = await authFetch(apiUrl("/products/" + encodeURIComponent(pid) + "/adjust-total"), {
         method: "POST",
@@ -2443,9 +3049,47 @@
     return "EUR";
   }
   
+  // Helper: obtenir le code de devise courant
+  function getCurrencyCode() {
+    if (settingsData && settingsData.currency && settingsData.currency.code) {
+      return settingsData.currency.code;
+    }
+    return "EUR";
+  }
+  
+  // Helper: convertir de l'unite utilisateur vers grammes (pour envoi API)
+  function toGrams(value) {
+    var unit = getWeightUnit();
+    var factors = { g: 1, kg: 1000, oz: 28.3495, lb: 453.592 };
+    return value * (factors[unit] || 1);
+  }
+  
+  // Helper: convertir de grammes vers l'unite utilisateur (pour affichage formulaires)
+  function fromGrams(grams) {
+    var unit = getWeightUnit();
+    var factors = { g: 1, kg: 1000, oz: 28.3495, lb: 453.592 };
+    return grams / (factors[unit] || 1);
+  }
+  
+  // Helper: convertir le prix/g vers prix/unite utilisateur
+  function toPricePerUserUnit(pricePerGram) {
+    var unit = getWeightUnit();
+    var factors = { g: 1, kg: 1000, oz: 28.3495, lb: 453.592 };
+    return pricePerGram * (factors[unit] || 1);
+  }
+  
+  // Helper: convertir le prix/unite utilisateur vers prix/g (pour envoi API)
+  function toPricePerGram(pricePerUnit) {
+    var unit = getWeightUnit();
+    var factors = { g: 1, kg: 1000, oz: 28.3495, lb: 453.592 };
+    return pricePerUnit / (factors[unit] || 1);
+  }
+  
   // Helper: formater un prix par unite de poids (ex: "1.50 EUR/g")
-  function formatPricePerUnit(value) {
-    return formatCurrency(value) + "/" + getWeightUnit();
+  function formatPricePerUnit(pricePerGram) {
+    // Convertir le prix/g en prix/unite utilisateur pour affichage
+    var displayPrice = toPricePerUserUnit(pricePerGram);
+    return formatCurrency(displayPrice) + "/" + getWeightUnit();
   }
   
   function getStatus(g) {
@@ -3438,6 +4082,20 @@
     showEditSupplierModal: showEditSupplierModal,
     updateSupplier: updateSupplier,
     deleteSupplier: deleteSupplier,
+    // Orders
+    switchOrdersTab: switchOrdersTab,
+    showCreatePOModal: showCreatePOModal,
+    addPOLine: addPOLine,
+    removePOLine: removePOLine,
+    updatePOTotal: updatePOTotal,
+    savePO: savePO,
+    openPODetails: openPODetails,
+    sendPO: sendPO,
+    confirmPO: confirmPO,
+    importShopifyOrders: importShopifyOrders,
+    onOrderStatusChange: onOrderStatusChange,
+    onOrderPeriodChange: onOrderPeriodChange,
+    onOrderSourceChange: onOrderSourceChange,
     // Settings
     updateSetting: updateSetting,
     updateNestedSetting: updateNestedSetting,

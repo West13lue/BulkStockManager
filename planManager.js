@@ -1,4 +1,4 @@
-// planManager.js â€” Gestion des plans (Free/Starter/Pro/Business/Enterprise)
+// planManager.js aEUR Gestion des plans (Free/Starter/Pro/Business/Enterprise)
 // v2.0 - Nouveau pricing avec fonctionnalites avancees
 
 const fs = require("fs");
@@ -33,25 +33,25 @@ function getBypassPlan(shop) {
   normalizedShop = normalizedShop.replace(/^https?:\/\//, ''); // Enlever http(s)://
   normalizedShop = normalizedShop.replace(/\/$/, '');          // Enlever trailing slash
   
-  console.log(`ðŸ”Ž BYPASS CHECK: original="${shop}" normalized="${normalizedShop}"`);
+  console.log(` BYPASS CHECK: original="${shop}" normalized="${normalizedShop}"`);
   
   // Essayer le match direct (avec et sans www)
   if (BYPASS_BILLING[normalizedShop]) {
-    console.log(`âœ… BYPASS MATCH DIRECT: ${normalizedShop}`);
+    console.log(`a... BYPASS MATCH DIRECT: ${normalizedShop}`);
     return BYPASS_BILLING[normalizedShop];
   }
   
   // Essayer sans www
   const withoutWww = normalizedShop.replace(/^www\./, '');
   if (BYPASS_BILLING[withoutWww]) {
-    console.log(`âœ… BYPASS MATCH (sans www): ${withoutWww}`);
+    console.log(`a... BYPASS MATCH (sans www): ${withoutWww}`);
     return BYPASS_BILLING[withoutWww];
   }
   
   // Essayer avec www
   const withWww = 'www.' + withoutWww;
   if (BYPASS_BILLING[withWww]) {
-    console.log(`âœ… BYPASS MATCH (avec www): ${withWww}`);
+    console.log(`a... BYPASS MATCH (avec www): ${withWww}`);
     return BYPASS_BILLING[withWww];
   }
   
@@ -59,7 +59,7 @@ function getBypassPlan(shop) {
   if (!normalizedShop.includes('.myshopify.com') && !normalizedShop.includes('.')) {
     const withSuffix = normalizedShop + '.myshopify.com';
     if (BYPASS_BILLING[withSuffix]) {
-      console.log(`âœ… BYPASS MATCH (avec .myshopify.com): ${withSuffix}`);
+      console.log(`a... BYPASS MATCH (avec .myshopify.com): ${withSuffix}`);
       return BYPASS_BILLING[withSuffix];
     }
   }
@@ -69,12 +69,12 @@ function getBypassPlan(shop) {
     const keyNorm = key.toLowerCase().replace(/^www\./, '');
     const shopNorm = withoutWww;
     if (keyNorm.includes(shopNorm) || shopNorm.includes(keyNorm)) {
-      console.log(`âœ… BYPASS MATCH PARTIEL: ${key} ~ ${shopNorm}`);
+      console.log(`a... BYPASS MATCH PARTIEL: ${key} ~ ${shopNorm}`);
       return plan;
     }
   }
   
-  console.log(`âŒ NO BYPASS MATCH for: ${normalizedShop}`);
+  console.log(`a NO BYPASS MATCH for: ${normalizedShop}`);
   return null;
 }
 
@@ -102,6 +102,7 @@ const PLANS = {
     limits: {
       maxProducts: 2,
       maxUsers: 1,
+      maxSuppliers: 1, // NOUVEAU: 1 fournisseur max
       movementHistoryDays: 7,
       hasCategories: false,
       hasShopifyImport: false,
@@ -110,7 +111,8 @@ const PLANS = {
       hasAdvancedExports: false,
       hasTrends: false,
       hasBatchTracking: false,
-      hasSuppliers: false,
+      hasSuppliers: true, // CHANGE: Fournisseurs disponibles mais limites
+      hasSupplierAnalytics: false, // NOUVEAU: Analytics fournisseurs PRO
       hasPurchaseOrders: false,
       hasInventoryCount: false,
       hasForecast: false,
@@ -127,6 +129,7 @@ const PLANS = {
     },
     features: [
       "2 produits maximum",
+      "1 fournisseur",
       "Gestion stock + sync Shopify",
       "CMP (cout moyen) basique",
       "Ajustements manuels",
@@ -145,6 +148,7 @@ const PLANS = {
     limits: {
       maxProducts: 15,
       maxUsers: 1,
+      maxSuppliers: Infinity, // NOUVEAU: Illimite
       movementHistoryDays: 30,
       hasCategories: true,
       hasShopifyImport: true,
@@ -153,7 +157,8 @@ const PLANS = {
       hasAdvancedExports: true,
       hasTrends: false,
       hasBatchTracking: false,
-      hasSuppliers: false,
+      hasSuppliers: true, // CHANGE: Fournisseurs illimites
+      hasSupplierAnalytics: false, // Analytics fournisseurs PRO
       hasPurchaseOrders: false,
       hasInventoryCount: false,
       hasForecast: false,
@@ -170,6 +175,7 @@ const PLANS = {
     },
     features: [
       "15 produits",
+      "Fournisseurs illimites",
       "Tout Free +",
       "Categories & filtres",
       "Import Shopify",
@@ -190,6 +196,7 @@ const PLANS = {
     limits: {
       maxProducts: 75,
       maxUsers: 2,
+      maxSuppliers: Infinity, // NOUVEAU
       movementHistoryDays: 90,
       hasCategories: true,
       hasShopifyImport: true,
@@ -199,6 +206,7 @@ const PLANS = {
       hasTrends: true,
       hasBatchTracking: true,
       hasSuppliers: true,
+      hasSupplierAnalytics: true, // NOUVEAU: Analytics fournisseurs
       hasPurchaseOrders: false,
       hasInventoryCount: true,
       hasForecast: false,
@@ -216,12 +224,12 @@ const PLANS = {
     features: [
       "75 produits",
       "Tout Starter +",
-      "ðŸ“¦ Lots / DLC / Tracabilite",
-      "ðŸ­ Gestion fournisseurs",
-      "ðŸ“‹ Inventaire physique",
-      "ðŸ“Š Analytics (CA, marges)",
-      "ðŸ”” Notifications Slack/Discord",
-      "[GIFT] Gestion freebies",
+      "📦 Lots / DLC / Tracabilite",
+      "🏭 Analytics fournisseurs",
+      "📋 Inventaire physique",
+      "📊 Analytics (CA, marges)",
+      "🔔 Notifications Slack/Discord",
+      "🎁 Gestion freebies",
       "Historique 90 jours",
     ],
     cta: "Essai gratuit 14 jours",
@@ -237,6 +245,7 @@ const PLANS = {
     limits: {
       maxProducts: Infinity,
       maxUsers: 5,
+      maxSuppliers: Infinity, // NOUVEAU
       movementHistoryDays: 365,
       hasCategories: true,
       hasShopifyImport: true,
@@ -246,6 +255,7 @@ const PLANS = {
       hasTrends: true,
       hasBatchTracking: true,
       hasSuppliers: true,
+      hasSupplierAnalytics: true, // NOUVEAU
       hasPurchaseOrders: true,
       hasInventoryCount: true,
       hasForecast: true,
@@ -263,14 +273,14 @@ const PLANS = {
     features: [
       "Produits illimites",
       "Tout Pro +",
-      "ðŸ”® Previsions de rupture (IA)",
-      "ðŸ§© Kits / Bundles / Composes",
-      "ðŸ“ Bons de commande (PO)",
-      "ðŸ‘¥ Multi-utilisateurs (5)",
-      "âš¡ Automatisations",
-      "ðŸ”— Integrations (Zapier)",
-      "ðŸ“§ Rapports auto par email",
-      "â­ Support prioritaire",
+      "🔮 Previsions de rupture (IA)",
+      "📦 Kits / Bundles / Composes",
+      "🧾 Bons de commande (PO)",
+      "👥 Multi-utilisateurs (5)",
+      "⚡ Automatisations",
+      "🔗 Integrations (Zapier)",
+      "📧 Rapports auto par email",
+      "⭐ Support prioritaire",
       "Historique 1 an",
     ],
     cta: "Essai gratuit 14 jours",
@@ -286,6 +296,7 @@ const PLANS = {
     limits: {
       maxProducts: Infinity,
       maxUsers: Infinity,
+      maxSuppliers: Infinity, // NOUVEAU
       movementHistoryDays: Infinity,
       hasCategories: true,
       hasShopifyImport: true,
@@ -295,6 +306,7 @@ const PLANS = {
       hasTrends: true,
       hasBatchTracking: true,
       hasSuppliers: true,
+      hasSupplierAnalytics: true, // NOUVEAU
       hasPurchaseOrders: true,
       hasInventoryCount: true,
       hasForecast: true,
@@ -311,14 +323,14 @@ const PLANS = {
     },
     features: [
       "Tout Business +",
-      "ðŸª Multi-boutiques",
-      "ðŸ‘¥ Utilisateurs illimites",
-      "ðŸ”Œ Acces API complet",
-      "ðŸ“Š Historique illimite",
-      "[GIFT]¯ Account manager dedie",
-      "ðŸ“ž Support telephonique",
-      "ðŸ”§ Onboarding personnalise",
-      "ðŸ“œ SLA garanti 99.9%",
+      "🏪 Multi-boutiques",
+      "👥 Utilisateurs illimites",
+      "🔌 Acces API complet",
+      "📜 Historique illimite",
+      "🎁 Account manager dedie",
+      "📞 Support telephonique",
+      "🎓 Onboarding personnalise",
+      "📊 SLA garanti 99.9%",
     ],
     cta: "Contacter les ventes",
     contactSales: true,
@@ -328,24 +340,24 @@ const PLANS = {
 const PLAN_ORDER = ["free", "starter", "pro", "business", "enterprise"];
 
 const FEATURE_DESCRIPTIONS = {
-  hasCategories: { name: "Categories", icon: "ðŸ·ï¸", description: "Organiser vos produits" },
-  hasShopifyImport: { name: "Import Shopify", icon: "ðŸ“¥", description: "Importer depuis Shopify" },
-  hasStockValue: { name: "Valeur stock", icon: "ðŸ’°", description: "Valeur totale du stock" },
-  hasAnalytics: { name: "Analytics", icon: "ðŸ“Š", description: "Stats ventes et marges" },
-  hasBatchTracking: { name: "Lots & DLC", icon: "ðŸ“¦", description: "Tracabilite, peremption" },
-  hasSuppliers: { name: "Fournisseurs", icon: "ðŸ­", description: "Gestion fournisseurs" },
-  hasPurchaseOrders: { name: "Bons de commande", icon: "ðŸ“", description: "PO fournisseurs" },
-  hasInventoryCount: { name: "Inventaire", icon: "ðŸ“‹", description: "Comptage physique" },
-  hasForecast: { name: "Previsions", icon: "ðŸ”®", description: "Prediction ruptures" },
-  hasKits: { name: "Kits & Bundles", icon: "ðŸ§©", description: "Produits composes" },
-  hasMultiUsers: { name: "Multi-utilisateurs", icon: "ðŸ‘¥", description: "Ã‰quipe" },
-  hasAutomations: { name: "Automatisations", icon: "âš¡", description: "Regles auto" },
-  hasIntegrations: { name: "Integrations", icon: "ðŸ”—", description: "Zapier, webhooks" },
-  hasReports: { name: "Rapports auto", icon: "ðŸ“§", description: "Emails hebdo" },
-  hasMultiStore: { name: "Multi-boutiques", icon: "ðŸª", description: "Plusieurs shops" },
-  hasApi: { name: "Acces API", icon: "ðŸ”Œ", description: "API REST" },
-  hasNotifications: { name: "Notifications", icon: "ðŸ””", description: "Slack, Discord" },
-  hasFreebies: { name: "Freebies", icon: "[GIFT]", description: "Ã‰chantillons" },
+  hasCategories: { name: "Categories", icon: "*i", description: "Organiser vos produits" },
+  hasShopifyImport: { name: "Import Shopify", icon: "JPY", description: "Importer depuis Shopify" },
+  hasStockValue: { name: "Valeur stock", icon: "deg", description: "Valeur totale du stock" },
+  hasAnalytics: { name: "Analytics", icon: "", description: "Stats ventes et marges" },
+  hasBatchTracking: { name: "Lots & DLC", icon: "", description: "Tracabilite, peremption" },
+  hasSuppliers: { name: "Fournisseurs", icon: "", description: "Gestion fournisseurs" },
+  hasPurchaseOrders: { name: "Bons de commande", icon: "", description: "PO fournisseurs" },
+  hasInventoryCount: { name: "Inventaire", icon: "", description: "Comptage physique" },
+  hasForecast: { name: "Previsions", icon: "", description: "Prediction ruptures" },
+  hasKits: { name: "Kits & Bundles", icon: "", description: "Produits composes" },
+  hasMultiUsers: { name: "Multi-utilisateurs", icon: "JPY", description: "quipe" },
+  hasAutomations: { name: "Automatisations", icon: "a", description: "Regles auto" },
+  hasIntegrations: { name: "Integrations", icon: "--", description: "Zapier, webhooks" },
+  hasReports: { name: "Rapports auto", icon: "", description: "Emails hebdo" },
+  hasMultiStore: { name: "Multi-boutiques", icon: "", description: "Plusieurs shops" },
+  hasApi: { name: "Acces API", icon: "", description: "API REST" },
+  hasNotifications: { name: "Notifications", icon: "", description: "Slack, Discord" },
+  hasFreebies: { name: "Freebies", icon: "[GIFT]", description: "chantillons" },
 };
 
 // ============================================
@@ -378,12 +390,12 @@ function getShopPlan(shop) {
   // ============================================
   // BYPASS BILLING CHECK - Priorite absolue
   // ============================================
-  console.log(`ðŸ” PLAN CHECK for shop: "${shop}"`);
+  console.log(` PLAN CHECK for shop: "${shop}"`);
   
   const bypassPlan = getBypassPlan(shop);
   if (bypassPlan) {
     const plan = PLANS[bypassPlan] || PLANS.enterprise;
-    console.log(`[GIFT] BYPASS BILLING ACTIVATED: "${shop}" â†’ Plan ${plan.name} (gratuit)`);
+    console.log(`[GIFT] BYPASS BILLING ACTIVATED: "${shop}" a Plan ${plan.name} (gratuit)`);
     return {
       planId: plan.id,
       plan,
@@ -602,7 +614,7 @@ function cancelSubscription(shop) {
 }
 
 // ============================================
-// VÃ‰RIFICATION DES LIMITES
+// VRIFICATION DES LIMITES
 // ============================================
 
 function checkLimit(shop, action, context = {}) {
@@ -624,10 +636,13 @@ function checkLimit(shop, action, context = {}) {
     view_trends: ["hasTrends", "Tendances", "pro"],
     manage_batches: ["hasBatchTracking", "Lots & DLC", "pro"],
     view_batches: ["hasBatchTracking", "Lots & DLC", "pro"],
-    manage_suppliers: ["hasSuppliers", "Fournisseurs", "pro"],
-    view_suppliers: ["hasSuppliers", "Fournisseurs", "pro"],
+    create_batch: ["hasBatchTracking", "Lots & DLC", "pro"],
+    view_suppliers: ["hasSuppliers", "Fournisseurs", "free"], // CHANGE: Disponible des Free
+    view_supplier_analytics: ["hasSupplierAnalytics", "Analytics fournisseurs", "pro"], // NOUVEAU
     manage_purchase_orders: ["hasPurchaseOrders", "Bons de commande", "business"],
     view_purchase_orders: ["hasPurchaseOrders", "Bons de commande", "business"],
+    create_purchase_order: ["hasPurchaseOrders", "Bons de commande", "business"],
+    view_sales_orders: ["hasAnalytics", "Commandes ventes", "pro"],
     inventory_count: ["hasInventoryCount", "Inventaire", "pro"],
     view_forecast: ["hasForecast", "Previsions", "business"],
     manage_kits: ["hasKits", "Kits & Bundles", "business"],
@@ -649,8 +664,24 @@ function checkLimit(shop, action, context = {}) {
       return {
         allowed: false,
         reason: `Limite de ${limits.maxProducts} produit(s) atteinte`,
-        upgrade: getNextPlan(planId),
+        upgrade: getNextPlan(effectivePlanId),
         limit: limits.maxProducts,
+        current: currentCount,
+      };
+    }
+    return { allowed: true };
+  }
+
+  // NOUVEAU: Verification limite fournisseurs
+  if (action === "create_supplier" || action === "add_supplier") {
+    const currentCount = Number(context.currentSupplierCount || 0);
+    const maxSuppliers = limits.maxSuppliers || 1;
+    if (maxSuppliers !== Infinity && currentCount >= maxSuppliers) {
+      return {
+        allowed: false,
+        reason: `Limite de ${maxSuppliers} fournisseur(s) atteinte`,
+        upgrade: "starter",
+        limit: maxSuppliers,
         current: currentCount,
       };
     }
@@ -673,7 +704,7 @@ function checkLimit(shop, action, context = {}) {
     const requestedDays = Number(context.days || 7);
     const maxDays = limits.movementHistoryDays === Infinity ? 9999 : limits.movementHistoryDays;
     if (requestedDays > maxDays) {
-      return { allowed: true, limitedTo: maxDays, reason: `Historique limite Ã  ${maxDays} jours` };
+      return { allowed: true, limitedTo: maxDays, reason: `Historique limite  ${maxDays} jours` };
     }
     return { allowed: true };
   }
