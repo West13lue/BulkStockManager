@@ -458,6 +458,68 @@ var I18N = {
       "forecast.scenarioNormal": "Normal",
       "forecast.scenarioOptimistic": "Optimiste",
       "forecast.howCalculated": "Comment ce calcul est fait",
+      
+      // Messages communs
+      "msg.error": "Erreur",
+      "msg.nameRequired": "Nom requis",
+      "msg.productQtyRequired": "Produit et quantite requis",
+      "msg.selectProducts": "Selectionnez au moins un produit",
+      "msg.noProducts": "Aucun produit a afficher.",
+      "msg.noEvents": "Aucun evenement.",
+      "msg.loading": "Chargement...",
+      "msg.exportError": "Erreur export",
+      
+      // Kits
+      "kits.newKit": "Nouveau kit",
+      "kits.created": "Kit cree",
+      "kits.addComponent": "Ajouter un composant",
+      "kits.componentAdded": "Composant ajoute",
+      "kits.componentRemoved": "Composant supprime",
+      "kits.activated": "Kit active",
+      "kits.deleted": "Kit supprime",
+      "kits.confirmDelete": "Supprimer ce kit ?",
+      
+      // Orders
+      "orders.poReceived": "Commande receptionnee - stock mis a jour",
+      "orders.poCancelled": "Commande annulee",
+      "orders.confirmCancel": "Annuler cette commande ?",
+      "orders.period": "Periode",
+      "orders.seeAnalytics": "Voir Analytics pour CA, marges et tendances detaillees",
+      
+      // Inventory session messages
+      "inventory.sessionCreated": "Session creee",
+      "inventory.sessionStarted": "Session demarree",
+      "inventory.sessionValidated": "Session validee",
+      "inventory.sessionDuplicated": "Session dupliquee",
+      "inventory.sessionArchived": "Session archivee",
+      "inventory.clickStart": "Cliquez sur Demarrer pour lancer le comptage.",
+      "inventory.sessionFinished": "Cette session est terminee.",
+      
+      // Settings
+      "settings.saved": "Parametre enregistre",
+      "settings.backupDownloaded": "Backup telecharge",
+      "settings.reset": "Parametres reinitialises",
+      
+      // Products
+      "products.add": "Ajouter un produit",
+      "products.importShopify": "Import Shopify",
+      "products.restock": "Reapprovisionner",
+      "products.adjustStock": "Ajuster le stock",
+      "products.details": "Fiche produit",
+      "products.editCMP": "Modifier le cout moyen (CMP)",
+      "products.added": "Produit ajoute",
+      
+      // Plans
+      "plans.choosePlan": "Choisir un plan",
+      "plans.featureLocked": "Fonctionnalite verrouillee",
+      
+      // Categories
+      "categories.manage": "Gerer les categories",
+      "categories.rename": "Renommer la categorie",
+      "categories.forProduct": "Categories pour",
+      
+      // Products
+      "products.product": "Produit",
     },
     
     en: {
@@ -912,6 +974,68 @@ var I18N = {
       "forecast.scenarioNormal": "Normal",
       "forecast.scenarioOptimistic": "Optimistic",
       "forecast.howCalculated": "How this is calculated",
+      
+      // Common messages
+      "msg.error": "Error",
+      "msg.nameRequired": "Name required",
+      "msg.productQtyRequired": "Product and quantity required",
+      "msg.selectProducts": "Select at least one product",
+      "msg.noProducts": "No products to display.",
+      "msg.noEvents": "No events.",
+      "msg.loading": "Loading...",
+      "msg.exportError": "Export error",
+      
+      // Kits
+      "kits.newKit": "New kit",
+      "kits.created": "Kit created",
+      "kits.addComponent": "Add component",
+      "kits.componentAdded": "Component added",
+      "kits.componentRemoved": "Component removed",
+      "kits.activated": "Kit activated",
+      "kits.deleted": "Kit deleted",
+      "kits.confirmDelete": "Delete this kit?",
+      
+      // Orders
+      "orders.poReceived": "Order received - stock updated",
+      "orders.poCancelled": "Order cancelled",
+      "orders.confirmCancel": "Cancel this order?",
+      "orders.period": "Period",
+      "orders.seeAnalytics": "See Analytics for revenue, margins and detailed trends",
+      
+      // Inventory session messages
+      "inventory.sessionCreated": "Session created",
+      "inventory.sessionStarted": "Session started",
+      "inventory.sessionValidated": "Session validated",
+      "inventory.sessionDuplicated": "Session duplicated",
+      "inventory.sessionArchived": "Session archived",
+      "inventory.clickStart": "Click Start to begin counting.",
+      "inventory.sessionFinished": "This session is finished.",
+      
+      // Settings
+      "settings.saved": "Setting saved",
+      "settings.backupDownloaded": "Backup downloaded",
+      "settings.reset": "Settings reset",
+      
+      // Products
+      "products.add": "Add product",
+      "products.importShopify": "Shopify Import",
+      "products.restock": "Restock",
+      "products.adjustStock": "Adjust stock",
+      "products.details": "Product details",
+      "products.editCMP": "Edit average cost (CMP)",
+      "products.added": "Product added",
+      
+      // Plans
+      "plans.choosePlan": "Choose a plan",
+      "plans.featureLocked": "Feature locked",
+      
+      // Categories
+      "categories.manage": "Manage categories",
+      "categories.rename": "Rename category",
+      "categories.forProduct": "Categories for",
+      
+      // Products
+      "products.product": "Product",
     },
     
     de: {

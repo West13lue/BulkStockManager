@@ -1161,9 +1161,6 @@
   function renderSuppliersKpis() {
     if (!suppliersData || !suppliersData.stats) return;
     var s = suppliersData.stats;
-    var suppliers = suppliersData.suppliers || [];
-    
-    var totalPurchased = suppliers.reduce(function(sum, sup) { return sum + (sup.totalPurchased || 0); }, 0);
 
     var html =
       '<div class="stats-grid">' +
@@ -1178,10 +1175,6 @@
       '<div class="stat-card"><div class="stat-icon"><i data-lucide="boxes"></i></div>' +
       '<div class="stat-value">' + s.withProducts + '</div>' +
       '<div class="stat-label">' + t("suppliers.withProducts", "Avec produits") + '</div></div>' +
-      
-      '<div class="stat-card"><div class="stat-icon"><i data-lucide="scale"></i></div>' +
-      '<div class="stat-value">' + formatWeight(totalPurchased) + '</div>' +
-      '<div class="stat-label">' + t("suppliers.totalPurchased", "Total achete") + '</div></div>' +
       '</div>';
 
     document.getElementById("suppliersKpis").innerHTML = html;
@@ -2021,6 +2014,31 @@
     }
   }
 
+  async function receivePO(poId) {
+    try {
+      var res = await authFetch(apiUrl("/purchase-orders/" + poId + "/receive"), { method: "POST" });
+      if (!res.ok) throw new Error((await res.json().catch(function(){return {};}).message || "Erreur"));
+      closeModal();
+      showToast(t("orders.poReceived", "Commande receptionnee - stock mis a jour"), "success");
+      loadPurchaseOrders();
+    } catch (e) {
+      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
+    }
+  }
+
+  async function cancelPO(poId) {
+    if (!confirm(t("orders.confirmCancel", "Annuler cette commande ?"))) return;
+    try {
+      var res = await authFetch(apiUrl("/purchase-orders/" + poId + "/cancel"), { method: "POST" });
+      if (!res.ok) throw new Error("Erreur");
+      closeModal();
+      showToast(t("orders.poCancelled", "Commande annulee"), "success");
+      loadPurchaseOrders();
+    } catch (e) {
+      showToast(t("msg.error", "Erreur"), "error");
+    }
+  }
+
   // === VENTES (Sales Orders) ===
 
   async function loadSalesOrders() {
@@ -2054,22 +2072,12 @@
       '<div class="stat-value">' + (s.totalOrders || 0) + '</div>' +
       '<div class="stat-label">' + t("orders.salesCount", "Commandes") + '</div></div>' +
       
-      '<div class="stat-card"><div class="stat-icon"><i data-lucide="trending-up"></i></div>' +
-      '<div class="stat-value">' + formatCurrency(s.totalRevenue || 0) + '</div>' +
-      '<div class="stat-label">' + t("orders.revenue", "CA") + '</div></div>' +
-      
-      '<div class="stat-card"><div class="stat-icon"><i data-lucide="piggy-bank"></i></div>' +
-      '<div class="stat-value ' + marginClass + '">' + formatCurrency(s.totalMargin || 0) + '</div>' +
-      '<div class="stat-label">' + t("orders.margin", "Marge") + '</div></div>' +
-      
-      '<div class="stat-card"><div class="stat-icon"><i data-lucide="percent"></i></div>' +
-      '<div class="stat-value ' + marginClass + '">' + (s.avgMarginPercent || 0) + '%</div>' +
-      '<div class="stat-label">' + t("orders.marginPct", "Marge %") + '</div></div>' +
-      
-      '<div class="stat-card"><div class="stat-icon"><i data-lucide="shopping-bag"></i></div>' +
-      '<div class="stat-value">' + formatCurrency(s.avgOrderValue || 0) + '</div>' +
-      '<div class="stat-label">' + t("orders.avgOrder", "Panier moy.") + '</div></div>' +
-      '</div>';
+      '<div class="stat-card"><div class="stat-icon"><i data-lucide="calendar"></i></div>' +
+      '<div class="stat-value">' + (ordersFilters.period || 30) + 'j</div>' +
+      '<div class="stat-label">' + t("orders.period", "Periode") + '</div></div>' +
+      '</div>' +
+      '<p class="text-secondary text-sm mt-sm"><i data-lucide="info" style="width:14px;height:14px"></i> ' + 
+      t("orders.seeAnalytics", "Voir Analytics pour CA, marges et tendances detaillees") + '</p>';
 
     document.getElementById("ordersKpis").innerHTML = html;
     if (typeof lucide !== "undefined") lucide.createIcons();
@@ -2286,7 +2294,7 @@
       renderForecastFilters();
       renderForecastContent();
     } catch (e) {
-      document.getElementById("forecastContent").innerHTML = '<div class="card"><p class="text-danger text-center py-lg">Erreur: ' + e.message + '</p></div>';
+      document.getElementById("forecastContent").innerHTML = '<div class="card"><p class="text-danger text-center py-lg">" + t("msg.error", "Erreur") + ": ' + e.message + '</p></div>';
     }
   }
 
@@ -2314,7 +2322,7 @@
     var container = document.getElementById("forecastFilters");
     if (!container) return;
 
-    var categoryOptions = (categoriesData || []).map(function(cat) {
+    var categoryOptions = (state.categories || []).map(function(cat) {
       return '<option value="' + cat.id + '"' + (forecastFilters.categoryId === cat.id ? " selected" : "") + '>' + esc(cat.name) + '</option>';
     }).join("");
 
@@ -2464,7 +2472,7 @@
       });
       if (typeof lucide !== "undefined") lucide.createIcons();
     } catch (e) {
-      showToast("Erreur: " + e.message, "error");
+      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
     }
   }
 
@@ -2526,7 +2534,7 @@
       renderKitsFilters();
       renderKitsContent();
     } catch (e) {
-      document.getElementById("kitsContent").innerHTML = '<div class="card"><p class="text-danger text-center py-lg">Erreur: ' + e.message + '</p></div>';
+      document.getElementById("kitsContent").innerHTML = '<div class="card"><p class="text-danger text-center py-lg">" + t("msg.error", "Erreur") + ": ' + e.message + '</p></div>';
     }
   }
 
@@ -2620,7 +2628,7 @@
 
   function showCreateKitModal() {
     showModal({
-      title: "Nouveau kit",
+      title: t("kits.newKit", "Nouveau kit"),
       size: "lg",
       content:
         '<div class="form-group"><label class="form-label">Nom *</label><input type="text" class="form-input" id="kitName" placeholder="Pack Decouverte"></div>' +
@@ -2637,7 +2645,7 @@
 
   async function saveKit() {
     var name = document.getElementById("kitName").value.trim();
-    if (!name) { showToast("Nom requis", "error"); return; }
+    if (!name) { showToast(t("msg.nameRequired", "Nom requis"), "error"); return; }
     try {
       var res = await authFetch(apiUrl("/kits"), {
         method: "POST",
@@ -2654,9 +2662,9 @@
       if (!res.ok) throw new Error((await res.json().catch(function(){return{};})).message || "Erreur");
       var data = await res.json();
       closeModal();
-      showToast("Kit cree", "success");
+      showToast(t("kits.created", "Kit cree"), "success");
       openKitDetails(data.kit.id);
-    } catch (e) { showToast("Erreur: " + e.message, "error"); }
+    } catch (e) { showToast(t("msg.error", "Erreur") + ": " + e.message, "error"); }
   }
 
   async function openKitDetails(kitId) {
@@ -2702,13 +2710,13 @@
           '<button class="btn btn-primary" onclick="app.showAssembleKitModal(\'' + kit.id + '\')">Assembler</button>'
       });
       if (typeof lucide !== "undefined") lucide.createIcons();
-    } catch (e) { showToast("Erreur: " + e.message, "error"); }
+    } catch (e) { showToast(t("msg.error", "Erreur") + ": " + e.message, "error"); }
   }
 
   function showAddKitItemModal(kitId) {
     var productOptions = (productsData || []).map(function(p) { return '<option value="' + p.productId + '" data-name="' + esc(p.name) + '">' + esc(p.name) + '</option>'; }).join("");
     showModal({
-      title: "Ajouter un composant",
+      title: t("kits.addComponent", "Ajouter un composant"),
       content:
         '<div class="form-group"><label class="form-label">Produit *</label><select class="form-select" id="itemProduct"><option value="">-- Selectionner --</option>' + productOptions + '</select></div>' +
         '<div style="display:flex;gap:16px"><div class="form-group" style="flex:1"><label class="form-label">Quantite *</label><input type="number" class="form-input" id="itemQty" step="0.01" placeholder="10"></div>' +
@@ -2723,7 +2731,7 @@
     var productId = productSelect.value;
     var productName = productSelect.selectedOptions[0]?.textContent || "";
     var qty = parseFloat(document.getElementById("itemQty").value);
-    if (!productId || !qty) { showToast("Produit et quantite requis", "error"); return; }
+    if (!productId || !qty) { showToast(t("msg.productQtyRequired", "Produit et quantite requis"), "error"); return; }
     try {
       var res = await authFetch(apiUrl("/kits/" + kitId + "/items"), {
         method: "POST",
@@ -2737,9 +2745,9 @@
       });
       if (!res.ok) throw new Error((await res.json().catch(function(){return{};})).message || "Erreur");
       closeModal();
-      showToast("Composant ajoute", "success");
+      showToast(t("kits.componentAdded", "Composant ajoute"), "success");
       openKitDetails(kitId);
-    } catch (e) { showToast("Erreur: " + e.message, "error"); }
+    } catch (e) { showToast(t("msg.error", "Erreur") + ": " + e.message, "error"); }
   }
 
   async function removeKitItem(kitId, itemId) {
@@ -2747,24 +2755,35 @@
     try {
       var res = await authFetch(apiUrl("/kits/" + kitId + "/items/" + itemId), { method: "DELETE" });
       if (!res.ok) throw new Error("Erreur");
-      showToast("Composant supprime", "success");
+      showToast(t("kits.componentRemoved", "Composant supprime"), "success");
       openKitDetails(kitId);
-    } catch (e) { showToast("Erreur: " + e.message, "error"); }
+    } catch (e) { showToast(t("msg.error", "Erreur") + ": " + e.message, "error"); }
   }
 
   async function activateKit(kitId) {
     try {
       var res = await authFetch(apiUrl("/kits/" + kitId), { method: "PUT", body: JSON.stringify({ status: "active" }) });
       if (!res.ok) throw new Error("Erreur");
-      showToast("Kit active", "success");
+      showToast(t("kits.activated", "Kit active"), "success");
       closeModal();
       loadKitsData();
-    } catch (e) { showToast("Erreur: " + e.message, "error"); }
+    } catch (e) { showToast(t("msg.error", "Erreur") + ": " + e.message, "error"); }
+  }
+
+  async function deleteKit(kitId) {
+    if (!confirm(t("kits.confirmDelete", "Supprimer ce kit ?"))) return;
+    try {
+      var res = await authFetch(apiUrl("/kits/" + kitId), { method: "DELETE" });
+      if (!res.ok) throw new Error("Erreur");
+      showToast(t("kits.deleted", "Kit supprime"), "success");
+      closeModal();
+      loadKitsData();
+    } catch (e) { showToast(t("msg.error", "Erreur") + ": " + e.message, "error"); }
   }
 
   function showAssembleKitModal(kitId) {
     showModal({
-      title: "Assembler des kits",
+      title: t("kits.assemble", "Assembler des kits"),
       content:
         '<div class="form-group"><label class="form-label">Quantite a assembler</label><input type="number" class="form-input" id="assembleQty" value="1" min="1"></div>' +
         '<div class="form-group"><label class="form-label">Notes</label><input type="text" class="form-input" id="assembleNotes" placeholder="Optionnel"></div>',
@@ -2782,7 +2801,7 @@
       closeModal();
       showToast(data.message || "Kits assembles", "success");
       loadKitsData();
-    } catch (e) { showToast("Erreur: " + e.message, "error"); }
+    } catch (e) { showToast(t("msg.error", "Erreur") + ": " + e.message, "error"); }
   }
 
   async function runKitSimulation(kitId) {
@@ -2799,7 +2818,7 @@
         (data.hasShortage ? '<div class="alert alert-warning mt-md">Stock insuffisant pour certains composants</div>' : '') +
         '<p class="text-secondary mt-md">Capacite max de production: <strong>' + (data.maxProducible || 0) + '</strong> kits</p>';
       if (typeof lucide !== "undefined") lucide.createIcons();
-    } catch (e) { container.innerHTML = '<p class="text-danger">Erreur: ' + e.message + '</p>'; }
+    } catch (e) { container.innerHTML = '<p class="text-danger">" + t("msg.error", "Erreur") + ": ' + e.message + '</p>'; }
   }
 
   // ============================================
@@ -2851,7 +2870,7 @@
       inventorySessions = data.sessions || [];
       renderInventorySessions();
     } catch (e) {
-      document.getElementById("inventoryContent").innerHTML = '<div class="card"><p class="text-danger text-center py-lg">Erreur: ' + e.message + '</p></div>';
+      document.getElementById("inventoryContent").innerHTML = '<div class="card"><p class="text-danger text-center py-lg">" + t("msg.error", "Erreur") + ": ' + e.message + '</p></div>';
     }
   }
 
@@ -2910,33 +2929,41 @@
   }
 
   function showCreateInventorySessionModal() {
-    var categoryOptions = (categoriesData || []).map(function(cat) {
-      return '<option value="' + cat.id + '">' + esc(cat.name) + '</option>';
-    }).join("");
+    try {
+      console.log("[Inventory] showCreateInventorySessionModal called");
+      var categoryOptions = (state.categories || []).map(function(cat) {
+        return '<option value="' + cat.id + '">' + esc(cat.name) + '</option>';
+      }).join("");
+      console.log("[Inventory] Categories:", state.categories?.length || 0);
 
-    showModal({
-      title: "Nouvelle session d'inventaire",
-      size: "lg",
-      content:
-        '<div class="form-group"><label class="form-label">Nom de la session *</label>' +
-        '<input type="text" class="form-input" id="invSessionName" placeholder="Inventaire Janvier 2025"></div>' +
-        '<div class="form-group"><label class="form-label">Perimetre</label>' +
-        '<select class="form-select" id="invScopeType" onchange="app.onInvScopeTypeChange()">' +
-        '<option value="all">Tous les produits</option>' +
-        '<option value="category">Par categorie</option>' +
-        '</select></div>' +
-        '<div class="form-group" id="invCategoryGroup" style="display:none"><label class="form-label">Categorie</label>' +
-        '<select class="form-select" id="invCategoryId"><option value="">-- Selectionner --</option>' + categoryOptions + '</select></div>' +
-        '<div class="form-group"><label class="form-label">Mode de comptage</label>' +
-        '<select class="form-select" id="invCountingMode">' +
-        '<option value="totalOnly">Stock total uniquement</option>' +
-        '<option value="variants">Par variantes</option>' +
-        '</select></div>' +
-        '<div class="form-group"><label class="form-label">Notes</label>' +
-        '<textarea class="form-textarea" id="invNotes" rows="2"></textarea></div>',
-      footer: '<button class="btn btn-secondary" onclick="app.closeModal()">Annuler</button>' +
-        '<button class="btn btn-primary" onclick="app.createInventorySession()">Creer</button>'
-    });
+      showModal({
+        title: t("inventory.newSession", "Nouvelle session d'inventaire"),
+        size: "lg",
+        content:
+          '<div class="form-group"><label class="form-label">Nom de la session *</label>' +
+          '<input type="text" class="form-input" id="invSessionName" placeholder="Inventaire Janvier 2025"></div>' +
+          '<div class="form-group"><label class="form-label">Perimetre</label>' +
+          '<select class="form-select" id="invScopeType" onchange="app.onInvScopeTypeChange()">' +
+          '<option value="all">Tous les produits</option>' +
+          '<option value="category">Par categorie</option>' +
+          '</select></div>' +
+          '<div class="form-group" id="invCategoryGroup" style="display:none"><label class="form-label">Categorie</label>' +
+          '<select class="form-select" id="invCategoryId"><option value="">-- Selectionner --</option>' + categoryOptions + '</select></div>' +
+          '<div class="form-group"><label class="form-label">Mode de comptage</label>' +
+          '<select class="form-select" id="invCountingMode">' +
+          '<option value="totalOnly">Stock total uniquement</option>' +
+          '<option value="variants">Par variantes</option>' +
+          '</select></div>' +
+          '<div class="form-group"><label class="form-label">Notes</label>' +
+          '<textarea class="form-textarea" id="invNotes" rows="2"></textarea></div>',
+        footer: '<button class="btn btn-secondary" onclick="app.closeModal()">Annuler</button>' +
+          '<button class="btn btn-primary" onclick="app.createInventorySession()">Creer</button>'
+      });
+      console.log("[Inventory] Modal should be displayed");
+    } catch (e) {
+      console.error("[Inventory] Error in showCreateInventorySessionModal:", e);
+      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
+    }
   }
 
   function onInvScopeTypeChange() {
@@ -2946,7 +2973,7 @@
 
   async function createInventorySession() {
     var name = document.getElementById("invSessionName").value.trim();
-    if (!name) { showToast("Nom requis", "error"); return; }
+    if (!name) { showToast(t("msg.nameRequired", "Nom requis"), "error"); return; }
 
     var scopeType = document.getElementById("invScopeType").value;
     var scopeIds = [];
@@ -2969,9 +2996,9 @@
       if (!res.ok) throw new Error((await res.json().catch(function(){return{};})).message || "Erreur");
       var data = await res.json();
       closeModal();
-      showToast("Session creee", "success");
+      showToast(t("inventory.sessionCreated", "Session creee"), "success");
       openInventorySession(data.session.id);
-    } catch (e) { showToast("Erreur: " + e.message, "error"); }
+    } catch (e) { showToast(t("msg.error", "Erreur") + ": " + e.message, "error"); }
   }
 
   async function openInventorySession(sessionId) {
@@ -2982,7 +3009,7 @@
       currentInventorySession = data.session;
       inventoryItems = data.items || [];
       renderInventorySessionDetail();
-    } catch (e) { showToast("Erreur: " + e.message, "error"); }
+    } catch (e) { showToast(t("msg.error", "Erreur") + ": " + e.message, "error"); }
   }
 
   function renderInventorySessionDetail() {
@@ -3136,7 +3163,7 @@
         '<thead><tr><th>Date</th><th>Produit</th><th>Delta</th><th>Valeur</th><th>Raison</th></tr></thead>' +
         '<tbody>' + rows + '</tbody></table></div></div>';
     } catch (e) {
-      container.innerHTML = '<div class="card"><p class="text-danger text-center py-lg">Erreur: ' + e.message + '</p></div>';
+      container.innerHTML = '<div class="card"><p class="text-danger text-center py-lg">" + t("msg.error", "Erreur") + ": ' + e.message + '</p></div>';
     }
   }
 
@@ -3144,18 +3171,18 @@
     try {
       var res = await authFetch(apiUrl("/inventory/sessions/" + currentInventorySession.id + "/start"), { method: "POST" });
       if (!res.ok) throw new Error((await res.json()).message || "Erreur");
-      showToast("Session demarree", "success");
+      showToast(t("inventory.sessionStarted", "Session demarree"), "success");
       openInventorySession(currentInventorySession.id);
-    } catch (e) { showToast("Erreur: " + e.message, "error"); }
+    } catch (e) { showToast(t("msg.error", "Erreur") + ": " + e.message, "error"); }
   }
 
   async function reviewInventorySession() {
     try {
       var res = await authFetch(apiUrl("/inventory/sessions/" + currentInventorySession.id + "/review"), { method: "POST" });
       if (!res.ok) throw new Error((await res.json()).message || "Erreur");
-      showToast("Session validee", "success");
+      showToast(t("inventory.sessionValidated", "Session validee"), "success");
       openInventorySession(currentInventorySession.id);
-    } catch (e) { showToast("Erreur: " + e.message, "error"); }
+    } catch (e) { showToast(t("msg.error", "Erreur") + ": " + e.message, "error"); }
   }
 
   async function applyInventorySession() {
@@ -3166,7 +3193,7 @@
       if (!data.success) throw new Error(data.message || "Erreur");
       showToast(data.applied + " ajustement(s) applique(s)", "success");
       openInventorySession(currentInventorySession.id);
-    } catch (e) { showToast("Erreur: " + e.message, "error"); }
+    } catch (e) { showToast(t("msg.error", "Erreur") + ": " + e.message, "error"); }
   }
 
   async function updateInventoryItem(itemId, value) {
@@ -3176,7 +3203,7 @@
         method: "PUT", body: JSON.stringify({ countedQty: countedQty })
       });
       openInventorySession(currentInventorySession.id);
-    } catch (e) { showToast("Erreur", "error"); }
+    } catch (e) { showToast(t("msg.error", "Erreur"), "error"); }
   }
 
   async function toggleInventoryItemFlag(itemId) {
@@ -3187,7 +3214,7 @@
         method: "PUT", body: JSON.stringify({ flagged: !item.flagged })
       });
       openInventorySession(currentInventorySession.id);
-    } catch (e) { showToast("Erreur", "error"); }
+    } catch (e) { showToast(t("msg.error", "Erreur"), "error"); }
   }
 
   async function setInventoryItemReason(itemId, reason) {
@@ -3195,7 +3222,7 @@
       await authFetch(apiUrl("/inventory/sessions/" + currentInventorySession.id + "/items/" + itemId), {
         method: "PUT", body: JSON.stringify({ reason: reason || null })
       });
-    } catch (e) { showToast("Erreur", "error"); }
+    } catch (e) { showToast(t("msg.error", "Erreur"), "error"); }
   }
 
   function filterInventoryItems(search) {
@@ -3216,9 +3243,9 @@
     try {
       var res = await authFetch(apiUrl("/inventory/sessions/" + sessionId + "/duplicate"), { method: "POST" });
       if (!res.ok) throw new Error("Erreur");
-      showToast("Session dupliquee", "success");
+      showToast(t("inventory.sessionDuplicated", "Session dupliquee"), "success");
       loadInventorySessions();
-    } catch (e) { showToast("Erreur", "error"); }
+    } catch (e) { showToast(t("msg.error", "Erreur"), "error"); }
   }
 
   async function archiveInventorySession(sessionId) {
@@ -3226,9 +3253,9 @@
     try {
       var res = await authFetch(apiUrl("/inventory/sessions/" + sessionId), { method: "DELETE" });
       if (!res.ok) throw new Error("Erreur");
-      showToast("Session archivee", "success");
+      showToast(t("inventory.sessionArchived", "Session archivee"), "success");
       loadInventorySessions();
-    } catch (e) { showToast("Erreur", "error"); }
+    } catch (e) { showToast(t("msg.error", "Erreur"), "error"); }
   }
 
   // ============================================
@@ -3257,7 +3284,7 @@
       settingsOptions = data.options || {};
       renderSettingsContent();
     } catch (e) {
-      document.getElementById("settingsContent").innerHTML = '<div class="card"><div class="card-body"><p class="text-danger">Erreur: ' + e.message + '</p></div></div>';
+      document.getElementById("settingsContent").innerHTML = '<div class="card"><div class="card-body"><p class="text-danger">" + t("msg.error", "Erreur") + ": ' + e.message + '</p></div></div>';
     }
   }
 
@@ -3474,13 +3501,13 @@
         body: JSON.stringify(body),
       });
       if (res.ok) {
-        showToast("Parametre enregistre", "success");
+        showToast(t("settings.saved", "Parametre enregistre"), "success");
       } else {
         var e = await res.json();
         showToast(e.error || "Erreur", "error");
       }
     } catch (e) {
-      showToast("Erreur: " + e.message, "error");
+      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
     }
   }
 
@@ -3496,10 +3523,10 @@
         a.download = "stock-manager-backup-" + new Date().toISOString().slice(0, 10) + ".json";
         a.click();
         URL.revokeObjectURL(url);
-        showToast("Backup telecharge", "success");
+        showToast(t("settings.backupDownloaded", "Backup telecharge"), "success");
       }
     } catch (e) {
-      showToast("Erreur export", "error");
+      showToast(t("msg.exportError", "Erreur export"), "error");
     }
   }
 
@@ -3508,11 +3535,11 @@
     try {
       var res = await authFetch(apiUrl("/settings/reset"), { method: "POST" });
       if (res.ok) {
-        showToast("Parametres reinitialises", "success");
+        showToast(t("settings.reset", "Parametres reinitialises"), "success");
         loadSettingsData();
       }
     } catch (e) {
-      showToast("Erreur", "error");
+      showToast(t("msg.error", "Erreur"), "error");
     }
   }
 
@@ -3542,7 +3569,7 @@
 
   function showAddProductModal() {
     showModal({
-      title: "Ajouter un produit",
+      title: t("products.add", "Ajouter un produit"),
       content:
         '<div class="form-group"><label class="form-label">Nom</label><input class="form-input" id="pName" placeholder="CBD Premium"></div>' +
         '<div style="display:flex;gap:16px"><div class="form-group" style="flex:1"><label class="form-label">Stock (" + getWeightUnit() + ")</label><input type="number" class="form-input" id="pStock" value="0"></div>' +
@@ -3554,7 +3581,7 @@
 
   function showImportModal() {
     showModal({
-      title: "Import Shopify",
+      title: t("products.importShopify", "Import Shopify"),
       content:
         '<p class="text-secondary mb-lg">Selectionnez les produits a importer.</p><div id="shopifyList">Chargement...</div>',
       footer:
@@ -3590,14 +3617,14 @@
         "</div>";
       document.getElementById("btnImport").disabled = false;
     } catch (e) {
-      ct.innerHTML = '<p class="text-danger">Erreur: ' + e.message + "</p>";
+      ct.innerHTML = '<p class="text-danger">" + t("msg.error", "Erreur") + ": ' + e.message + "</p>";
     }
   }
 
   async function doImport() {
     var cbs = document.querySelectorAll(".cb-prod:checked");
     if (!cbs.length) {
-      showToast("Selectionnez au moins un produit", "warning");
+      showToast(t("msg.selectProducts", "Selectionnez au moins un produit"), "warning");
       return;
     }
     var btn = document.getElementById("btnImport");
@@ -3643,7 +3670,7 @@
       })
       .join("");
     showModal({
-      title: "Reapprovisionner",
+      title: t("products.restock", "Reapprovisionner"),
       content:
         '<div class="form-group"><label class="form-label">Produit</label><select class="form-select" id="rProd">' +
         opts +
@@ -3672,7 +3699,7 @@
       })
       .join("");
     showModal({
-      title: "Ajuster le stock",
+      title: t("products.adjustStock", "Ajuster le stock"),
       content:
         '<div class="form-group"><label class="form-label">Produit</label><select class="form-select" id="aProd">' +
         opts +
@@ -3710,7 +3737,7 @@
       })
       .join("");
     showModal({
-      title: "Choisir un plan",
+      title: t("plans.choosePlan", "Choisir un plan"),
       size: "xl",
       content: '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px">' + cards + "</div>",
       footer: '<button class="btn btn-ghost" onclick="app.closeModal()">Fermer</button>',
@@ -3719,7 +3746,7 @@
 
   function showLockedModal(key) {
     showModal({
-      title: "Fonctionnalite verrouillee",
+      title: t("plans.featureLocked", "Fonctionnalite verrouillee"),
       content:
         '<div class="text-center"><div class="lock-icon"><i data-lucide="lock"></i></div><p class="text-secondary mt-lg">Passez a un plan superieur pour debloquer cette fonctionnalite.</p></div>',
       footer:
@@ -3815,7 +3842,7 @@
     var stockv = parseFloat((document.getElementById("pStock") || {}).value) || 0;
     var cost = parseFloat((document.getElementById("pCost") || {}).value) || 0;
     if (!name) {
-      showToast("Nom requis", "error");
+      showToast(t("msg.nameRequired", "Nom requis"), "error");
       return;
     }
     
@@ -3829,7 +3856,7 @@
         body: JSON.stringify({ name: name, totalGrams: stockInGrams, averageCostPerGram: costPerGram }),
       });
       if (res.ok) {
-        showToast("Produit ajoute", "success");
+        showToast(t("products.added", "Produit ajoute"), "success");
         closeModal();
         await loadProducts();
         renderTab(state.currentTab);
@@ -3838,7 +3865,7 @@
         showToast(e.error || "Erreur", "error");
       }
     } catch (e) {
-      showToast("Erreur", "error");
+      showToast(t("msg.error", "Erreur"), "error");
     }
   }
 
@@ -3870,7 +3897,7 @@
         showToast(e.error || "Erreur", "error");
       }
     } catch (e) {
-      showToast("Erreur", "error");
+      showToast(t("msg.error", "Erreur"), "error");
     }
   }
 
@@ -3902,7 +3929,7 @@
         showToast(e.error || "Erreur", "error");
       }
     } catch (e) {
-      showToast("Erreur", "error");
+      showToast(t("msg.error", "Erreur"), "error");
     }
   }
 
@@ -3927,7 +3954,7 @@
         return;
       }
     } catch (e) {
-      showToast("Erreur", "error");
+      showToast(t("msg.error", "Erreur"), "error");
     }
   }
 
@@ -4141,7 +4168,7 @@
 
     // Afficher loading
     showModal({
-      title: "Chargement...",
+      title: t("msg.loading", "Chargement..."),
       size: "xl",
       content: '<div class="text-center" style="padding:40px"><div class="spinner"></div></div>',
     });
@@ -4157,7 +4184,7 @@
       var data = await res.json();
       renderProductDetails(data);
     } catch (e) {
-      showToast("Erreur: " + e.message, "error");
+      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
       closeModal();
     }
   }
@@ -4280,7 +4307,7 @@
       '</div>';
 
     showModal({
-      title: "Fiche produit",
+      title: t("products.details", "Fiche produit"),
       size: "xl",
       content: content,
       footer: '<button class="btn btn-ghost" onclick="app.closeModal()">Fermer</button>',
@@ -4399,7 +4426,7 @@
   function showEditCMPModal(productId, currentCMP) {
     closeModal();
     showModal({
-      title: "Modifier le cout moyen (CMP)",
+      title: t("products.editCMP", "Modifier le cout moyen (CMP)"),
       content:
         '<p class="text-secondary mb-md">Le CMP actuel est de <strong>' + formatPricePerUnit(currentCMP) + '</strong>.</p>' +
         '<div class="form-group"><label class="form-label">Nouveau CMP (" + getCurrencySymbol() + "/" + getWeightUnit() + ")</label>' +
@@ -4433,7 +4460,7 @@
         showToast(e.error || "Erreur", "error");
       }
     } catch (e) {
-      showToast("Erreur: " + e.message, "error");
+      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
     }
   }
 
@@ -4516,14 +4543,14 @@
           return;
         }
         document.getElementById("analyticsContent").innerHTML = 
-          '<div class="card"><div class="card-body text-center"><p class="text-danger">Erreur: ' + (err.error || err.message || "Impossible de charger") + '</p></div></div>';
+          '<div class="card"><div class="card-body text-center"><p class="text-danger">" + t("msg.error", "Erreur") + ": ' + (err.error || err.message || "Impossible de charger") + '</p></div></div>';
         return;
       }
       analyticsSalesData = await res.json();
       renderSalesAnalytics();
     } catch (e) {
       document.getElementById("analyticsContent").innerHTML = 
-        '<div class="card"><div class="card-body text-center"><p class="text-danger">Erreur: ' + e.message + '</p></div></div>';
+        '<div class="card"><div class="card-body text-center"><p class="text-danger">" + t("msg.error", "Erreur") + ": ' + e.message + '</p></div></div>';
     }
   }
 
@@ -4646,14 +4673,14 @@
           return;
         }
         document.getElementById("analyticsContent").innerHTML = 
-          '<div class="card"><div class="card-body text-center"><p class="text-danger">Erreur: ' + (err.error || "Impossible de charger") + '</p></div></div>';
+          '<div class="card"><div class="card-body text-center"><p class="text-danger">" + t("msg.error", "Erreur") + ": ' + (err.error || "Impossible de charger") + '</p></div></div>';
         return;
       }
       analyticsData = await res.json();
       renderAnalyticsContent();
     } catch (e) {
       document.getElementById("analyticsContent").innerHTML = 
-        '<div class="card"><div class="card-body text-center"><p class="text-danger">Erreur: ' + e.message + '</p></div></div>';
+        '<div class="card"><div class="card-body text-center"><p class="text-danger">" + t("msg.error", "Erreur") + ": ' + e.message + '</p></div></div>';
     }
   }
 
@@ -4881,7 +4908,7 @@
     }
 
     showModal({
-      title: "Gerer les categories",
+      title: t("categories.manage", "Gerer les categories"),
       content:
         '<div class="form-group">' +
         '<div style="display:flex;gap:8px">' +
@@ -4898,7 +4925,7 @@
     var input = document.getElementById("newCatName");
     var name = input ? input.value.trim() : "";
     if (!name) {
-      showToast("Nom requis", "error");
+      showToast(t("msg.nameRequired", "Nom requis"), "error");
       return;
     }
     try {
@@ -4915,14 +4942,14 @@
         showToast(e.error || "Erreur", "error");
       }
     } catch (e) {
-      showToast("Erreur: " + e.message, "error");
+      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
     }
   }
 
   function showRenameCategoryModal(catId, currentName) {
     closeModal();
     showModal({
-      title: "Renommer la categorie",
+      title: t("categories.rename", "Renommer la categorie"),
       content:
         '<div class="form-group"><label class="form-label">Nouveau nom</label>' +
         '<input type="text" class="form-input" id="renameCatInput" value="' + esc(currentName) + '"></div>',
@@ -4936,7 +4963,7 @@
     var input = document.getElementById("renameCatInput");
     var name = input ? input.value.trim() : "";
     if (!name) {
-      showToast("Nom requis", "error");
+      showToast(t("msg.nameRequired", "Nom requis"), "error");
       return;
     }
     try {
@@ -4953,7 +4980,7 @@
         showToast(e.error || "Erreur", "error");
       }
     } catch (e) {
-      showToast("Erreur: " + e.message, "error");
+      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
     }
   }
 
@@ -4972,7 +4999,7 @@
         showToast(e.error || "Erreur", "error");
       }
     } catch (e) {
-      showToast("Erreur: " + e.message, "error");
+      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
     }
   }
 
@@ -4999,7 +5026,7 @@
     }
 
     showModal({
-      title: "Categories pour " + esc(product.name || "Produit"),
+      title: t("categories.forProduct", "Categories pour") + " " + esc(product.name || t("products.product", "Produit")),
       content:
         '<div class="categories-checkboxes">' + checkboxes + '</div>',
       footer:
@@ -5028,7 +5055,7 @@
         showToast(e.error || "Erreur", "error");
       }
     } catch (e) {
-      showToast("Erreur: " + e.message, "error");
+      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
     }
   }
 
@@ -5119,9 +5146,13 @@
     saveKitItem: saveKitItem,
     removeKitItem: removeKitItem,
     activateKit: activateKit,
+    deleteKit: deleteKit,
     showAssembleKitModal: showAssembleKitModal,
     assembleKit: assembleKit,
     runKitSimulation: runKitSimulation,
+    // Orders
+    receivePO: receivePO,
+    cancelPO: cancelPO,
     // Forecast
     onForecastWindowChange: onForecastWindowChange,
     onForecastStatusChange: onForecastStatusChange,
