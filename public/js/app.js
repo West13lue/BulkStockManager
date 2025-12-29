@@ -253,379 +253,18 @@
     await loadPlanInfo();
     await loadSettingsDataSilent();  // Charger les settings pour getStatus
     await loadProducts();
-    
-    // Charger le compteur de notifications si PRO+
-    if (hasFeature("hasNotifications")) {
-      loadNotificationCount();
-      // Vérifier les alertes toutes les 5 minutes
-      setInterval(function() { loadNotificationCount(); }, 5 * 60 * 1000);
-    }
-    
-    // Afficher d'abord le dashboard
     renderTab("dashboard");
     updateUI();
     console.log("[Init] Ready - Plan:", state.planId, "Features:", state.limits);
     
-    // Charger les profils en arrière-plan (non bloquant)
-    loadUserProfiles().then(function() {
-      // Afficher le popup seulement si plusieurs profils
-      if (userProfiles.profiles.length > 1) {
-        showProfileSelectionPopup();
-      } else if (userProfiles.activeProfile) {
-        showToast(t("profiles.welcome", "Bienvenue") + ", " + userProfiles.activeProfile.name + " !", "success");
-        updateProfileDisplay();
-      }
-    }).catch(function(e) {
-      console.warn("[Profiles] Load failed:", e);
-    });
-  }
-
-  // ============================================
-  // 👤 SYSTÈME DE PROFILS UTILISATEURS
-  // ============================================
-  
-  var userProfiles = {
-    profiles: [{ id: "admin", name: "Admin", role: "admin", color: "#6366f1", isDefault: true }],
-    activeProfileId: "admin",
-    activeProfile: { id: "admin", name: "Admin", role: "admin", color: "#6366f1", isDefault: true },
-    settings: {}
-  };
-  
-  // Charger les profils
-  async function loadUserProfiles() {
-    try {
-      var res = await authFetch(apiUrl("/profiles"));
-      if (res.ok) {
-        var data = await res.json();
-        if (data.profiles && data.profiles.length > 0) {
-          userProfiles.profiles = data.profiles;
-          userProfiles.activeProfileId = data.activeProfileId || data.profiles[0].id;
-          userProfiles.settings = data.settings || {};
-          userProfiles.activeProfile = userProfiles.profiles.find(function(p) {
-            return p.id === userProfiles.activeProfileId;
-          }) || userProfiles.profiles[0];
-        }
-        updateProfileDisplay();
-      }
-    } catch (e) {
-      console.warn("[Profiles] Load error:", e);
-      // Garder les valeurs par défaut
-    }
-  }
-  
-  // Afficher le popup de sélection de profil au démarrage
-  function showProfileSelectionPopup() {
-    // Ne pas afficher si un seul profil ou moins
-    if (userProfiles.profiles.length <= 1) {
-      return;
-    }
-    
-    var profilesHtml = userProfiles.profiles.map(function(p) {
-      var initials = getProfileInitials(p.name);
-      var isActive = p.id === userProfiles.activeProfileId;
-      return '<div class="profile-select-item' + (isActive ? ' active' : '') + '" onclick="app.selectProfile(\'' + p.id + '\')">' +
-        '<div class="profile-avatar" style="background-color: ' + (p.color || '#6366f1') + '">' + initials + '</div>' +
-        '<div class="profile-info">' +
-        '<div class="profile-name">' + esc(p.name) + '</div>' +
-        '<div class="profile-role">' + esc(p.role || 'user') + '</div>' +
-        '</div>' +
-        (isActive ? '<div class="profile-check"><i data-lucide="check"></i></div>' : '') +
-        '</div>';
-    }).join("");
-    
-    showModal({
-      title: '<i data-lucide="users"></i> ' + t("profiles.whoIsConnecting", "Qui se connecte ?"),
-      size: "sm",
-      content: '<div class="profile-selection-grid">' + profilesHtml + '</div>' +
-        '<div class="profile-selection-footer">' +
-        '<button class="btn btn-ghost btn-sm" onclick="app.showCreateProfileModal()">' +
-        '<i data-lucide="user-plus"></i> ' + t("profiles.createNew", "Nouveau profil") + '</button>' +
-        '</div>',
-      footer: ''
-    });
-    if (typeof lucide !== "undefined") lucide.createIcons();
-  }
-  
-  // Sélectionner un profil
-  async function selectProfile(profileId) {
-    try {
-      var res = await authFetch(apiUrl("/profiles/" + profileId + "/activate"), { method: "POST" });
-      if (res.ok) {
-        var data = await res.json();
-        userProfiles.activeProfileId = profileId;
-        userProfiles.activeProfile = data.profile;
-        updateProfileDisplay();
-        closeModal();
-        showToast(t("profiles.welcome", "Bienvenue") + ", " + data.profile.name + " !", "success");
-      }
-    } catch (e) {
-      showToast(t("msg.error", "Erreur"), "error");
-    }
-  }
-  
-  // Afficher le modal de création de profil
-  function showCreateProfileModal() {
-    var colors = ["#6366f1", "#8b5cf6", "#ec4899", "#f43f5e", "#ef4444", "#f97316", "#eab308", "#22c55e", "#14b8a6", "#06b6d4", "#3b82f6"];
-    var colorsHtml = colors.map(function(c) {
-      return '<div class="color-option" style="background-color: ' + c + '" onclick="app.selectProfileColor(\'' + c + '\')" data-color="' + c + '"></div>';
-    }).join("");
-    
-    showModal({
-      title: '<i data-lucide="user-plus"></i> ' + t("profiles.createProfile", "Creer un profil"),
-      size: "sm",
-      content: '<div class="form-group">' +
-        '<label>' + t("profiles.name", "Nom") + '</label>' +
-        '<input type="text" id="newProfileName" class="form-input" placeholder="' + t("profiles.namePlaceholder", "Ex: Marie, Pierre...") + '" autofocus>' +
-        '</div>' +
-        '<div class="form-group">' +
-        '<label>' + t("profiles.role", "Role") + '</label>' +
-        '<select id="newProfileRole" class="form-select">' +
-        '<option value="user">' + t("profiles.roleUser", "Utilisateur") + '</option>' +
-        '<option value="manager">' + t("profiles.roleManager", "Manager") + '</option>' +
-        '<option value="admin">' + t("profiles.roleAdmin", "Administrateur") + '</option>' +
-        '</select>' +
-        '</div>' +
-        '<div class="form-group">' +
-        '<label>' + t("profiles.color", "Couleur") + '</label>' +
-        '<div class="color-picker-grid" id="colorPicker">' + colorsHtml + '</div>' +
-        '<input type="hidden" id="newProfileColor" value="#6366f1">' +
-        '</div>',
-      footer: '<button class="btn btn-secondary" onclick="app.showProfileSelectionPopup()">' + t("action.cancel", "Annuler") + '</button>' +
-        '<button class="btn btn-primary" onclick="app.createProfile()">' + t("action.create", "Creer") + '</button>'
-    });
-    
-    // Sélectionner la première couleur
+    // Charger profils et notifications en arrière-plan (non-bloquant)
     setTimeout(function() {
-      var firstColor = document.querySelector('.color-option');
-      if (firstColor) firstColor.classList.add('selected');
-      if (typeof lucide !== "undefined") lucide.createIcons();
-    }, 100);
-  }
-  
-  function selectProfileColor(color) {
-    document.querySelectorAll('.color-option').forEach(function(el) {
-      el.classList.remove('selected');
-    });
-    document.querySelector('.color-option[data-color="' + color + '"]').classList.add('selected');
-    document.getElementById('newProfileColor').value = color;
-  }
-  
-  // Créer un profil
-  async function createProfile() {
-    var name = document.getElementById('newProfileName').value.trim();
-    var role = document.getElementById('newProfileRole').value;
-    var color = document.getElementById('newProfileColor').value;
-    
-    if (!name) {
-      showToast(t("profiles.nameRequired", "Le nom est requis"), "error");
-      return;
-    }
-    
-    try {
-      var res = await authFetch(apiUrl("/profiles"), {
-        method: "POST",
-        body: JSON.stringify({ name: name, role: role, color: color })
-      });
-      
-      if (res.ok) {
-        var data = await res.json();
-        userProfiles.profiles.push(data.profile);
-        showToast(t("profiles.created", "Profil cree"), "success");
-        
-        // Sélectionner automatiquement le nouveau profil
-        selectProfile(data.profile.id);
-      } else {
-        showToast(t("msg.error", "Erreur"), "error");
+      loadProfiles();
+      if (hasFeature("hasNotifications")) {
+        loadNotificationCount();
+        setInterval(loadNotificationCount, 5 * 60 * 1000); // Refresh toutes les 5 min
       }
-    } catch (e) {
-      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
-    }
-  }
-  
-  // Mettre à jour l'affichage du profil dans le header
-  function updateProfileDisplay() {
-    var btn = document.querySelector('.topbar-btn[onclick*="toggleUserMenu"]');
-    if (btn && userProfiles.activeProfile) {
-      var initials = getProfileInitials(userProfiles.activeProfile.name);
-      btn.innerHTML = '<span class="user-avatar" style="background-color: ' + (userProfiles.activeProfile.color || '#6366f1') + '">' + initials + '</span>';
-    }
-  }
-  
-  // Obtenir les initiales d'un nom
-  function getProfileInitials(name) {
-    if (!name) return "?";
-    var parts = name.trim().split(/\s+/);
-    if (parts.length === 1) {
-      return parts[0].substring(0, 2).toUpperCase();
-    }
-    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-  }
-  
-  // Récupérer le profil actif (pour les mouvements)
-  function getActiveUserId() {
-    return userProfiles.activeProfileId || "admin";
-  }
-  
-  function getActiveUserName() {
-    return userProfiles.activeProfile ? userProfiles.activeProfile.name : "Admin";
-  }
-  
-  // Menu utilisateur avec gestion des profils
-  function toggleUserMenu() {
-    var profile = userProfiles.activeProfile || { name: "Admin", role: "admin", color: "#6366f1" };
-    var initials = getProfileInitials(profile.name);
-    
-    var profilesListHtml = userProfiles.profiles.map(function(p) {
-      var pInitials = getProfileInitials(p.name);
-      var isActive = p.id === userProfiles.activeProfileId;
-      return '<div class="user-menu-profile' + (isActive ? ' active' : '') + '" onclick="app.selectProfile(\'' + p.id + '\')">' +
-        '<div class="profile-avatar-sm" style="background-color: ' + (p.color || '#6366f1') + '">' + pInitials + '</div>' +
-        '<span>' + esc(p.name) + '</span>' +
-        (isActive ? '<i data-lucide="check" class="check-icon"></i>' : '') +
-        '</div>';
-    }).join("");
-    
-    showModal({
-      title: '<i data-lucide="user"></i> ' + t("profiles.myProfile", "Mon profil"),
-      size: "sm",
-      content: '<div class="user-profile-card">' +
-        '<div class="profile-avatar-lg" style="background-color: ' + (profile.color || '#6366f1') + '">' + initials + '</div>' +
-        '<div class="profile-details">' +
-        '<div class="profile-name-lg">' + esc(profile.name) + '</div>' +
-        '<div class="profile-role-lg">' + esc(profile.role || 'user') + '</div>' +
-        '</div>' +
-        '</div>' +
-        '<div class="user-menu-section">' +
-        '<div class="user-menu-title">' + t("profiles.switchProfile", "Changer de profil") + '</div>' +
-        profilesListHtml +
-        '</div>' +
-        '<div class="user-menu-actions">' +
-        '<button class="btn btn-ghost btn-block" onclick="app.showCreateProfileModal()">' +
-        '<i data-lucide="user-plus"></i> ' + t("profiles.createNew", "Nouveau profil") + '</button>' +
-        '<button class="btn btn-ghost btn-block" onclick="app.showManageProfilesModal()">' +
-        '<i data-lucide="settings"></i> ' + t("profiles.manage", "Gerer les profils") + '</button>' +
-        '</div>',
-      footer: '<button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.close", "Fermer") + '</button>'
-    });
-    if (typeof lucide !== "undefined") lucide.createIcons();
-  }
-  
-  // Modal de gestion des profils
-  function showManageProfilesModal() {
-    var profilesHtml = userProfiles.profiles.map(function(p) {
-      var initials = getProfileInitials(p.name);
-      var canDelete = !p.isDefault;
-      return '<div class="manage-profile-item">' +
-        '<div class="profile-avatar-sm" style="background-color: ' + (p.color || '#6366f1') + '">' + initials + '</div>' +
-        '<div class="manage-profile-info">' +
-        '<div class="profile-name">' + esc(p.name) + (p.isDefault ? ' <span class="badge badge-secondary">Admin</span>' : '') + '</div>' +
-        '<div class="profile-role">' + esc(p.role || 'user') + '</div>' +
-        '</div>' +
-        '<div class="manage-profile-actions">' +
-        '<button class="btn btn-ghost btn-xs" onclick="app.showEditProfileModal(\'' + p.id + '\')" title="' + t("action.edit", "Modifier") + '">' +
-        '<i data-lucide="edit-2"></i></button>' +
-        (canDelete ? '<button class="btn btn-ghost btn-xs text-danger" onclick="app.deleteProfile(\'' + p.id + '\')" title="' + t("action.delete", "Supprimer") + '">' +
-        '<i data-lucide="trash-2"></i></button>' : '') +
-        '</div>' +
-        '</div>';
-    }).join("");
-    
-    showModal({
-      title: '<i data-lucide="users"></i> ' + t("profiles.manageProfiles", "Gerer les profils"),
-      size: "md",
-      content: '<div class="manage-profiles-list">' + profilesHtml + '</div>',
-      footer: '<button class="btn btn-secondary" onclick="app.toggleUserMenu()">' + t("action.back", "Retour") + '</button>' +
-        '<button class="btn btn-primary" onclick="app.showCreateProfileModal()">' +
-        '<i data-lucide="user-plus"></i> ' + t("profiles.createNew", "Nouveau profil") + '</button>'
-    });
-    if (typeof lucide !== "undefined") lucide.createIcons();
-  }
-  
-  // Modal d'édition de profil
-  function showEditProfileModal(profileId) {
-    var profile = userProfiles.profiles.find(function(p) { return p.id === profileId; });
-    if (!profile) return;
-    
-    var colors = ["#6366f1", "#8b5cf6", "#ec4899", "#f43f5e", "#ef4444", "#f97316", "#eab308", "#22c55e", "#14b8a6", "#06b6d4", "#3b82f6"];
-    var colorsHtml = colors.map(function(c) {
-      var selected = c === profile.color ? ' selected' : '';
-      return '<div class="color-option' + selected + '" style="background-color: ' + c + '" onclick="app.selectProfileColor(\'' + c + '\')" data-color="' + c + '"></div>';
-    }).join("");
-    
-    showModal({
-      title: '<i data-lucide="edit-2"></i> ' + t("profiles.editProfile", "Modifier le profil"),
-      size: "sm",
-      content: '<div class="form-group">' +
-        '<label>' + t("profiles.name", "Nom") + '</label>' +
-        '<input type="text" id="editProfileName" class="form-input" value="' + esc(profile.name) + '">' +
-        '</div>' +
-        '<div class="form-group">' +
-        '<label>' + t("profiles.role", "Role") + '</label>' +
-        '<select id="editProfileRole" class="form-select">' +
-        '<option value="user"' + (profile.role === 'user' ? ' selected' : '') + '>' + t("profiles.roleUser", "Utilisateur") + '</option>' +
-        '<option value="manager"' + (profile.role === 'manager' ? ' selected' : '') + '>' + t("profiles.roleManager", "Manager") + '</option>' +
-        '<option value="admin"' + (profile.role === 'admin' ? ' selected' : '') + '>' + t("profiles.roleAdmin", "Administrateur") + '</option>' +
-        '</select>' +
-        '</div>' +
-        '<div class="form-group">' +
-        '<label>' + t("profiles.color", "Couleur") + '</label>' +
-        '<div class="color-picker-grid" id="colorPicker">' + colorsHtml + '</div>' +
-        '<input type="hidden" id="editProfileColor" value="' + (profile.color || '#6366f1') + '">' +
-        '</div>' +
-        '<input type="hidden" id="editProfileId" value="' + profile.id + '">',
-      footer: '<button class="btn btn-secondary" onclick="app.showManageProfilesModal()">' + t("action.cancel", "Annuler") + '</button>' +
-        '<button class="btn btn-primary" onclick="app.updateProfile()">' + t("action.save", "Enregistrer") + '</button>'
-    });
-    if (typeof lucide !== "undefined") lucide.createIcons();
-  }
-  
-  // Mettre à jour un profil
-  async function updateProfile() {
-    var profileId = document.getElementById('editProfileId').value;
-    var name = document.getElementById('editProfileName').value.trim();
-    var role = document.getElementById('editProfileRole').value;
-    var color = document.getElementById('editProfileColor').value;
-    
-    if (!name) {
-      showToast(t("profiles.nameRequired", "Le nom est requis"), "error");
-      return;
-    }
-    
-    try {
-      var res = await authFetch(apiUrl("/profiles/" + profileId), {
-        method: "PUT",
-        body: JSON.stringify({ name: name, role: role, color: color })
-      });
-      
-      if (res.ok) {
-        showToast(t("profiles.updated", "Profil mis a jour"), "success");
-        await loadUserProfiles();
-        showManageProfilesModal();
-      } else {
-        showToast(t("msg.error", "Erreur"), "error");
-      }
-    } catch (e) {
-      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
-    }
-  }
-  
-  // Supprimer un profil
-  async function deleteProfile(profileId) {
-    if (!confirm(t("profiles.confirmDelete", "Supprimer ce profil ?"))) return;
-    
-    try {
-      var res = await authFetch(apiUrl("/profiles/" + profileId), { method: "DELETE" });
-      if (res.ok) {
-        showToast(t("profiles.deleted", "Profil supprime"), "success");
-        await loadUserProfiles();
-        showManageProfilesModal();
-      } else {
-        var err = await res.json().catch(function() { return {}; });
-        showToast(err.error || t("msg.error", "Erreur"), "error");
-      }
-    } catch (e) {
-      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
-    }
+    }, 500);
   }
 
   // Charger les settings silencieusement (pour getStatus)
@@ -848,17 +487,12 @@
         var delta = m.delta || 0;
         var deltaStr = delta >= 0 ? '+' + formatWeight(delta) : formatWeight(delta);
         var dateStr = formatRelativeDate(m.createdAt || m.date);
-        var userName = m.userName || m.userId || '';
         
         html += '<div class="movement-item">' +
           '<div class="movement-icon ' + typeClass + '"><i data-lucide="' + typeIcon + '"></i></div>' +
           '<div class="movement-info">' +
           '<div class="movement-product">' + esc(m.productName || m.product || 'Produit') + '</div>' +
-          '<div class="movement-meta">' +
-          '<span class="movement-type">' + typeLabel + '</span>' +
-          (userName ? '<span class="movement-user"><i data-lucide="user" class="icon-xs"></i> ' + esc(userName) + '</span>' : '') +
-          '<span class="movement-date">' + dateStr + '</span>' +
-          '</div>' +
+          '<div class="movement-meta"><span class="movement-type">' + typeLabel + '</span><span class="movement-date">' + dateStr + '</span></div>' +
           '</div>' +
           '<div class="movement-delta ' + typeClass + '">' + deltaStr + '</div>' +
           '</div>';
@@ -3089,7 +2723,7 @@
   }
 
   function showAddKitItemModal(kitId) {
-    var productOptions = (state.products || []).map(function(p) { return '<option value="' + p.productId + '" data-name="' + esc(p.name) + '">' + esc(p.name) + '</option>'; }).join("");
+    var productOptions = (productsData || []).map(function(p) { return '<option value="' + p.productId + '" data-name="' + esc(p.name) + '">' + esc(p.name) + '</option>'; }).join("");
     showModal({
       title: t("kits.addComponent", "Ajouter un composant"),
       content:
@@ -3782,64 +3416,22 @@
       '<label class="toggle"><input type="checkbox" ' + (s.units && !s.units.neverNegative ? 'checked' : '') + ' onchange="app.updateSetting(\'units\',\'neverNegative\',!this.checked)"><span class="toggle-slider"></span></label></div>' +
       '</div></div>';
 
-    // Section Notifications (PRO) - Version complète
+    // Section Notifications (PRO)
     var notifSection = '';
-    var notifSettings = s.notifications || {};
-    var notifTriggers = notifSettings.triggers || {};
-    
     if (hasFeature('hasNotifications')) {
       notifSection = 
-        '<div class="settings-section" id="notificationSettingsSection">' +
-        '<div class="settings-section-header"><h3><i data-lucide="bell"></i> ' + t("settings.notifications", "Notifications") + '</h3><span class="badge badge-pro">PRO</span><p class="text-secondary">' + t("settings.notificationsDesc", "Configurez vos alertes") + '</p></div>' +
+        '<div class="settings-section">' +
+        '<div class="settings-section-header"><h3>' + t("settings.notifications", "Notifications") + '</h3><span class="badge badge-pro">PRO</span><p class="text-secondary">' + t("settings.notificationsDesc", "Configurez vos alertes") + '</p></div>' +
         '<div class="settings-section-body">' +
-        
-        // Activation générale
-        '<div class="setting-row"><label class="setting-label">' + t("notifications.enabled", "Notifications activees") + '</label>' +
-        '<label class="toggle"><input type="checkbox" ' + (notifSettings.enabled !== false ? 'checked' : '') + ' onchange="app.updateNotificationSetting(\'enabled\',this.checked)"><span class="toggle-slider"></span></label></div>' +
-        
-        '<div class="setting-group-title mt-lg">' + t("notifications.stockAlerts", "Alertes de stock") + '</div>' +
-        
-        '<div class="setting-row"><label class="setting-label"><span class="status-dot critical"></span> ' + t("notifications.outOfStock", "Rupture de stock") + '</label>' +
-        '<label class="toggle"><input type="checkbox" ' + (notifTriggers.outOfStock !== false ? 'checked' : '') + ' onchange="app.updateNotificationTrigger(\'outOfStock\',this.checked)"><span class="toggle-slider"></span></label></div>' +
-        
-        '<div class="setting-row"><label class="setting-label"><span class="status-dot low"></span> ' + t("notifications.criticalStock", "Stock critique") + '</label>' +
-        '<label class="toggle"><input type="checkbox" ' + (notifTriggers.criticalStock !== false ? 'checked' : '') + ' onchange="app.updateNotificationTrigger(\'criticalStock\',this.checked)"><span class="toggle-slider"></span></label></div>' +
-        
-        '<div class="setting-row"><label class="setting-label"><span class="status-dot good"></span> ' + t("notifications.lowStock", "Stock bas") + '</label>' +
-        '<label class="toggle"><input type="checkbox" ' + (notifTriggers.lowStock !== false ? 'checked' : '') + ' onchange="app.updateNotificationTrigger(\'lowStock\',this.checked)"><span class="toggle-slider"></span></label></div>' +
-        
-        '<div class="setting-group-title mt-lg">' + t("notifications.expiryAlerts", "Alertes DLC / Lots") + '</div>' +
-        
-        '<div class="setting-row"><label class="setting-label"><span class="status-dot critical"></span> ' + t("notifications.lotExpired", "Lot expire") + '</label>' +
-        '<label class="toggle"><input type="checkbox" ' + (notifTriggers.lotExpired !== false ? 'checked' : '') + ' onchange="app.updateNotificationTrigger(\'lotExpired\',this.checked)"><span class="toggle-slider"></span></label></div>' +
-        
-        '<div class="setting-row"><label class="setting-label">' + t("notifications.expiring7", "Expire dans 7 jours") + '</label>' +
-        '<label class="toggle"><input type="checkbox" ' + (notifTriggers.lotExpiring7 !== false ? 'checked' : '') + ' onchange="app.updateNotificationTrigger(\'lotExpiring7\',this.checked)"><span class="toggle-slider"></span></label></div>' +
-        
-        '<div class="setting-row"><label class="setting-label">' + t("notifications.expiring15", "Expire dans 15 jours") + '</label>' +
-        '<label class="toggle"><input type="checkbox" ' + (notifTriggers.lotExpiring15 === true ? 'checked' : '') + ' onchange="app.updateNotificationTrigger(\'lotExpiring15\',this.checked)"><span class="toggle-slider"></span></label></div>' +
-        
-        '<div class="setting-row"><label class="setting-label">' + t("notifications.expiring30", "Expire dans 30 jours") + '</label>' +
-        '<label class="toggle"><input type="checkbox" ' + (notifTriggers.lotExpiring30 === true ? 'checked' : '') + ' onchange="app.updateNotificationTrigger(\'lotExpiring30\',this.checked)"><span class="toggle-slider"></span></label></div>' +
-        
-        '<div class="setting-group-title mt-lg">' + t("notifications.forecastAlerts", "Alertes previsions") + '</div>' +
-        
-        '<div class="setting-row"><label class="setting-label">' + t("notifications.forecastCritical", "Rupture prevue (<7j)") + '</label>' +
-        '<label class="toggle"><input type="checkbox" ' + (notifTriggers.forecastCritical !== false ? 'checked' : '') + ' onchange="app.updateNotificationTrigger(\'forecastCritical\',this.checked)"><span class="toggle-slider"></span></label></div>' +
-        
-        '<div class="setting-row"><label class="setting-label">' + t("notifications.forecastUrgent", "Stock urgent (<14j)") + '</label>' +
-        '<label class="toggle"><input type="checkbox" ' + (notifTriggers.forecastUrgent === true ? 'checked' : '') + ' onchange="app.updateNotificationTrigger(\'forecastUrgent\',this.checked)"><span class="toggle-slider"></span></label></div>' +
-        
-        '<div class="setting-group-title mt-lg">' + t("notifications.actions", "Actions") + '</div>' +
-        
-        '<div class="setting-row"><button class="btn btn-secondary" onclick="app.checkNotificationsNow()">' +
-        '<i data-lucide="refresh-cw"></i> ' + t("notifications.checkNow", "Verifier maintenant") + '</button></div>' +
-        
+        '<div class="setting-row"><label class="setting-label">' + t("settings.notificationsEnabled", "Notifications activees") + '</label>' +
+        '<label class="toggle"><input type="checkbox" ' + (s.notifications && s.notifications.enabled ? 'checked' : '') + ' onchange="app.updateSetting(\'notifications\',\'enabled\',this.checked)"><span class="toggle-slider"></span></label></div>' +
+        '<div class="setting-row"><label class="setting-label">' + t("settings.lowStockAlert", "Alerte stock bas") + '</label>' +
+        '<label class="toggle"><input type="checkbox" ' + (s.notifications && s.notifications.triggers && s.notifications.triggers.lowStock ? 'checked' : '') + ' onchange="app.updateNestedSetting(\'notifications\',\'triggers\',\'lowStock\',this.checked)"><span class="toggle-slider"></span></label></div>' +
         '</div></div>';
     } else {
       notifSection = 
-        '<div class="settings-section settings-locked" id="notificationSettingsSection">' +
-        '<div class="settings-section-header"><h3><i data-lucide="bell"></i> ' + t("settings.notifications", "Notifications") + '</h3><span class="badge badge-pro">PRO</span></div>' +
+        '<div class="settings-section settings-locked">' +
+        '<div class="settings-section-header"><h3>' + t("settings.notifications", "Notifications") + '</h3><span class="badge badge-pro">PRO</span></div>' +
         '<div class="settings-section-body">' +
         '<div class="locked-overlay"><p>' + t("settings.notificationsLocked", "Passez au plan Pro pour configurer les notifications.") + '</p>' +
         '<button class="btn btn-upgrade btn-sm" onclick="app.showUpgradeModal()">' + t("action.upgrade", "Passer a Pro") + '</button></div>' +
@@ -3959,52 +3551,6 @@
       }
     } catch (e) {
       showToast(t("msg.error", "Erreur"), "error");
-    }
-  }
-
-  // Fonctions de mise à jour des paramètres de notifications
-  async function updateNotificationSetting(key, value) {
-    try {
-      var body = {};
-      body[key] = value;
-      var res = await authFetch(apiUrl("/notifications/settings"), {
-        method: "PUT",
-        body: JSON.stringify(body)
-      });
-      if (res.ok) {
-        showToast(t("settings.saved", "Parametre enregistre"), "success");
-        // Mettre à jour le cache local
-        if (!settingsData.notifications) settingsData.notifications = {};
-        settingsData.notifications[key] = value;
-      } else {
-        showToast(t("msg.error", "Erreur"), "error");
-      }
-    } catch (e) {
-      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
-    }
-  }
-  
-  async function updateNotificationTrigger(triggerKey, value) {
-    try {
-      var body = {
-        triggers: {}
-      };
-      body.triggers[triggerKey] = value;
-      var res = await authFetch(apiUrl("/notifications/settings"), {
-        method: "PUT",
-        body: JSON.stringify(body)
-      });
-      if (res.ok) {
-        showToast(t("settings.saved", "Parametre enregistre"), "success");
-        // Mettre à jour le cache local
-        if (!settingsData.notifications) settingsData.notifications = {};
-        if (!settingsData.notifications.triggers) settingsData.notifications.triggers = {};
-        settingsData.notifications.triggers[triggerKey] = value;
-      } else {
-        showToast(t("msg.error", "Erreur"), "error");
-      }
-    } catch (e) {
-      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
     }
   }
 
@@ -4350,13 +3896,7 @@
     try {
       var res = await authFetch(apiUrl("/restock"), {
         method: "POST",
-        body: JSON.stringify({ 
-          productId: pid, 
-          grams: qtyInGrams, 
-          purchasePricePerGram: pricePerGram,
-          userId: getActiveUserId(),
-          userName: getActiveUserName()
-        }),
+        body: JSON.stringify({ productId: pid, grams: qtyInGrams, purchasePricePerGram: pricePerGram }),
       });
       if (res.ok) {
         showToast("Stock mis a jour", "success");
@@ -4388,11 +3928,7 @@
     try {
       var res = await authFetch(apiUrl("/products/" + encodeURIComponent(pid) + "/adjust-total"), {
         method: "POST",
-        body: JSON.stringify({ 
-          gramsDelta: delta,
-          userId: getActiveUserId(),
-          userName: getActiveUserName()
-        }),
+        body: JSON.stringify({ gramsDelta: delta }),
       });
       if (res.ok) {
         showToast("Ajustement OK", "success");
@@ -4630,253 +4166,413 @@
   }
 
   // ============================================
-  // 🔔 SYSTÈME DE NOTIFICATIONS
+  // 👤 SYSTÈME DE PROFILS UTILISATEURS
   // ============================================
   
-  var notificationsData = {
-    alerts: [],
-    counts: { critical: 0, high: 0, normal: 0, total: 0 },
-    unreadCount: 0,
-    settings: {}
+  var userProfiles = {
+    profiles: [{ id: "admin", name: "Admin", role: "admin", color: "#6366f1" }],
+    activeProfileId: "admin",
+    activeProfile: { id: "admin", name: "Admin", role: "admin", color: "#6366f1" }
   };
-  var notificationsLoaded = false;
-  
-  // Charger les notifications
-  async function loadNotifications(force) {
-    if (notificationsLoaded && !force) return;
+
+  function getInitials(name) {
+    if (!name) return "?";
+    var p = name.trim().split(/\s+/);
+    return p.length === 1 ? p[0].substring(0,2).toUpperCase() : (p[0][0] + p[p.length-1][0]).toUpperCase();
+  }
+
+  function loadProfiles() {
+    authFetch(apiUrl("/profiles")).then(function(res){ 
+      if(res.ok) return res.json(); 
+      return null;
+    }).then(function(data){
+      if (data && data.profiles && data.profiles.length) {
+        userProfiles.profiles = data.profiles;
+        userProfiles.activeProfileId = data.activeProfileId || data.profiles[0].id;
+        userProfiles.activeProfile = data.profiles.find(function(p){return p.id===userProfiles.activeProfileId;}) || data.profiles[0];
+        updateProfileButton();
+        // Afficher popup si plusieurs profils
+        if (data.profiles.length > 1) {
+          setTimeout(showProfilePopup, 300);
+        } else {
+          showToast(t("profiles.welcome", "Bienvenue") + ", " + userProfiles.activeProfile.name + " !", "success");
+        }
+      }
+    }).catch(function(e){ console.warn("[Profiles]", e); });
+  }
+
+  function showProfilePopup() {
+    var list = userProfiles.profiles.map(function(p) {
+      var i = getInitials(p.name);
+      var active = p.id === userProfiles.activeProfileId;
+      return '<div class="profile-select-item' + (active ? ' active' : '') + '" onclick="app.selectProfile(\'' + p.id + '\')">' +
+        '<div class="profile-avatar" style="background-color:' + (p.color || '#6366f1') + '">' + i + '</div>' +
+        '<div class="profile-info"><div class="profile-name">' + esc(p.name) + '</div>' +
+        '<div class="profile-role">' + esc(p.role || 'user') + '</div></div>' +
+        (active ? '<span class="profile-check">✓</span>' : '') + '</div>';
+    }).join('');
     
-    try {
-      var res = await authFetch(apiUrl("/notifications?limit=50"));
-      if (res.ok) {
-        notificationsData = await res.json();
-        notificationsLoaded = true;
-        updateNotificationBadge();
-      }
-    } catch (e) {
-      console.error("[Notifications] Load error:", e);
-    }
+    showModal({
+      title: '<i data-lucide="users"></i> ' + t("profiles.whoIsConnecting", "Qui se connecte ?"),
+      size: "sm",
+      content: '<div class="profile-selection-list">' + list + '</div>' +
+        '<div class="profile-selection-footer"><button class="btn btn-ghost" onclick="app.showCreateProfileModal()">' +
+        '<i data-lucide="user-plus"></i> ' + t("profiles.createNew", "Nouveau profil") + '</button></div>',
+      footer: ''
+    });
+    if (typeof lucide !== 'undefined') lucide.createIcons();
   }
-  
-  // Charger juste le compteur (léger)
-  async function loadNotificationCount() {
-    try {
-      var res = await authFetch(apiUrl("/notifications/count"));
-      if (res.ok) {
-        var data = await res.json();
-        notificationsData.unreadCount = data.unreadCount;
-        notificationsData.counts = data;
-        updateNotificationBadge();
-      }
-    } catch (e) {
-      // Silencieux
-    }
-  }
-  
-  // Mettre à jour le badge
-  function updateNotificationBadge() {
-    var badge = document.getElementById("notifBadge");
-    var btn = document.querySelector(".topbar-btn-notif");
+
+  function toggleUserMenu() {
+    var pf = userProfiles.activeProfile;
+    var init = getInitials(pf.name);
     
-    if (badge) {
-      var count = notificationsData.unreadCount || 0;
-      if (count > 0) {
-        badge.textContent = count > 99 ? "99+" : count;
-        badge.style.display = "flex";
-        if (btn) btn.classList.add("has-notifications");
-      } else {
-        badge.style.display = "none";
-        if (btn) btn.classList.remove("has-notifications");
-      }
-    }
+    var list = userProfiles.profiles.map(function(p) {
+      var i = getInitials(p.name);
+      var active = p.id === userProfiles.activeProfileId;
+      return '<div class="profile-menu-item' + (active ? ' active' : '') + '" onclick="app.selectProfile(\'' + p.id + '\')">' +
+        '<div class="profile-avatar-sm" style="background-color:' + (p.color || '#6366f1') + '">' + i + '</div>' +
+        '<span class="profile-menu-name">' + esc(p.name) + '</span>' +
+        (active ? '<span class="profile-check">✓</span>' : '') + '</div>';
+    }).join('');
+    
+    showModal({
+      title: '<i data-lucide="user"></i> ' + t("profiles.myProfile", "Mon profil"),
+      size: "sm",
+      content: '<div class="profile-card">' +
+        '<div class="profile-avatar-lg" style="background-color:' + (pf.color || '#6366f1') + '">' + init + '</div>' +
+        '<div class="profile-card-info"><div class="profile-card-name">' + esc(pf.name) + '</div>' +
+        '<div class="profile-card-role">' + esc(pf.role || 'user') + '</div></div></div>' +
+        '<div class="profile-menu-section"><div class="profile-menu-title">' + t("profiles.switchProfile", "Changer de profil") + '</div>' +
+        list + '</div>' +
+        '<div class="profile-menu-actions"><button class="btn btn-ghost btn-block" onclick="app.showCreateProfileModal()">' +
+        '<i data-lucide="user-plus"></i> ' + t("profiles.createNew", "Nouveau profil") + '</button>' +
+        '<button class="btn btn-ghost btn-block" onclick="app.showManageProfilesModal()">' +
+        '<i data-lucide="settings"></i> ' + t("profiles.manage", "Gérer les profils") + '</button></div>',
+      footer: '<button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.close", "Fermer") + '</button>'
+    });
+    if (typeof lucide !== 'undefined') lucide.createIcons();
   }
-  
-  // Afficher le panel de notifications
-  function toggleNotifications() {
-    // Vérifier si PRO
-    if (!hasFeature("hasNotifications")) {
-      showModal({
-        title: '<i data-lucide="bell"></i> ' + t("notifications.title", "Notifications"),
-        content: '<div class="text-center py-lg">' +
-          '<div class="lock-icon mb-md"><i data-lucide="lock"></i></div>' +
-          '<h3>' + t("msg.featureLocked", "Fonctionnalite PRO") + '</h3>' +
-          '<p class="text-secondary">' + t("notifications.lockedDesc", "Les alertes et notifications sont disponibles avec le plan Pro.") + '</p>' +
-          '<button class="btn btn-upgrade mt-lg" onclick="app.showUpgradeModal()">' + t("action.upgrade", "Passer a Pro") + '</button>' +
-          '</div>',
-        footer: '<button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.close", "Fermer") + '</button>'
-      });
-      if (typeof lucide !== "undefined") lucide.createIcons();
+
+  function selectProfile(id) {
+    authFetch(apiUrl("/profiles/" + id + "/activate"), { method: "POST" }).then(function(res) {
+      if (res.ok) return res.json();
+      return null;
+    }).then(function(data) {
+      if (data && data.profile) {
+        userProfiles.activeProfileId = id;
+        userProfiles.activeProfile = data.profile;
+        updateProfileButton();
+        closeModal();
+        showToast(t("profiles.welcome", "Bienvenue") + ", " + data.profile.name + " !", "success");
+      }
+    }).catch(function(e) { showToast(t("msg.error", "Erreur"), "error"); });
+  }
+
+  function showCreateProfileModal() {
+    var colors = ["#6366f1", "#8b5cf6", "#ec4899", "#ef4444", "#f97316", "#22c55e", "#14b8a6", "#06b6d4", "#3b82f6"];
+    var colorsHtml = colors.map(function(c, i) {
+      return '<div class="color-option' + (i === 0 ? ' selected' : '') + '" style="background-color:' + c + '" data-color="' + c + '" onclick="app.selectProfileColor(this)"></div>';
+    }).join('');
+    
+    showModal({
+      title: '<i data-lucide="user-plus"></i> ' + t("profiles.createProfile", "Créer un profil"),
+      size: "sm",
+      content: '<div class="form-group"><label>' + t("profiles.name", "Nom") + '</label>' +
+        '<input type="text" id="newProfileName" class="form-input" placeholder="' + t("profiles.namePlaceholder", "Ex: Marie, Pierre...") + '"></div>' +
+        '<div class="form-group"><label>' + t("profiles.role", "Rôle") + '</label>' +
+        '<select id="newProfileRole" class="form-select">' +
+        '<option value="user">' + t("profiles.roleUser", "Utilisateur") + '</option>' +
+        '<option value="manager">' + t("profiles.roleManager", "Manager") + '</option>' +
+        '<option value="admin">' + t("profiles.roleAdmin", "Administrateur") + '</option></select></div>' +
+        '<div class="form-group"><label>' + t("profiles.color", "Couleur") + '</label>' +
+        '<div class="color-picker">' + colorsHtml + '</div>' +
+        '<input type="hidden" id="newProfileColor" value="#6366f1"></div>',
+      footer: '<button class="btn btn-secondary" onclick="app.toggleUserMenu()">' + t("action.cancel", "Annuler") + '</button>' +
+        '<button class="btn btn-primary" onclick="app.createProfile()">' + t("action.create", "Créer") + '</button>'
+    });
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+  }
+
+  function selectProfileColor(el) {
+    document.querySelectorAll('.color-option').forEach(function(e) { e.classList.remove('selected'); });
+    el.classList.add('selected');
+    document.getElementById('newProfileColor').value = el.dataset.color;
+  }
+
+  function createProfile() {
+    var name = (document.getElementById('newProfileName') || {}).value || '';
+    var role = (document.getElementById('newProfileRole') || {}).value || 'user';
+    var color = (document.getElementById('newProfileColor') || {}).value || '#6366f1';
+    
+    if (!name.trim()) {
+      showToast(t("profiles.nameRequired", "Le nom est requis"), "error");
       return;
     }
     
-    showNotificationsPanel();
+    authFetch(apiUrl("/profiles"), {
+      method: "POST",
+      body: JSON.stringify({ name: name.trim(), role: role, color: color })
+    }).then(function(res) {
+      if (res.ok) return res.json();
+      return null;
+    }).then(function(data) {
+      if (data && data.profile) {
+        userProfiles.profiles.push(data.profile);
+        showToast(t("profiles.created", "Profil créé"), "success");
+        selectProfile(data.profile.id);
+      }
+    }).catch(function(e) { showToast(t("msg.error", "Erreur") + ": " + e.message, "error"); });
   }
-  
-  async function showNotificationsPanel() {
-    // Recharger les données
-    await loadNotifications(true);
-    
-    var alerts = notificationsData.alerts || [];
-    var counts = notificationsData.counts || {};
-    
-    // Header avec compteurs
-    var headerHtml = '<div class="notif-header-stats">' +
-      (counts.critical > 0 ? '<span class="notif-stat critical"><i data-lucide="alert-circle"></i> ' + counts.critical + '</span>' : '') +
-      (counts.high > 0 ? '<span class="notif-stat high"><i data-lucide="alert-triangle"></i> ' + counts.high + '</span>' : '') +
-      (counts.normal > 0 ? '<span class="notif-stat normal"><i data-lucide="info"></i> ' + counts.normal + '</span>' : '') +
-      '</div>';
-    
-    // Liste des alertes
-    var alertsHtml;
-    if (alerts.length === 0) {
-      alertsHtml = '<div class="empty-state-small py-xl">' +
-        '<div class="empty-icon"><i data-lucide="bell-off"></i></div>' +
-        '<p class="text-secondary">' + t("notifications.noAlerts", "Aucune alerte") + '</p>' +
-        '<p class="text-secondary text-sm">' + t("notifications.allGood", "Tout va bien !") + '</p>' +
-        '</div>';
-    } else {
-      alertsHtml = '<div class="notifications-list">' + alerts.map(function(a) {
-        var priorityClass = a.priority === "critical" ? "notif-critical" : 
-                            a.priority === "high" ? "notif-high" : "notif-normal";
-        var icon = a.icon || getNotificationIcon(a.type);
-        var timeAgo = formatTimeAgo(a.createdAt);
-        
-        return '<div class="notification-item ' + priorityClass + (a.read ? " read" : "") + '" data-id="' + a.id + '">' +
-          '<div class="notif-icon"><i data-lucide="' + icon + '"></i></div>' +
-          '<div class="notif-content" onclick="app.handleNotificationClick(\'' + a.id + '\')">' +
-          '<div class="notif-title">' + esc(a.title) + '</div>' +
-          '<div class="notif-message">' + esc(a.message) + '</div>' +
-          '<div class="notif-meta"><span class="notif-time">' + timeAgo + '</span>' +
-          (a.action ? '<span class="notif-action-label">' + esc(a.action.label) + ' →</span>' : '') +
-          '</div></div>' +
-          '<button class="btn btn-ghost btn-xs notif-dismiss" onclick="event.stopPropagation();app.dismissNotification(\'' + a.id + '\')" title="' + t("notifications.dismiss", "Ignorer") + '">' +
-          '<i data-lucide="x"></i></button>' +
-          '</div>';
-      }).join("") + '</div>';
-    }
+
+  function showManageProfilesModal() {
+    var list = userProfiles.profiles.map(function(p) {
+      var i = getInitials(p.name);
+      var canDelete = !p.isDefault && p.id !== 'admin';
+      return '<div class="manage-profile-item">' +
+        '<div class="profile-avatar-sm" style="background-color:' + (p.color || '#6366f1') + '">' + i + '</div>' +
+        '<div class="manage-profile-info"><div class="profile-name">' + esc(p.name) + 
+        (p.isDefault ? ' <span class="badge badge-sm">Admin</span>' : '') + '</div>' +
+        '<div class="profile-role">' + esc(p.role || 'user') + '</div></div>' +
+        '<div class="manage-profile-actions">' +
+        '<button class="btn btn-ghost btn-xs" onclick="app.showEditProfileModal(\'' + p.id + '\')" title="' + t("action.edit", "Modifier") + '">' +
+        '<i data-lucide="edit-2"></i></button>' +
+        (canDelete ? '<button class="btn btn-ghost btn-xs text-danger" onclick="app.deleteProfile(\'' + p.id + '\')" title="' + t("action.delete", "Supprimer") + '">' +
+        '<i data-lucide="trash-2"></i></button>' : '') + '</div></div>';
+    }).join('');
     
     showModal({
-      title: '<i data-lucide="bell"></i> ' + t("notifications.title", "Notifications"),
+      title: '<i data-lucide="users"></i> ' + t("profiles.manageProfiles", "Gérer les profils"),
       size: "md",
-      content: headerHtml + alertsHtml,
-      footer: '<div class="notif-footer-actions">' +
-        '<button class="btn btn-ghost btn-sm" onclick="app.openNotificationSettings()">' +
-        '<i data-lucide="settings"></i> ' + t("notifications.settings", "Parametres") + '</button>' +
-        '<button class="btn btn-ghost btn-sm" onclick="app.checkNotificationsNow()">' +
-        '<i data-lucide="refresh-cw"></i> ' + t("notifications.refresh", "Actualiser") + '</button>' +
-        '</div>' +
-        '<div class="notif-footer-right">' +
-        (alerts.length > 0 ? '<button class="btn btn-secondary btn-sm" onclick="app.markAllNotificationsRead()">' + t("notifications.markAllRead", "Tout marquer lu") + '</button>' : '') +
-        '<button class="btn btn-primary btn-sm" onclick="app.closeModal()">' + t("action.close", "Fermer") + '</button>' +
-        '</div>'
+      content: '<div class="manage-profiles-list">' + list + '</div>',
+      footer: '<button class="btn btn-secondary" onclick="app.toggleUserMenu()">' + t("action.back", "Retour") + '</button>' +
+        '<button class="btn btn-primary" onclick="app.showCreateProfileModal()">' + t("profiles.createNew", "Nouveau") + '</button>'
     });
-    if (typeof lucide !== "undefined") lucide.createIcons();
+    if (typeof lucide !== 'undefined') lucide.createIcons();
   }
-  
-  function getNotificationIcon(type) {
-    var icons = {
-      "out_of_stock": "package-x",
-      "critical_stock": "alert-triangle",
-      "low_stock": "package",
-      "lot_expired": "calendar-x",
-      "lot_expiring_7": "calendar-clock",
-      "lot_expiring_15": "calendar",
-      "lot_expiring_30": "calendar",
-      "forecast_critical": "trending-down",
-      "forecast_urgent": "eye",
-      "negative_margin": "trending-down",
-      "po_to_receive": "truck"
-    };
-    return icons[type] || "bell";
-  }
-  
-  async function handleNotificationClick(alertId) {
-    // Marquer comme lu
-    try {
-      await authFetch(apiUrl("/notifications/" + alertId + "/read"), { method: "POST" });
-    } catch (e) {}
+
+  function showEditProfileModal(profileId) {
+    var p = userProfiles.profiles.find(function(x) { return x.id === profileId; });
+    if (!p) return;
     
-    // Trouver l'alerte
-    var alert = (notificationsData.alerts || []).find(function(a) { return a.id === alertId; });
-    if (alert) {
-      closeModal();
-      
-      // Naviguer selon l'action
-      if (alert.action && alert.action.tab) {
-        switchTab(alert.action.tab);
-        
-        // Ouvrir le détail si produit
-        if (alert.productId && (alert.action.tab === "products" || alert.action.type === "restock")) {
-          setTimeout(function() { openProductDetails(alert.productId); }, 500);
-        }
-      } else if (alert.productId) {
-        switchTab("products");
-        setTimeout(function() { openProductDetails(alert.productId); }, 500);
-      }
+    var colors = ["#6366f1", "#8b5cf6", "#ec4899", "#ef4444", "#f97316", "#22c55e", "#14b8a6", "#06b6d4", "#3b82f6"];
+    var colorsHtml = colors.map(function(c) {
+      return '<div class="color-option' + (c === p.color ? ' selected' : '') + '" style="background-color:' + c + '" data-color="' + c + '" onclick="app.selectProfileColor(this)"></div>';
+    }).join('');
+    
+    showModal({
+      title: '<i data-lucide="edit-2"></i> ' + t("profiles.editProfile", "Modifier le profil"),
+      size: "sm",
+      content: '<div class="form-group"><label>' + t("profiles.name", "Nom") + '</label>' +
+        '<input type="text" id="editProfileName" class="form-input" value="' + esc(p.name) + '"></div>' +
+        '<div class="form-group"><label>' + t("profiles.role", "Rôle") + '</label>' +
+        '<select id="editProfileRole" class="form-select">' +
+        '<option value="user"' + (p.role === 'user' ? ' selected' : '') + '>' + t("profiles.roleUser", "Utilisateur") + '</option>' +
+        '<option value="manager"' + (p.role === 'manager' ? ' selected' : '') + '>' + t("profiles.roleManager", "Manager") + '</option>' +
+        '<option value="admin"' + (p.role === 'admin' ? ' selected' : '') + '>' + t("profiles.roleAdmin", "Administrateur") + '</option></select></div>' +
+        '<div class="form-group"><label>' + t("profiles.color", "Couleur") + '</label>' +
+        '<div class="color-picker">' + colorsHtml + '</div>' +
+        '<input type="hidden" id="editProfileColor" value="' + (p.color || '#6366f1') + '"></div>' +
+        '<input type="hidden" id="editProfileId" value="' + p.id + '">',
+      footer: '<button class="btn btn-secondary" onclick="app.showManageProfilesModal()">' + t("action.cancel", "Annuler") + '</button>' +
+        '<button class="btn btn-primary" onclick="app.updateProfile()">' + t("action.save", "Enregistrer") + '</button>'
+    });
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+  }
+
+  function updateProfile() {
+    var id = (document.getElementById('editProfileId') || {}).value;
+    var name = (document.getElementById('editProfileName') || {}).value || '';
+    var role = (document.getElementById('editProfileRole') || {}).value || 'user';
+    var color = (document.getElementById('editProfileColor') || {}).value || '#6366f1';
+    
+    if (!name.trim()) {
+      showToast(t("profiles.nameRequired", "Le nom est requis"), "error");
+      return;
     }
     
-    // Recharger le compteur
+    authFetch(apiUrl("/profiles/" + id), {
+      method: "PUT",
+      body: JSON.stringify({ name: name.trim(), role: role, color: color })
+    }).then(function(res) {
+      if (res.ok) return res.json();
+      return null;
+    }).then(function(data) {
+      if (data && data.profile) {
+        var idx = userProfiles.profiles.findIndex(function(p) { return p.id === id; });
+        if (idx >= 0) userProfiles.profiles[idx] = data.profile;
+        if (userProfiles.activeProfileId === id) userProfiles.activeProfile = data.profile;
+        updateProfileButton();
+        showToast(t("profiles.updated", "Profil mis à jour"), "success");
+        showManageProfilesModal();
+      }
+    }).catch(function(e) { showToast(t("msg.error", "Erreur"), "error"); });
+  }
+
+  function deleteProfile(profileId) {
+    if (!confirm(t("profiles.confirmDelete", "Supprimer ce profil ?"))) return;
+    
+    authFetch(apiUrl("/profiles/" + profileId), { method: "DELETE" }).then(function(res) {
+      if (res.ok) return res.json();
+      return null;
+    }).then(function(data) {
+      if (data && data.success) {
+        userProfiles.profiles = userProfiles.profiles.filter(function(p) { return p.id !== profileId; });
+        showToast(t("profiles.deleted", "Profil supprimé"), "success");
+        showManageProfilesModal();
+      }
+    }).catch(function(e) { showToast(t("msg.error", "Erreur"), "error"); });
+  }
+
+  function updateProfileButton() {
+    var btn = document.querySelector('.user-avatar');
+    if (btn && userProfiles.activeProfile) {
+      var i = getInitials(userProfiles.activeProfile.name);
+      btn.innerHTML = '<span style="background-color:' + (userProfiles.activeProfile.color || '#6366f1') + ';width:100%;height:100%;display:flex;align-items:center;justify-content:center;border-radius:50%">' + i + '</span>';
+    }
+  }
+
+  function getActiveUserId() { return userProfiles.activeProfileId || "admin"; }
+  function getActiveUserName() { return userProfiles.activeProfile ? userProfiles.activeProfile.name : "Admin"; }
+
+  // ============================================
+  // 🔔 SYSTÈME DE NOTIFICATIONS
+  // ============================================
+  
+  var notificationsData = { alerts: [], unreadCount: 0, counts: {} };
+
+  function loadNotificationCount() {
+    authFetch(apiUrl("/notifications/count")).then(function(res) {
+      if (res.ok) return res.json();
+      return null;
+    }).then(function(data) {
+      if (data) {
+        notificationsData.unreadCount = data.unreadCount || 0;
+        notificationsData.counts = data;
+        updateNotificationBadge();
+      }
+    }).catch(function() {});
+  }
+
+  function updateNotificationBadge() {
+    var badge = document.getElementById("notifBadge");
+    if (badge) {
+      if (notificationsData.unreadCount > 0) {
+        badge.textContent = notificationsData.unreadCount > 99 ? "99+" : notificationsData.unreadCount;
+        badge.style.display = "flex";
+      } else {
+        badge.style.display = "none";
+      }
+    }
+  }
+
+  function toggleNotifications() {
+    if (!hasFeature("hasNotifications")) {
+      showModal({
+        title: '<i data-lucide="bell"></i> ' + t("notifications.title", "Notifications"),
+        content: '<div class="locked-feature-message">' +
+          '<div class="locked-icon"><i data-lucide="lock"></i></div>' +
+          '<h3>' + t("msg.featureLocked", "Fonctionnalité PRO") + '</h3>' +
+          '<p>' + t("notifications.lockedDesc", "Les alertes et notifications sont disponibles avec le plan Pro.") + '</p>' +
+          '<button class="btn btn-primary" onclick="app.showUpgradeModal()">' + t("action.upgrade", "Passer à Pro") + '</button></div>',
+        footer: '<button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.close", "Fermer") + '</button>'
+      });
+      if (typeof lucide !== 'undefined') lucide.createIcons();
+      return;
+    }
+    showNotificationsPanel();
+  }
+
+  function showNotificationsPanel() {
+    authFetch(apiUrl("/notifications?limit=30")).then(function(res) {
+      if (res.ok) return res.json();
+      return { alerts: [] };
+    }).then(function(data) {
+      notificationsData.alerts = data.alerts || [];
+      notificationsData.unreadCount = data.unreadCount || 0;
+      updateNotificationBadge();
+      
+      var counts = data.counts || {};
+      var statsHtml = '<div class="notif-stats">' +
+        (counts.critical > 0 ? '<span class="notif-stat critical"><i data-lucide="alert-circle"></i> ' + counts.critical + '</span>' : '') +
+        (counts.high > 0 ? '<span class="notif-stat high"><i data-lucide="alert-triangle"></i> ' + counts.high + '</span>' : '') +
+        (counts.normal > 0 ? '<span class="notif-stat normal"><i data-lucide="info"></i> ' + counts.normal + '</span>' : '') +
+        '</div>';
+      
+      var alertsHtml;
+      if (!notificationsData.alerts.length) {
+        alertsHtml = '<div class="empty-state"><div class="empty-icon"><i data-lucide="bell-off"></i></div>' +
+          '<p>' + t("notifications.noAlerts", "Aucune alerte") + '</p>' +
+          '<p class="text-sm text-muted">' + t("notifications.allGood", "Tout va bien !") + '</p></div>';
+      } else {
+        alertsHtml = '<div class="notifications-list">' + notificationsData.alerts.map(function(a) {
+          var priorityClass = a.priority === 'critical' ? 'critical' : a.priority === 'high' ? 'high' : 'normal';
+          var icon = a.priority === 'critical' ? 'alert-circle' : a.priority === 'high' ? 'alert-triangle' : 'info';
+          return '<div class="notification-item ' + priorityClass + (a.read ? ' read' : '') + '" onclick="app.handleNotificationClick(\'' + a.id + '\',\'' + (a.productId || '') + '\')">' +
+            '<div class="notif-icon"><i data-lucide="' + icon + '"></i></div>' +
+            '<div class="notif-content"><div class="notif-title">' + esc(a.title || '') + '</div>' +
+            '<div class="notif-message">' + esc(a.message || '') + '</div></div>' +
+            '<button class="btn btn-ghost btn-xs notif-dismiss" onclick="event.stopPropagation();app.dismissNotification(\'' + a.id + '\')">' +
+            '<i data-lucide="x"></i></button></div>';
+        }).join('') + '</div>';
+      }
+      
+      showModal({
+        title: '<i data-lucide="bell"></i> ' + t("notifications.title", "Notifications"),
+        size: "md",
+        content: statsHtml + alertsHtml,
+        footer: '<div class="notif-footer-left"><button class="btn btn-ghost btn-sm" onclick="app.checkNotificationsNow()">' +
+          '<i data-lucide="refresh-cw"></i> ' + t("notifications.refresh", "Actualiser") + '</button></div>' +
+          '<div class="notif-footer-right">' +
+          (notificationsData.alerts.length > 0 ? '<button class="btn btn-ghost btn-sm" onclick="app.markAllNotificationsRead()">' + t("notifications.markAllRead", "Tout marquer lu") + '</button>' : '') +
+          '<button class="btn btn-secondary btn-sm" onclick="app.closeModal()">' + t("action.close", "Fermer") + '</button></div>'
+      });
+      if (typeof lucide !== 'undefined') lucide.createIcons();
+    }).catch(function() {
+      showToast(t("msg.error", "Erreur"), "error");
+    });
+  }
+
+  function handleNotificationClick(alertId, productId) {
+    authFetch(apiUrl("/notifications/" + alertId + "/read"), { method: "POST" }).catch(function() {});
+    closeModal();
+    if (productId) {
+      navigateTo("products");
+      setTimeout(function() { openProductDetails(productId); }, 300);
+    }
     loadNotificationCount();
   }
-  
-  async function dismissNotification(alertId) {
-    try {
-      await authFetch(apiUrl("/notifications/" + alertId + "/dismiss"), { method: "POST" });
-      
-      // Retirer de la liste locale
+
+  function dismissNotification(alertId) {
+    authFetch(apiUrl("/notifications/" + alertId + "/dismiss"), { method: "POST" }).then(function() {
       notificationsData.alerts = notificationsData.alerts.filter(function(a) { return a.id !== alertId; });
       notificationsData.unreadCount = Math.max(0, notificationsData.unreadCount - 1);
       updateNotificationBadge();
-      
-      // Rafraîchir le panel si ouvert
-      var panel = document.querySelector(".notifications-list");
-      if (panel) {
-        showNotificationsPanel();
-      }
-    } catch (e) {
-      showToast(t("msg.error", "Erreur"), "error");
-    }
-  }
-  
-  async function markAllNotificationsRead() {
-    try {
-      await authFetch(apiUrl("/notifications/read-all"), { method: "POST" });
-      notificationsData.unreadCount = 0;
-      notificationsData.alerts.forEach(function(a) { a.read = true; });
-      updateNotificationBadge();
-      showToast(t("notifications.allMarkedRead", "Tout marque comme lu"), "success");
       showNotificationsPanel();
-    } catch (e) {
-      showToast(t("msg.error", "Erreur"), "error");
-    }
+    }).catch(function() {});
   }
-  
-  async function checkNotificationsNow() {
-    showToast(t("notifications.checking", "Verification en cours..."), "info");
-    try {
-      var res = await authFetch(apiUrl("/notifications/check"), { method: "POST" });
-      if (res.ok) {
-        var data = await res.json();
-        showToast(t("notifications.checked", "Verification terminee") + " - " + data.newAlerts + " " + t("notifications.newAlerts", "nouvelle(s) alerte(s)"), "success");
-        await loadNotifications(true);
+
+  function markAllNotificationsRead() {
+    authFetch(apiUrl("/notifications/read-all"), { method: "POST" }).then(function() {
+      notificationsData.alerts.forEach(function(a) { a.read = true; });
+      notificationsData.unreadCount = 0;
+      updateNotificationBadge();
+      showToast(t("notifications.allMarkedRead", "Tout marqué comme lu"), "success");
+      showNotificationsPanel();
+    }).catch(function() {});
+  }
+
+  function checkNotificationsNow() {
+    showToast(t("notifications.checking", "Vérification..."), "info");
+    authFetch(apiUrl("/notifications/check"), { method: "POST" }).then(function(res) {
+      if (res.ok) return res.json();
+      return null;
+    }).then(function(data) {
+      if (data) {
+        showToast(t("notifications.checked", "Vérification terminée") + " - " + (data.newAlerts || 0) + " " + t("notifications.newAlerts", "nouvelle(s)"), "success");
         showNotificationsPanel();
       }
-    } catch (e) {
-      showToast(t("msg.error", "Erreur"), "error");
-    }
-  }
-  
-  // Ouvrir les paramètres de notifications
-  function openNotificationSettings() {
-    closeModal();
-    switchTab("settings");
-    // Scroll vers la section notifications après un délai
-    setTimeout(function() {
-      var notifSection = document.querySelector(".settings-section:has([onclick*='notifications'])") ||
-                         document.getElementById("notificationSettingsSection");
-      if (notifSection) {
-        notifSection.scrollIntoView({ behavior: "smooth" });
-      }
-    }, 500);
+    }).catch(function() {});
   }
 
   // ============================================
@@ -5417,10 +5113,10 @@
     // KPI Cards
     var kpiCards = 
       '<div class="analytics-kpis">' +
-      '<div class="kpi-card"><div class="kpi-value">' + formatCurrency(k.totalStockValue || 0) + '</div><div class="kpi-label">' + t("analytics.stockValue", "Valeur stock") + '</div></div>' +
-      '<div class="kpi-card"><div class="kpi-value">' + formatCurrency((h.vendable || {}).value || 0) + '</div><div class="kpi-label">' + t("analytics.sellableStock", "Stock vendable") + '</div><div class="kpi-sub success">' + ((h.vendable || {}).percent || 0) + '%</div></div>' +
-      '<div class="kpi-card' + (k.alertsCount > 0 ? ' kpi-warning' : '') + '"><div class="kpi-value">' + (k.alertsCount || 0) + '</div><div class="kpi-label">' + t("analytics.alerts", "Alertes") + '</div></div>' +
-      '<div class="kpi-card"><div class="kpi-value">' + (k.avgRotationDays ? k.avgRotationDays + 'j' : '--') + '</div><div class="kpi-label">' + t("analytics.avgRotation", "Rotation moy.") + '</div></div>' +
+      '<div class="kpi-card"><div class="kpi-value">' + formatCurrency(k.totalStockValue || 0) + '</div><div class="kpi-label">Valeur stock</div></div>' +
+      '<div class="kpi-card"><div class="kpi-value">' + formatCurrency((h.vendable || {}).value || 0) + '</div><div class="kpi-label">Stock vendable</div><div class="kpi-sub success">' + ((h.vendable || {}).percent || 0) + '%</div></div>' +
+      '<div class="kpi-card' + (k.alertsCount > 0 ? ' kpi-warning' : '') + '"><div class="kpi-value">' + (k.alertsCount || 0) + '</div><div class="kpi-label">Alertes</div></div>' +
+      '<div class="kpi-card"><div class="kpi-value">' + (k.avgRotationDays ? k.avgRotationDays + 'j' : '--') + '</div><div class="kpi-label">Rotation moy.</div></div>' +
       '</div>';
 
     // Score de sante
@@ -5428,16 +5124,16 @@
     var healthSection = 
       '<div class="analytics-section">' +
       '<div class="section-header" onclick="app.toggleSection(\'health\')">' +
-      '<h3>' + t("analytics.stockHealth", "Sante du stock") + '</h3><span class="section-toggle" id="toggle-health">-</span></div>' +
+      '<h3>Sante du stock</h3><span class="section-toggle" id="toggle-health">-</span></div>' +
       '<div class="section-content" id="section-health">' +
       '<div class="health-score-container">' +
       '<div class="health-score ' + scoreClass + '">' + (k.healthScore || 0) + '</div>' +
-      '<div class="health-score-label">' + t("analytics.healthScore", "Score de sante") + '</div>' +
+      '<div class="health-score-label">Score de sante</div>' +
       '</div>' +
       '<div class="health-bars">' +
-      '<div class="health-bar-item"><div class="health-bar-label">' + t("analytics.sellable", "Vendable") + ' (&lt;30j)</div><div class="health-bar-track"><div class="health-bar-fill success" style="width:' + ((h.vendable || {}).percent || 0) + '%"></div></div><div class="health-bar-value">' + formatCurrency((h.vendable || {}).value || 0) + ' (' + ((h.vendable || {}).percent || 0) + '%)</div></div>' +
-      '<div class="health-bar-item"><div class="health-bar-label">' + t("analytics.slow", "Lent") + ' (30-60j)</div><div class="health-bar-track"><div class="health-bar-fill warning" style="width:' + ((h.lent || {}).percent || 0) + '%"></div></div><div class="health-bar-value">' + formatCurrency((h.lent || {}).value || 0) + ' (' + ((h.lent || {}).percent || 0) + '%)</div></div>' +
-      '<div class="health-bar-item"><div class="health-bar-label">' + t("analytics.dormant", "Dormant") + ' (&gt;60j)</div><div class="health-bar-track"><div class="health-bar-fill danger" style="width:' + ((h.dormant || {}).percent || 0) + '%"></div></div><div class="health-bar-value">' + formatCurrency((h.dormant || {}).value || 0) + ' (' + ((h.dormant || {}).percent || 0) + '%)</div></div>' +
+      '<div class="health-bar-item"><div class="health-bar-label">Vendable (&lt;30j)</div><div class="health-bar-track"><div class="health-bar-fill success" style="width:' + ((h.vendable || {}).percent || 0) + '%"></div></div><div class="health-bar-value">' + formatCurrency((h.vendable || {}).value || 0) + ' (' + ((h.vendable || {}).percent || 0) + '%)</div></div>' +
+      '<div class="health-bar-item"><div class="health-bar-label">Lent (30-60j)</div><div class="health-bar-track"><div class="health-bar-fill warning" style="width:' + ((h.lent || {}).percent || 0) + '%"></div></div><div class="health-bar-value">' + formatCurrency((h.lent || {}).value || 0) + ' (' + ((h.lent || {}).percent || 0) + '%)</div></div>' +
+      '<div class="health-bar-item"><div class="health-bar-label">Dormant (&gt;60j)</div><div class="health-bar-track"><div class="health-bar-fill danger" style="width:' + ((h.dormant || {}).percent || 0) + '%"></div></div><div class="health-bar-value">' + formatCurrency((h.dormant || {}).value || 0) + ' (' + ((h.dormant || {}).percent || 0) + '%)</div></div>' +
       '</div>' +
       '</div></div>';
 
@@ -5446,37 +5142,37 @@
     var alertsHtml = '';
     
     if ((alerts.rupture || []).length > 0) {
-      alertsHtml += '<div class="alert-group alert-danger"><div class="alert-title">' + t("analytics.outOfStock", "Rupture de stock") + ' (' + alerts.rupture.length + ')</div>';
+      alertsHtml += '<div class="alert-group alert-danger"><div class="alert-title">Rupture de stock (' + alerts.rupture.length + ')</div>';
       alerts.rupture.forEach(function(a) {
-        alertsHtml += '<div class="alert-item"><span class="alert-product">' + esc(a.name) + '</span><span class="alert-action">' + t("analytics.restock", "Reapprovisionner") + '</span></div>';
+        alertsHtml += '<div class="alert-item"><span class="alert-product">' + esc(a.name) + '</span><span class="alert-action">Reapprovisionner</span></div>';
       });
       alertsHtml += '</div>';
     }
     
     if ((alerts.lowStock || []).length > 0) {
-      alertsHtml += '<div class="alert-group alert-warning"><div class="alert-title">' + t("analytics.criticalStock", "Stock critique") + ' (' + alerts.lowStock.length + ')</div>';
+      alertsHtml += '<div class="alert-group alert-warning"><div class="alert-title">Stock critique (' + alerts.lowStock.length + ')</div>';
       alerts.lowStock.forEach(function(a) {
-        alertsHtml += '<div class="alert-item"><span class="alert-product">' + esc(a.name) + '</span><span class="alert-days">' + (a.daysLeft || '?') + t("analytics.daysLeft", "j restants") + '</span><span class="alert-action">' + t("analytics.order", "Commander") + '</span></div>';
+        alertsHtml += '<div class="alert-item"><span class="alert-product">' + esc(a.name) + '</span><span class="alert-days">' + (a.daysLeft || '?') + 'j restants</span><span class="alert-action">Commander</span></div>';
       });
       alertsHtml += '</div>';
     }
     
     if ((alerts.dormant || []).length > 0) {
-      alertsHtml += '<div class="alert-group alert-info"><div class="alert-title">' + t("analytics.dormantStock", "Stock dormant") + ' (' + alerts.dormant.length + ')</div>';
+      alertsHtml += '<div class="alert-group alert-info"><div class="alert-title">Stock dormant (' + alerts.dormant.length + ')</div>';
       alerts.dormant.slice(0, 5).forEach(function(a) {
-        alertsHtml += '<div class="alert-item"><span class="alert-product">' + esc(a.name) + '</span><span class="alert-value">' + formatCurrency(a.value) + ' ' + t("analytics.frozen", "immobilises") + '</span><span class="alert-action">' + t("analytics.promo", "Promo?") + '</span></div>';
+        alertsHtml += '<div class="alert-item"><span class="alert-product">' + esc(a.name) + '</span><span class="alert-value">' + formatCurrency(a.value) + ' immobilises</span><span class="alert-action">Promo?</span></div>';
       });
       alertsHtml += '</div>';
     }
 
     if (!alertsHtml) {
-      alertsHtml = '<div class="empty-state-small"><p class="text-secondary">' + t("analytics.noAlerts", "Aucune alerte") + '</p></div>';
+      alertsHtml = '<div class="empty-state-small"><p class="text-secondary">Aucune alerte</p></div>';
     }
 
     var alertsSection = 
       '<div class="analytics-section">' +
       '<div class="section-header" onclick="app.toggleSection(\'alerts\')">' +
-      '<h3>' + t("analytics.alertsActions", "Alertes & Actions") + '</h3><span class="section-toggle" id="toggle-alerts">-</span></div>' +
+      '<h3>Alertes & Actions</h3><span class="section-toggle" id="toggle-alerts">-</span></div>' +
       '<div class="section-content" id="section-alerts">' + alertsHtml + '</div></div>';
 
     // Top produits
@@ -5484,65 +5180,65 @@
     var topsHtml = '<div class="tops-grid">';
     
     // Top vendus
-    topsHtml += '<div class="top-list"><h4>' + t("analytics.topSold", "Plus vendus") + '</h4>';
+    topsHtml += '<div class="top-list"><h4>Plus vendus</h4>';
     if ((tops.vendus || []).length > 0) {
       tops.vendus.forEach(function(p, i) {
         topsHtml += '<div class="top-item"><span class="top-rank">' + (i + 1) + '</span><span class="top-name">' + esc(p.name) + '</span><span class="top-value">' + formatWeight(p.totalSoldGrams) + '</span></div>';
       });
     } else {
-      topsHtml += '<p class="text-secondary text-sm">' + t("analytics.noData", "Pas de donnees") + '</p>';
+      topsHtml += '<p class="text-secondary text-sm">Pas de donnees</p>';
     }
     topsHtml += '</div>';
 
     // Top valeur
-    topsHtml += '<div class="top-list"><h4>' + t("analytics.topValue", "Plus haute valeur") + '</h4>';
+    topsHtml += '<div class="top-list"><h4>Plus haute valeur</h4>';
     if ((tops.valeur || []).length > 0) {
       tops.valeur.forEach(function(p, i) {
         topsHtml += '<div class="top-item"><span class="top-rank">' + (i + 1) + '</span><span class="top-name">' + esc(p.name) + '</span><span class="top-value">' + formatCurrency(p.value) + '</span></div>';
       });
     } else {
-      topsHtml += '<p class="text-secondary text-sm">' + t("analytics.noData", "Pas de donnees") + '</p>';
+      topsHtml += '<p class="text-secondary text-sm">Pas de donnees</p>';
     }
     topsHtml += '</div>';
 
     // Plus lents
-    topsHtml += '<div class="top-list"><h4>' + t("analytics.slowRotation", "Rotation lente") + '</h4>';
+    topsHtml += '<div class="top-list"><h4>Rotation lente</h4>';
     if ((tops.lents || []).length > 0) {
       tops.lents.forEach(function(p, i) {
-        topsHtml += '<div class="top-item"><span class="top-rank danger">' + (i + 1) + '</span><span class="top-name">' + esc(p.name) + '</span><span class="top-value">' + (p.rotationDays ? p.rotationDays + 'j' : t("analytics.dormant", "Dormant")) + '</span></div>';
+        topsHtml += '<div class="top-item"><span class="top-rank danger">' + (i + 1) + '</span><span class="top-name">' + esc(p.name) + '</span><span class="top-value">' + (p.rotationDays ? p.rotationDays + 'j' : 'Dormant') + '</span></div>';
       });
     } else {
-      topsHtml += '<p class="text-secondary text-sm">' + t("analytics.noData", "Pas de donnees") + '</p>';
+      topsHtml += '<p class="text-secondary text-sm">Pas de donnees</p>';
     }
     topsHtml += '</div></div>';
 
     var topsSection = 
       '<div class="analytics-section">' +
       '<div class="section-header" onclick="app.toggleSection(\'tops\')">' +
-      '<h3>' + t("analytics.topProducts", "Top Produits") + '</h3><span class="section-toggle" id="toggle-tops">-</span></div>' +
+      '<h3>Top Produits</h3><span class="section-toggle" id="toggle-tops">-</span></div>' +
       '<div class="section-content" id="section-tops">' + topsHtml + '</div></div>';
 
     // Par categorie
     var cats = d.categories || [];
     var catsHtml = '';
     if (cats.length > 0) {
-      catsHtml = '<table class="data-table data-table-compact"><thead><tr><th>' + t("analytics.category", "Categorie") + '</th><th>' + t("analytics.productsCount", "Produits") + '</th><th>' + t("analytics.stock", "Stock") + '</th><th>' + t("analytics.value", "Valeur") + '</th><th>' + t("analytics.rotation", "Rotation") + '</th><th>' + t("analytics.health", "Sante") + '</th></tr></thead><tbody>';
+      catsHtml = '<table class="data-table data-table-compact"><thead><tr><th>Categorie</th><th>Produits</th><th>Stock</th><th>Valeur</th><th>Rotation</th><th>Sante</th></tr></thead><tbody>';
       cats.forEach(function(cat) {
         var healthBadge = cat.health === 'good' ? '<span class="badge badge-success">OK</span>' : 
-                          cat.health === 'slow' ? '<span class="badge badge-warning">' + t("analytics.slow", "Lent") + '</span>' : 
-                          cat.health === 'dormant' ? '<span class="badge badge-danger">' + t("analytics.dormant", "Dormant") + '</span>' : 
+                          cat.health === 'slow' ? '<span class="badge badge-warning">Lent</span>' : 
+                          cat.health === 'dormant' ? '<span class="badge badge-danger">Dormant</span>' : 
                           '<span class="badge badge-secondary">--</span>';
         catsHtml += '<tr><td>' + esc(cat.name) + '</td><td>' + cat.productCount + '</td><td>' + formatWeight(cat.stockGrams) + '</td><td>' + formatCurrency(cat.stockValue) + '</td><td>' + (cat.avgRotationDays ? cat.avgRotationDays + 'j' : '--') + '</td><td>' + healthBadge + '</td></tr>';
       });
       catsHtml += '</tbody></table>';
     } else {
-      catsHtml = '<div class="empty-state-small"><p class="text-secondary">' + t("analytics.createCategories", "Creez des categories pour voir cette analyse") + '</p></div>';
+      catsHtml = '<div class="empty-state-small"><p class="text-secondary">Creez des categories pour voir cette analyse</p></div>';
     }
 
     var catsSection = 
       '<div class="analytics-section">' +
       '<div class="section-header" onclick="app.toggleSection(\'categories\')">' +
-      '<h3>' + t("analytics.byCategory", "Par Categorie") + '</h3><span class="section-toggle" id="toggle-categories">-</span></div>' +
+      '<h3>Par Categorie</h3><span class="section-toggle" id="toggle-categories">-</span></div>' +
       '<div class="section-content" id="section-categories">' + catsHtml + '</div></div>';
 
     // Par format
@@ -5556,13 +5252,13 @@
       });
       formatsHtml += '</div>';
     } else {
-      formatsHtml = '<div class="empty-state-small"><p class="text-secondary">' + t("analytics.noFormatData", "Pas de donnees de format") + '</p></div>';
+      formatsHtml = '<div class="empty-state-small"><p class="text-secondary">Pas de donnees de format</p></div>';
     }
 
     var formatsSection = 
       '<div class="analytics-section">' +
       '<div class="section-header" onclick="app.toggleSection(\'formats\')">' +
-      '<h3>' + t("analytics.byFormat", "Par Format") + '</h3><span class="section-toggle" id="toggle-formats">-</span></div>' +
+      '<h3>Par Format</h3><span class="section-toggle" id="toggle-formats">-</span></div>' +
       '<div class="section-content" id="section-formats">' + formatsHtml + '</div></div>';
 
     // Assembler
@@ -5899,20 +5595,7 @@
     updateNestedSetting: updateNestedSetting,
     exportSettings: exportSettings,
     resetAllSettings: resetAllSettings,
-    // Notifications
-    loadNotifications: loadNotifications,
-    loadNotificationCount: loadNotificationCount,
-    showNotificationsPanel: showNotificationsPanel,
-    handleNotificationClick: handleNotificationClick,
-    dismissNotification: dismissNotification,
-    markAllNotificationsRead: markAllNotificationsRead,
-    checkNotificationsNow: checkNotificationsNow,
-    openNotificationSettings: openNotificationSettings,
-    updateNotificationSetting: updateNotificationSetting,
-    updateNotificationTrigger: updateNotificationTrigger,
-    // Profils utilisateurs
-    loadUserProfiles: loadUserProfiles,
-    showProfileSelectionPopup: showProfileSelectionPopup,
+    // Profils
     selectProfile: selectProfile,
     showCreateProfileModal: showCreateProfileModal,
     selectProfileColor: selectProfileColor,
@@ -5921,8 +5604,12 @@
     showEditProfileModal: showEditProfileModal,
     updateProfile: updateProfile,
     deleteProfile: deleteProfile,
-    getActiveUserId: getActiveUserId,
-    getActiveUserName: getActiveUserName,
+    // Notifications
+    showNotificationsPanel: showNotificationsPanel,
+    handleNotificationClick: handleNotificationClick,
+    dismissNotification: dismissNotification,
+    markAllNotificationsRead: markAllNotificationsRead,
+    checkNotificationsNow: checkNotificationsNow,
     get state() {
       return state;
     },

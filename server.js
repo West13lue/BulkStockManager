@@ -1864,8 +1864,9 @@ router.get("/api/settings/support-bundle", (req, res) => {
   });
 });
 
+
 // =====================================================
-// USER PROFILES ROUTES - Gestion des profils utilisateurs
+// USER PROFILES ROUTES
 // =====================================================
 
 let userProfileStore = null;
@@ -1873,128 +1874,78 @@ try {
   userProfileStore = require("./userProfileStore");
   console.log("[Server] userProfileStore loaded");
 } catch (e) {
-  console.warn("[Server] userProfileStore not available:", e.message);
+  console.warn("[Server] userProfileStore not available - using defaults");
 }
 
-// GET /api/profiles - Liste des profils
+const defaultProfile = { id: "admin", name: "Admin", role: "admin", color: "#6366f1", isDefault: true };
+
 router.get("/api/profiles", (req, res) => {
   safeJson(req, res, () => {
     const shop = getShop(req);
     if (!shop) return apiError(res, 400, "Shop introuvable");
-    
-    if (!userProfileStore) {
-      // Retourner un profil admin par défaut si le module n'est pas disponible
-      return res.json({
-        profiles: [{ id: "admin", name: "Admin", role: "admin", color: "#6366f1", isDefault: true }],
-        activeProfileId: "admin",
-        settings: {}
-      });
-    }
-    
+    if (!userProfileStore) return res.json({ profiles: [defaultProfile], activeProfileId: "admin", settings: {} });
     const data = userProfileStore.loadProfiles(shop);
-    res.json({
-      profiles: data.profiles || [],
-      activeProfileId: data.activeProfileId,
-      settings: data.settings || {}
-    });
+    res.json({ profiles: data.profiles || [defaultProfile], activeProfileId: data.activeProfileId || "admin", settings: data.settings || {} });
   });
 });
 
-// GET /api/profiles/active - Profil actif
 router.get("/api/profiles/active", (req, res) => {
   safeJson(req, res, () => {
     const shop = getShop(req);
     if (!shop) return apiError(res, 400, "Shop introuvable");
-    
-    if (!userProfileStore) {
-      return res.json({ profile: { id: "admin", name: "Admin", role: "admin", color: "#6366f1" } });
-    }
-    
+    if (!userProfileStore) return res.json({ profile: defaultProfile });
     const profile = userProfileStore.getActiveProfile(shop);
-    res.json({ profile });
+    res.json({ profile: profile || defaultProfile });
   });
 });
 
-// POST /api/profiles - Créer un profil
 router.post("/api/profiles", (req, res) => {
   safeJson(req, res, () => {
     const shop = getShop(req);
     if (!shop) return apiError(res, 400, "Shop introuvable");
     if (!userProfileStore) return apiError(res, 503, "Module profils non disponible");
-    
     const { name, role, color } = req.body;
-    if (!name || !name.trim()) {
-      return apiError(res, 400, "Le nom est requis");
-    }
-    
-    const profile = userProfileStore.createProfile(shop, { name, role, color });
+    if (!name || !name.trim()) return apiError(res, 400, "Le nom est requis");
+    const profile = userProfileStore.createProfile(shop, { name: name.trim(), role, color });
     res.json({ success: true, profile });
   });
 });
 
-// PUT /api/profiles/:id - Mettre à jour un profil
 router.put("/api/profiles/:id", (req, res) => {
   safeJson(req, res, () => {
     const shop = getShop(req);
     if (!shop) return apiError(res, 400, "Shop introuvable");
     if (!userProfileStore) return apiError(res, 503, "Module profils non disponible");
-    
     const profile = userProfileStore.updateProfile(shop, req.params.id, req.body);
-    if (!profile) {
-      return apiError(res, 404, "Profil introuvable");
-    }
+    if (!profile) return apiError(res, 404, "Profil introuvable");
     res.json({ success: true, profile });
   });
 });
 
-// DELETE /api/profiles/:id - Supprimer un profil
 router.delete("/api/profiles/:id", (req, res) => {
   safeJson(req, res, () => {
     const shop = getShop(req);
     if (!shop) return apiError(res, 400, "Shop introuvable");
     if (!userProfileStore) return apiError(res, 503, "Module profils non disponible");
-    
     const result = userProfileStore.deleteProfile(shop, req.params.id);
-    if (!result.success) {
-      return apiError(res, 400, result.error || "Impossible de supprimer ce profil");
-    }
+    if (!result.success) return apiError(res, 400, result.error || "Impossible de supprimer");
     res.json({ success: true });
   });
 });
 
-// POST /api/profiles/:id/activate - Définir le profil actif
 router.post("/api/profiles/:id/activate", (req, res) => {
   safeJson(req, res, () => {
     const shop = getShop(req);
     if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!userProfileStore) {
-      // Si pas de module, simuler l'activation
-      return res.json({ success: true, profile: { id: req.params.id, name: "Admin", role: "admin" } });
-    }
-    
+    if (!userProfileStore) return res.json({ success: true, profile: defaultProfile });
     const result = userProfileStore.setActiveProfile(shop, req.params.id);
-    if (!result.success) {
-      return apiError(res, 404, result.error || "Profil introuvable");
-    }
+    if (!result.success) return apiError(res, 404, result.error || "Profil introuvable");
     res.json({ success: true, profile: result.profile });
   });
 });
 
-// PUT /api/profiles/settings - Paramètres des profils
-router.put("/api/profiles/settings", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!userProfileStore) return apiError(res, 503, "Module profils non disponible");
-    
-    const settings = userProfileStore.updateSettings(shop, req.body);
-    res.json({ success: true, settings });
-  });
-});
-
-
 // =====================================================
-// NOTIFICATIONS ROUTES - Centre d'alertes
+// NOTIFICATIONS ROUTES
 // =====================================================
 
 let notificationStore = null;
@@ -2004,147 +1955,72 @@ try {
   alertChecker = require("./alertChecker");
   console.log("[Server] notificationStore & alertChecker loaded");
 } catch (e) {
-  console.warn("[Server] Notification modules not available:", e.message);
+  console.warn("[Server] Notification modules not available");
 }
 
-// GET /api/notifications - Liste des alertes
 router.get("/api/notifications", (req, res) => {
   safeJson(req, res, () => {
     const shop = getShop(req);
     if (!shop) return apiError(res, 400, "Shop introuvable");
-    
-    if (!notificationStore) {
-      return res.json({ alerts: [], counts: { critical: 0, high: 0, normal: 0, total: 0 }, settings: {}, unreadCount: 0 });
-    }
-    
-    const unreadOnly = req.query.unreadOnly === "true";
+    if (!notificationStore) return res.json({ alerts: [], counts: { critical: 0, high: 0, normal: 0, total: 0 }, unreadCount: 0 });
     const limit = parseInt(req.query.limit) || 50;
-    
-    const alerts = notificationStore.getAlerts(shop, { unreadOnly, limit });
+    const alerts = notificationStore.getAlerts(shop, { limit });
     const counts = notificationStore.getCountByPriority(shop);
-    const settings = notificationStore.getSettings(shop);
-    
-    res.json({
-      alerts,
-      counts,
-      settings,
-      unreadCount: counts.critical + counts.high + counts.normal
-    });
+    res.json({ alerts, counts, unreadCount: counts.critical + counts.high + counts.normal });
   });
 });
 
-// GET /api/notifications/count - Juste le compteur (léger)
 router.get("/api/notifications/count", (req, res) => {
   safeJson(req, res, () => {
     const shop = getShop(req);
     if (!shop) return apiError(res, 400, "Shop introuvable");
-    
-    if (!notificationStore) {
-      return res.json({ unreadCount: 0, critical: 0, high: 0, normal: 0, total: 0 });
-    }
-    
+    if (!notificationStore) return res.json({ unreadCount: 0, critical: 0, high: 0, normal: 0, total: 0 });
     const counts = notificationStore.getCountByPriority(shop);
-    res.json({
-      unreadCount: notificationStore.getUnreadCount(shop),
-      ...counts
-    });
+    res.json({ unreadCount: notificationStore.getUnreadCount(shop), ...counts });
   });
 });
 
-// POST /api/notifications/check - Forcer la vérification des alertes
 router.post("/api/notifications/check", async (req, res) => {
   safeJson(req, res, async () => {
     const shop = getShop(req);
     if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!alertChecker || !notificationStore) {
-      return res.json({ success: true, newAlerts: 0, resolvedAlerts: 0, counts: { critical: 0, high: 0, normal: 0, total: 0 } });
-    }
-    
+    if (!alertChecker) return res.json({ success: true, newAlerts: 0, resolvedAlerts: 0 });
     try {
       const results = await alertChecker.checkAllAlerts(shop);
-      const counts = notificationStore.getCountByPriority(shop);
-      
-      res.json({
-        success: true,
-        ...results,
-        counts
-      });
+      res.json({ success: true, ...results });
     } catch (e) {
-      console.error("[Notifications] Check error:", e);
-      apiError(res, 500, "Erreur lors de la verification: " + e.message);
+      apiError(res, 500, "Erreur: " + e.message);
     }
   });
 });
 
-// POST /api/notifications/:id/read - Marquer comme lu
 router.post("/api/notifications/:id/read", (req, res) => {
   safeJson(req, res, () => {
     const shop = getShop(req);
     if (!shop) return apiError(res, 400, "Shop introuvable");
     if (!notificationStore) return res.json({ success: true });
-    
-    const success = notificationStore.markAsRead(shop, req.params.id);
-    res.json({ success });
+    notificationStore.markAsRead(shop, req.params.id);
+    res.json({ success: true });
   });
 });
 
-// POST /api/notifications/read-all - Marquer tout comme lu
 router.post("/api/notifications/read-all", (req, res) => {
   safeJson(req, res, () => {
     const shop = getShop(req);
     if (!shop) return apiError(res, 400, "Shop introuvable");
     if (!notificationStore) return res.json({ success: true, markedAsRead: 0 });
-    
     const count = notificationStore.markAllAsRead(shop);
     res.json({ success: true, markedAsRead: count });
   });
 });
 
-// POST /api/notifications/:id/dismiss - Ignorer une alerte
 router.post("/api/notifications/:id/dismiss", (req, res) => {
   safeJson(req, res, () => {
     const shop = getShop(req);
     if (!shop) return apiError(res, 400, "Shop introuvable");
     if (!notificationStore) return res.json({ success: true });
-    
-    const success = notificationStore.dismissAlert(shop, req.params.id);
-    res.json({ success });
-  });
-});
-
-// POST /api/notifications/:id/resolve - Résoudre une alerte
-router.post("/api/notifications/:id/resolve", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!notificationStore) return res.json({ success: true });
-    
-    const success = notificationStore.resolveAlert(shop, req.params.id);
-    res.json({ success });
-  });
-});
-
-// GET /api/notifications/settings - Paramètres de notifications
-router.get("/api/notifications/settings", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!notificationStore) return res.json({ settings: {} });
-    
-    const settings = notificationStore.getSettings(shop);
-    res.json({ settings });
-  });
-});
-
-// PUT /api/notifications/settings - Mettre à jour les paramètres
-router.put("/api/notifications/settings", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!notificationStore) return res.json({ success: true, settings: {} });
-    
-    const settings = notificationStore.updateSettings(shop, req.body);
-    res.json({ success: true, settings });
+    notificationStore.dismissAlert(shop, req.params.id);
+    res.json({ success: true });
   });
 });
 
