@@ -35,7 +35,7 @@
     console.log("[Shop]", CURRENT_SHOP);
   }
 
-  // âœ… IMPORTANT: API calls should NOT include ?shop=... in an embedded app.
+  // Ã¢Å“â€¦ IMPORTANT: API calls should NOT include ?shop=... in an embedded app.
   // The server should resolve shop from the Session Token (JWT) for security + Shopify review.
   function apiUrl(endpoint) {
     return API_BASE + endpoint;
@@ -90,7 +90,7 @@
     sessionToken = null;
   }
 
-  // âœ… authFetch correctly closed + sends Session Token
+  // Ã¢Å“â€¦ authFetch correctly closed + sends Session Token
   async function authFetch(url, options) {
     options = options || {};
     var token = await getSessionToken();
@@ -113,7 +113,7 @@
       res = await doFetch();
     }
 
-    // ðŸ” OAuth AUTO if token missing/revoked
+    // Ã°Å¸â€Â OAuth AUTO if token missing/revoked
     if (res.status === 401) {
       var data = null;
       try {
@@ -189,7 +189,7 @@
     try {
       var token = await getSessionToken();
       if (!token) {
-        console.warn("[OAuth] Aucun session token â†’ redirection");
+        console.warn("[OAuth] Aucun session token Ã¢â€ â€™ redirection");
         var shop = CURRENT_SHOP;
         if (!shop) throw new Error("Shop manquant");
         var url = "/api/auth/start?shop=" + encodeURIComponent(shop);
@@ -199,7 +199,7 @@
       }
       return true;
     } catch (e) {
-      console.warn("[OAuth] Erreur session â†’ redirection", e);
+      console.warn("[OAuth] Erreur session Ã¢â€ â€™ redirection", e);
       var shop2 = CURRENT_SHOP;
       if (shop2) {
         var url2 = "/api/auth/start?shop=" + encodeURIComponent(shop2);
@@ -226,7 +226,7 @@
       return;
     }
 
-    // 2) embedded but host missing â†’ OAuth
+    // 2) embedded but host missing Ã¢â€ â€™ OAuth
     if (!host && CURRENT_SHOP) {
       window.top.location.href = "/api/auth/start?shop=" + encodeURIComponent(CURRENT_SHOP);
       return;
@@ -256,6 +256,28 @@
     renderTab("dashboard");
     updateUI();
     console.log("[Init] Ready - Plan:", state.planId, "Features:", state.limits);
+    
+    // Charger profils en arrière-plan après 2s (non-bloquant)
+    setTimeout(function() {
+      authFetch(apiUrl("/profiles")).then(function(res) {
+        if (res.ok) return res.json();
+      }).then(function(data) {
+        if (data && data.profiles) {
+          window._userProfiles = data.profiles;
+          window._activeProfile = data.profiles.find(function(p) { return p.id === data.activeProfileId; }) || data.profiles[0];
+          if (data.profiles.length > 1) {
+            var list = data.profiles.map(function(p) {
+              var i = p.name ? (p.name.split(' ').length > 1 ? p.name.split(' ')[0][0] + p.name.split(' ')[1][0] : p.name.substring(0,2)).toUpperCase() : "?";
+              var active = p.id === data.activeProfileId;
+              return '<div style="display:flex;align-items:center;gap:12px;padding:14px;border-radius:10px;cursor:pointer;border:2px solid ' + (active ? '#6366f1' : 'transparent') + ';background:' + (active ? 'rgba(99,102,241,0.1)' : 'var(--bg-secondary)') + '" onclick="app.selectProfile(\'' + p.id + '\')"><span style="background:' + (p.color || '#6366f1') + ';width:44px;height:44px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;color:#fff">' + i + '</span><div style="flex:1"><div style="font-weight:600">' + (p.name||'') + '</div><div style="font-size:12px;color:var(--text-secondary)">' + (p.role||'user') + '</div></div>' + (active ? '<span style="color:#6366f1">✓</span>' : '') + '</div>';
+            }).join('');
+            showModal({ title: "👥 " + t("profiles.whoIsConnecting", "Qui se connecte ?"), size: "sm", content: '<div style="display:flex;flex-direction:column;gap:10px">' + list + '</div><div style="text-align:center;margin-top:20px;padding-top:16px;border-top:1px solid var(--border)"><button class="btn btn-ghost" onclick="app.showCreateProfileModal()">+ ' + t("profiles.createNew", "Nouveau profil") + '</button></div>', footer: '' });
+          } else if (window._activeProfile) {
+            showToast(t("profiles.welcome", "Bienvenue") + ", " + window._activeProfile.name + " !", "success");
+          }
+        }
+      }).catch(function(e) { console.warn("[Profiles]", e); });
+    }, 2000);
   }
 
   // Charger les settings silencieusement (pour getStatus)
@@ -1744,7 +1766,7 @@
     document.getElementById("ordersContent").innerHTML =
       '<div class="card"><div class="card-body" style="padding:0">' +
       '<table class="data-table"><thead><tr>' +
-      '<th>' + t("orders.number", "N°") + '</th>' +
+      '<th>' + t("orders.number", "NÂ°") + '</th>' +
       '<th>' + t("orders.supplier", "Fournisseur") + '</th>' +
       '<th>' + t("orders.lines", "Lignes") + '</th>' +
       '<th>' + t("orders.total", "Total") + '</th>' +
@@ -2134,7 +2156,7 @@
     document.getElementById("ordersContent").innerHTML =
       '<div class="card"><div class="card-body" style="padding:0">' +
       '<table class="data-table"><thead><tr>' +
-      '<th>' + t("orders.number", "N°") + '</th>' +
+      '<th>' + t("orders.number", "NÂ°") + '</th>' +
       '<th>' + t("orders.source", "Source") + '</th>' +
       '<th>' + t("orders.revenue", "CA") + '</th>' +
       '<th>' + t("orders.cost", "Cout") + '</th>' +
@@ -2359,7 +2381,7 @@
 
     var rows = filtered.map(function(f) {
       var statusBadge = getForecastStatusBadge(f.status);
-      var daysDisplay = f.daysOfStock === Infinity ? "∞" : (f.daysOfStock !== null ? f.daysOfStock.toFixed(0) + "j" : "-");
+      var daysDisplay = f.daysOfStock === Infinity ? "âˆž" : (f.daysOfStock !== null ? f.daysOfStock.toFixed(0) + "j" : "-");
       var stockoutDisplay = f.stockoutDate || "-";
       var reorderDisplay = f.reorderQty > 0 ? formatWeight(f.reorderQty) : "-";
 
@@ -2429,16 +2451,16 @@
         sparklineHtml = '<div class="sparkline-container">' + bars + '</div>';
       }
 
-      // Scénarios
+      // ScÃ©narios
       var scenariosHtml = '';
       if (data.scenarios) {
         scenariosHtml = '<div class="scenarios-grid">' +
           '<div class="scenario pessimistic"><div class="scenario-label">Pessimiste</div><div class="scenario-value">' + 
-          (data.scenarios.pessimistic.daysOfStock === Infinity ? "∞" : data.scenarios.pessimistic.daysOfStock.toFixed(0) + "j") + '</div></div>' +
+          (data.scenarios.pessimistic.daysOfStock === Infinity ? "âˆž" : data.scenarios.pessimistic.daysOfStock.toFixed(0) + "j") + '</div></div>' +
           '<div class="scenario normal"><div class="scenario-label">Normal</div><div class="scenario-value">' + 
-          (data.scenarios.normal.daysOfStock === Infinity ? "∞" : data.scenarios.normal.daysOfStock.toFixed(0) + "j") + '</div></div>' +
+          (data.scenarios.normal.daysOfStock === Infinity ? "âˆž" : data.scenarios.normal.daysOfStock.toFixed(0) + "j") + '</div></div>' +
           '<div class="scenario optimistic"><div class="scenario-label">Optimiste</div><div class="scenario-value">' + 
-          (data.scenarios.optimistic.daysOfStock === Infinity ? "∞" : data.scenarios.optimistic.daysOfStock.toFixed(0) + "j") + '</div></div>' +
+          (data.scenarios.optimistic.daysOfStock === Infinity ? "âˆž" : data.scenarios.optimistic.daysOfStock.toFixed(0) + "j") + '</div></div>' +
           '</div>';
       }
 
@@ -3723,7 +3745,7 @@
     ];
     var cards = plans
       .map(function (p) {
-        var fl = p.feats.map(function (f) { return "<li>âœ“ " + f + "</li>"; }).join("");
+        var fl = p.feats.map(function (f) { return "<li>Ã¢Å“â€œ " + f + "</li>"; }).join("");
         var isCurrent = state.planId === p.id;
         return (
           '<div class="card" style="' + (p.badge ? "border:2px solid var(--accent-primary)" : "") + '">' +
@@ -3763,7 +3785,7 @@
     t.className = "toast " + (type || "info");
     t.innerHTML =
       '<span class="toast-icon">' +
-      ({ success: "âœ“", error: "X", warning: "!", info: "i" }[type] || "i") +
+      ({ success: "Ã¢Å“â€œ", error: "X", warning: "!", info: "i" }[type] || "i") +
       '</span><div class="toast-message">' +
       esc(msg) +
       '</div><button class="toast-close" onclick="this.parentElement.remove()">X</button>';
@@ -4156,14 +4178,92 @@
     return d.innerHTML;
   }
   function toggleNotifications() {
-    showToast("Bientot", "info");
+    if (!hasFeature("hasNotifications")) {
+      showModal({
+        title: "🔔 Notifications",
+        content: '<div style="text-align:center;padding:40px"><div style="font-size:48px;margin-bottom:16px">🔒</div><h3>' + t("msg.featureLocked", "Fonctionnalité PRO") + '</h3><p style="color:var(--text-secondary)">' + t("notifications.lockedDesc", "Les alertes sont disponibles avec le plan Pro.") + '</p><button class="btn btn-primary" style="margin-top:20px" onclick="app.showUpgradeModal()">' + t("action.upgrade", "Passer à Pro") + '</button></div>',
+        footer: '<button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.close", "Fermer") + '</button>'
+      });
+      return;
+    }
+    authFetch(apiUrl("/notifications?limit=30")).then(function(res) {
+      if (res.ok) return res.json();
+      return { alerts: [] };
+    }).then(function(data) {
+      var alerts = data.alerts || [];
+      var html = !alerts.length 
+        ? '<div style="text-align:center;padding:40px"><div style="font-size:48px;margin-bottom:16px">✅</div><p>' + t("notifications.noAlerts", "Aucune alerte") + '</p><p style="color:var(--text-secondary)">' + t("notifications.allGood", "Tout va bien !") + '</p></div>'
+        : '<div style="max-height:400px;overflow-y:auto">' + alerts.map(function(a) {
+            var icon = a.priority === "critical" ? "🔴" : a.priority === "high" ? "🟡" : "🟢";
+            return '<div style="display:flex;gap:12px;padding:12px;background:var(--bg-secondary);border-radius:8px;margin-bottom:8px;cursor:pointer" onclick="app.closeModal();' + (a.productId ? 'app.openProductDetails(\'' + a.productId + '\')' : '') + '"><span>' + icon + '</span><div style="flex:1"><div style="font-weight:600">' + esc(a.title || '') + '</div><div style="font-size:13px;color:var(--text-secondary)">' + esc(a.message || '') + '</div></div></div>';
+          }).join('') + '</div>';
+      showModal({ title: "🔔 " + t("notifications.title", "Notifications"), size: "md", content: html, footer: '<button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.close", "Fermer") + '</button>' });
+    }).catch(function() { showToast(t("msg.error", "Erreur"), "error"); });
   }
+  
   function toggleUserMenu() {
-    showToast("Bientot", "info");
+    var pf = window._activeProfile || { id: "admin", name: "Admin", role: "admin", color: "#6366f1" };
+    var profiles = window._userProfiles || [pf];
+    var init = pf.name ? (pf.name.split(' ').length > 1 ? pf.name.split(' ')[0][0] + pf.name.split(' ')[1][0] : pf.name.substring(0,2)).toUpperCase() : "AD";
+    var list = profiles.map(function(p) {
+      var i = p.name ? (p.name.split(' ').length > 1 ? p.name.split(' ')[0][0] + p.name.split(' ')[1][0] : p.name.substring(0,2)).toUpperCase() : "?";
+      var active = p.id === pf.id;
+      return '<div style="display:flex;align-items:center;gap:12px;padding:12px;border-radius:8px;cursor:pointer;background:' + (active ? 'rgba(99,102,241,0.15)' : 'var(--bg-secondary)') + '" onclick="app.selectProfile(\'' + p.id + '\')"><span style="background:' + (p.color || '#6366f1') + ';width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:#fff">' + i + '</span><div style="flex:1"><div style="font-weight:600">' + esc(p.name) + '</div><div style="font-size:12px;color:var(--text-secondary)">' + esc(p.role || 'user') + '</div></div>' + (active ? '<span style="color:#6366f1">✓</span>' : '') + '</div>';
+    }).join('');
+    showModal({
+      title: "👤 " + t("profiles.myProfile", "Mon profil"),
+      size: "sm",
+      content: '<div style="display:flex;align-items:center;gap:16px;padding:20px;background:var(--bg-secondary);border-radius:12px;margin-bottom:20px"><span style="background:' + (pf.color || '#6366f1') + ';width:56px;height:56px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:700;color:#fff">' + init + '</span><div><div style="font-size:18px;font-weight:700">' + esc(pf.name) + '</div><div style="color:var(--text-secondary)">' + esc(pf.role) + '</div></div></div><div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:12px">' + t("profiles.switchProfile", "CHANGER DE PROFIL") + '</div><div style="display:flex;flex-direction:column;gap:8px">' + list + '</div><div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border)"><button class="btn btn-ghost" style="width:100%" onclick="app.showCreateProfileModal()">+ ' + t("profiles.createNew", "Nouveau profil") + '</button></div>',
+      footer: '<button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.close", "Fermer") + '</button>'
+    });
+  }
+  
+  function selectProfile(id) {
+    authFetch(apiUrl("/profiles/" + id + "/activate"), { method: "POST" }).then(function(res) {
+      if (res.ok) return res.json();
+    }).then(function(data) {
+      if (data && data.profile) {
+        window._activeProfile = data.profile;
+        var idx = (window._userProfiles || []).findIndex(function(p) { return p.id === id; });
+        if (idx >= 0) window._userProfiles[idx] = data.profile;
+        closeModal();
+        showToast(t("profiles.welcome", "Bienvenue") + ", " + data.profile.name + " !", "success");
+      }
+    }).catch(function() { showToast(t("msg.error", "Erreur"), "error"); });
+  }
+  
+  function showCreateProfileModal() {
+    var colors = ["#6366f1","#8b5cf6","#ec4899","#ef4444","#f97316","#22c55e","#06b6d4","#3b82f6"];
+    var colorsHtml = colors.map(function(c, i) {
+      return '<div onclick="document.getElementById(\'newProfColor\').value=\'' + c + '\';this.parentNode.querySelectorAll(\'div\').forEach(function(e){e.style.outline=\'none\'});this.style.outline=\'3px solid white\'" style="background:' + c + ';width:32px;height:32px;border-radius:50%;cursor:pointer' + (i === 0 ? ';outline:3px solid white' : '') + '"></div>';
+    }).join('');
+    showModal({
+      title: "➕ " + t("profiles.createProfile", "Créer un profil"),
+      size: "sm",
+      content: '<div class="form-group"><label>' + t("profiles.name", "Nom") + '</label><input type="text" id="newProfName" class="form-input" placeholder="' + t("profiles.namePlaceholder", "Ex: Marie...") + '"></div><div class="form-group"><label>' + t("profiles.role", "Rôle") + '</label><select id="newProfRole" class="form-select"><option value="user">' + t("profiles.roleUser", "Utilisateur") + '</option><option value="manager">' + t("profiles.roleManager", "Manager") + '</option><option value="admin">' + t("profiles.roleAdmin", "Admin") + '</option></select></div><div class="form-group"><label>' + t("profiles.color", "Couleur") + '</label><div style="display:flex;gap:8px;flex-wrap:wrap">' + colorsHtml + '</div><input type="hidden" id="newProfColor" value="#6366f1"></div>',
+      footer: '<button class="btn btn-secondary" onclick="app.toggleUserMenu()">' + t("action.cancel", "Annuler") + '</button><button class="btn btn-primary" onclick="app.createProfile()">' + t("action.create", "Créer") + '</button>'
+    });
+  }
+  
+  function createProfile() {
+    var name = (document.getElementById('newProfName') || {}).value || '';
+    var role = (document.getElementById('newProfRole') || {}).value || 'user';
+    var color = (document.getElementById('newProfColor') || {}).value || '#6366f1';
+    if (!name.trim()) { showToast(t("profiles.nameRequired", "Nom requis"), "error"); return; }
+    authFetch(apiUrl("/profiles"), { method: "POST", body: JSON.stringify({ name: name.trim(), role: role, color: color }) }).then(function(res) {
+      if (res.ok) return res.json();
+    }).then(function(data) {
+      if (data && data.profile) {
+        window._userProfiles = window._userProfiles || [];
+        window._userProfiles.push(data.profile);
+        showToast(t("profiles.created", "Profil créé"), "success");
+        selectProfile(data.profile.id);
+      }
+    }).catch(function() { showToast(t("msg.error", "Erreur"), "error"); });
   }
 
   // ============================================
-  // ✅ FICHE DÉTAIL PRODUIT
+  // âœ… FICHE DÃ‰TAIL PRODUIT
   // ============================================
   async function openProductDetails(productId) {
     if (!productId) return;
@@ -4199,7 +4299,7 @@
     // Status badge
     var statusClass = p.stockStatus || "good";
     var statusLabel = p.stockLabel || "OK";
-    var statusIcon = statusClass === "critical" ? "🔴" : statusClass === "low" ? "🟡" : "🟢";
+    var statusIcon = statusClass === "critical" ? "ðŸ”´" : statusClass === "low" ? "ðŸŸ¡" : "ðŸŸ¢";
 
     // Categories chips
     var categoriesHtml = "";
@@ -4281,7 +4381,7 @@
 
       // Graphique capacite de vente
       '<div class="product-detail-section">' +
-      '<h3 class="section-title">📊 Capacite de vente par variante</h3>' +
+      '<h3 class="section-title">ðŸ“Š Capacite de vente par variante</h3>' +
       '<p class="text-secondary text-sm mb-md">Nombre d\'unites vendables si le stock etait vendu uniquement via cette variante</p>' +
       '<div class="chart-container">' +
       '<div class="simple-bar-chart">' + chartBars + '</div>' +
@@ -4290,10 +4390,10 @@
 
       // Tableau variantes
       '<div class="product-detail-section">' +
-      '<h3 class="section-title">📦 Detail des variantes</h3>' +
+      '<h3 class="section-title">ðŸ“¦ Detail des variantes</h3>' +
       '<div class="table-container">' +
       '<table class="data-table data-table-compact">' +
-      '<thead><tr><th>Grammage</th><th>Inventory ID</th><th>Unites dispo</th><th>Équivalent stock</th><th>Repartition</th></tr></thead>' +
+      '<thead><tr><th>Grammage</th><th>Inventory ID</th><th>Unites dispo</th><th>Ã‰quivalent stock</th><th>Repartition</th></tr></thead>' +
       '<tbody>' + variantsRows + '</tbody>' +
       '</table>' +
       '</div>' +
@@ -4301,7 +4401,7 @@
 
       // Info pool global
       '<div class="product-detail-info">' +
-      '<div class="info-icon">ℹ️</div>' +
+      '<div class="info-icon">â„¹ï¸</div>' +
       '<div class="info-text">' +
       '<strong>Mode Pool Global</strong><br>' +
       '<span class="text-secondary">Le stock est partage entre toutes les variantes. Les "unites dispo" representent la capacite maximale de vente pour chaque grammage.</span>' +
@@ -4389,7 +4489,7 @@
   }
 
   function showAddBatchForProduct(productId, productName) {
-    // Ouvrir le modal de création de lot avec le produit pré-sélectionné
+    // Ouvrir le modal de crÃ©ation de lot avec le produit prÃ©-sÃ©lectionnÃ©
     showModal({
       title: t("batches.addBatchFor", "Nouveau lot pour") + ' ' + (productName || 'ce produit'),
       size: "md",
@@ -4433,7 +4533,7 @@
         '<p class="text-secondary mb-md">Le CMP actuel est de <strong>' + formatPricePerUnit(currentCMP) + '</strong>.</p>' +
         '<div class="form-group"><label class="form-label">Nouveau CMP (" + getCurrencySymbol() + "/" + getWeightUnit() + ")</label>' +
         '<input type="number" class="form-input" id="newCMP" value="' + currentCMP + '" step="0.01" min="0"></div>' +
-        '<p class="form-hint">⚠️ La modification manuelle du CMP ecrase le calcul automatique.</p>',
+        '<p class="form-hint">âš ï¸ La modification manuelle du CMP ecrase le calcul automatique.</p>',
       footer:
         '<button class="btn btn-ghost" onclick="app.closeModal()">Annuler</button>' +
         '<button class="btn btn-primary" onclick="app.saveCMP(\'' + productId + '\')">Enregistrer</button>',
@@ -5182,6 +5282,10 @@
     updateNestedSetting: updateNestedSetting,
     exportSettings: exportSettings,
     resetAllSettings: resetAllSettings,
+    // Profils
+    selectProfile: selectProfile,
+    showCreateProfileModal: showCreateProfileModal,
+    createProfile: createProfile,
     get state() {
       return state;
     },
