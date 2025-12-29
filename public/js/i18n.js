@@ -1199,3 +1199,144 @@ function t(key, fallback) {
 if (typeof module !== "undefined" && module.exports) {
   module.exports = I18N;
 }
+// Additions pour i18n.js - Ajouter ces clés dans les sections FR et EN
+
+/* FRANÇAIS - Ajouter dans la section "fr" */
+/*
+  // Dashboard amélioré
+  "dashboard.quickActions": "Actions rapides",
+  "dashboard.quickRestock": "Réappro rapide",
+  "dashboard.quickAdjust": "Ajustement",
+  "dashboard.scanBarcode": "Scanner",
+  "dashboard.alerts": "Alertes",
+  "dashboard.outOfStock": "produit(s) en rupture",
+  "dashboard.lowStockAlert": "produit(s) stock bas",
+  "dashboard.lowStockProducts": "Produits stock bas",
+  "dashboard.outOfStockProducts": "Produits en rupture",
+  "dashboard.noLowStock": "Aucun produit en stock bas",
+  "dashboard.noOutOfStock": "Aucun produit en rupture",
+  "dashboard.remaining": "restant",
+  "dashboard.inventory": "Inventaire",
+  
+  // Actions
+  "action.selectProduct": "Sélectionner...",
+  "action.restock": "Réappro",
+  "action.confirm": "Valider",
+  "action.search": "Rechercher",
+  
+  // Produits
+  "products.quantity": "Quantité",
+  "products.note": "Note",
+  "products.optional": "optionnel",
+  "products.notePlaceholder": "Ex: Livraison fournisseur",
+  "products.newStock": "Nouveau stock",
+  "products.reason": "Raison",
+  
+  // Raisons ajustement
+  "reason.count": "Comptage inventaire",
+  "reason.damage": "Produit endommagé",
+  "reason.theft": "Vol/Perte",
+  "reason.correction": "Correction erreur",
+  
+  // Messages
+  "msg.selectProduct": "Sélectionnez un produit",
+  "msg.invalidQty": "Quantité invalide",
+  "msg.restockSuccess": "Réappro effectuée",
+  "msg.adjustSuccess": "Ajustement effectué",
+  
+  // Scanner
+  "scanner.title": "Scanner code-barres",
+  "scanner.initializing": "Initialisation caméra...",
+  "scanner.notSupported": "Caméra non supportée sur ce navigateur",
+  "scanner.ready": "Caméra prête - Présentez un code-barres",
+  "scanner.manualEntry": "Ou saisir manuellement",
+  "scanner.barcodePlaceholder": "Code-barres...",
+  "scanner.enterBarcode": "Entrez un code-barres",
+  "scanner.notFound": "Produit non trouvé",
+  "scanner.notFoundMsg": "Aucun produit trouvé avec le code",
+  "scanner.notFoundHint": "Vérifiez que le code-barres est configuré sur le produit dans Shopify.",
+  "scanner.scanAgain": "Scanner à nouveau",
+  "scanner.manualOnly": "Détection auto non supportée - utilisez la saisie manuelle",
+  "scanner.cameraError": "Erreur caméra",
+  
+  // Raccourcis clavier
+  "shortcuts.title": "Raccourcis clavier",
+  "shortcuts.search": "Rechercher",
+  "shortcuts.newProduct": "Nouveau produit",
+  "shortcuts.quickRestock": "Réappro rapide",
+  "shortcuts.scanner": "Scanner code-barres",
+  "shortcuts.dashboard": "Dashboard",
+  "shortcuts.products": "Produits",
+  "shortcuts.closeModal": "Fermer fenêtre",
+  "shortcuts.help": "Afficher cette aide",
+*/
+
+/* ENGLISH - Add in "en" section */
+/*
+  // Enhanced Dashboard
+  "dashboard.quickActions": "Quick actions",
+  "dashboard.quickRestock": "Quick restock",
+  "dashboard.quickAdjust": "Adjustment",
+  "dashboard.scanBarcode": "Scanner",
+  "dashboard.alerts": "Alerts",
+  "dashboard.outOfStock": "product(s) out of stock",
+  "dashboard.lowStockAlert": "product(s) low stock",
+  "dashboard.lowStockProducts": "Low stock products",
+  "dashboard.outOfStockProducts": "Out of stock products",
+  "dashboard.noLowStock": "No low stock products",
+  "dashboard.noOutOfStock": "No out of stock products",
+  "dashboard.remaining": "remaining",
+  "dashboard.inventory": "Inventory",
+  
+  // Actions
+  "action.selectProduct": "Select...",
+  "action.restock": "Restock",
+  "action.confirm": "Confirm",
+  "action.search": "Search",
+  
+  // Products
+  "products.quantity": "Quantity",
+  "products.note": "Note",
+  "products.optional": "optional",
+  "products.notePlaceholder": "Ex: Supplier delivery",
+  "products.newStock": "New stock",
+  "products.reason": "Reason",
+  
+  // Adjustment reasons
+  "reason.count": "Inventory count",
+  "reason.damage": "Damaged product",
+  "reason.theft": "Theft/Loss",
+  "reason.correction": "Error correction",
+  
+  // Messages
+  "msg.selectProduct": "Select a product",
+  "msg.invalidQty": "Invalid quantity",
+  "msg.restockSuccess": "Restock completed",
+  "msg.adjustSuccess": "Adjustment completed",
+  
+  // Scanner
+  "scanner.title": "Barcode scanner",
+  "scanner.initializing": "Initializing camera...",
+  "scanner.notSupported": "Camera not supported on this browser",
+  "scanner.ready": "Camera ready - Present a barcode",
+  "scanner.manualEntry": "Or enter manually",
+  "scanner.barcodePlaceholder": "Barcode...",
+  "scanner.enterBarcode": "Enter a barcode",
+  "scanner.notFound": "Product not found",
+  "scanner.notFoundMsg": "No product found with code",
+  "scanner.notFoundHint": "Make sure the barcode is configured on the product in Shopify.",
+  "scanner.scanAgain": "Scan again",
+  "scanner.manualOnly": "Auto detection not supported - use manual entry",
+  "scanner.cameraError": "Camera error",
+  
+  // Keyboard shortcuts
+  "shortcuts.title": "Keyboard shortcuts",
+  "shortcuts.search": "Search",
+  "shortcuts.newProduct": "New product",
+  "shortcuts.quickRestock": "Quick restock",
+  "shortcuts.scanner": "Barcode scanner",
+  "shortcuts.dashboard": "Dashboard",
+  "shortcuts.products": "Products",
+  "shortcuts.closeModal": "Close window",
+  "shortcuts.help": "Show this help",
+*/

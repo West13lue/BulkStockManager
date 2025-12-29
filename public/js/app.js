@@ -257,28 +257,89 @@
     updateUI();
     console.log("[Init] Ready - Plan:", state.planId, "Features:", state.limits);
     
-    // Charger profils en arrière-plan après 2s (non-bloquant)
-    setTimeout(function() {
-      authFetch(apiUrl("/profiles")).then(function(res) {
-        if (res.ok) return res.json();
-      }).then(function(data) {
-        if (data && data.profiles) {
-          window._userProfiles = data.profiles;
-          window._activeProfile = data.profiles.find(function(p) { return p.id === data.activeProfileId; }) || data.profiles[0];
-          updateHeaderAvatar();
-          if (data.profiles.length > 1) {
-            var list = data.profiles.map(function(p) {
-              var i = p.name ? (p.name.split(' ').length > 1 ? p.name.split(' ')[0][0] + p.name.split(' ')[1][0] : p.name.substring(0,2)).toUpperCase() : "?";
-              var active = p.id === data.activeProfileId;
-              return '<div style="display:flex;align-items:center;gap:12px;padding:14px;border-radius:10px;cursor:pointer;border:2px solid ' + (active ? '#6366f1' : 'transparent') + ';background:' + (active ? 'rgba(99,102,241,0.1)' : 'var(--bg-secondary)') + '" onclick="app.selectProfile(\'' + p.id + '\')"><span style="background:' + (p.color || '#6366f1') + ';width:44px;height:44px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;color:#fff">' + i + '</span><div style="flex:1"><div style="font-weight:600">' + (p.name||'') + '</div><div style="font-size:12px;color:var(--text-secondary)">' + (p.role||'user') + '</div></div>' + (active ? '<span style="color:#6366f1">✓</span>' : '') + '</div>';
-            }).join('');
-            showModal({ title: "👥 " + t("profiles.whoIsConnecting", "Qui se connecte ?"), size: "sm", content: '<div style="display:flex;flex-direction:column;gap:10px">' + list + '</div><div style="text-align:center;margin-top:20px;padding-top:16px;border-top:1px solid var(--border)"><button class="btn btn-ghost" onclick="app.showCreateProfileModal()">+ ' + t("profiles.createNew", "Nouveau profil") + '</button></div>', footer: '' });
-          } else if (window._activeProfile) {
-            showToast(t("profiles.welcome", "Bienvenue") + ", " + window._activeProfile.name + " !", "success");
-          }
+    // Initialiser les raccourcis clavier
+    initKeyboardShortcuts();
+  }
+
+  // Raccourcis clavier globaux
+  function initKeyboardShortcuts() {
+    document.addEventListener('keydown', function(e) {
+      // Ignorer si on tape dans un input
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') {
+        // Escape ferme les modals même dans un input
+        if (e.key === 'Escape') {
+          closeModal();
         }
-      }).catch(function(e) { console.warn("[Profiles]", e); });
-    }, 2000);
+        return;
+      }
+      
+      // Ctrl+K ou / = Focus recherche
+      if ((e.ctrlKey && e.key === 'k') || e.key === '/') {
+        e.preventDefault();
+        var searchInput = document.getElementById('searchInput') || document.getElementById('globalSearch');
+        if (searchInput) searchInput.focus();
+      }
+      
+      // N = Nouveau produit
+      if (e.key === 'n' && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        showAddProductModal();
+      }
+      
+      // R = Réappro rapide
+      if (e.key === 'r' && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        showQuickRestockModal();
+      }
+      
+      // S = Scanner
+      if (e.key === 's' && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        showScannerModal();
+      }
+      
+      // D = Dashboard
+      if (e.key === 'd' && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        navigateTo('dashboard');
+      }
+      
+      // P = Produits
+      if (e.key === 'p' && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        navigateTo('products');
+      }
+      
+      // Escape = Fermer modal
+      if (e.key === 'Escape') {
+        closeModal();
+      }
+      
+      // ? = Aide raccourcis
+      if (e.key === '?' && e.shiftKey) {
+        e.preventDefault();
+        showKeyboardShortcutsHelp();
+      }
+    });
+  }
+
+  function showKeyboardShortcutsHelp() {
+    showModal({
+      title: '<i data-lucide="keyboard"></i> ' + t("shortcuts.title", "Raccourcis clavier"),
+      size: "sm",
+      content: '<div class="shortcuts-list">' +
+        '<div class="shortcut-item"><kbd>/</kbd> ou <kbd>Ctrl+K</kbd><span>' + t("shortcuts.search", "Rechercher") + '</span></div>' +
+        '<div class="shortcut-item"><kbd>N</kbd><span>' + t("shortcuts.newProduct", "Nouveau produit") + '</span></div>' +
+        '<div class="shortcut-item"><kbd>R</kbd><span>' + t("shortcuts.quickRestock", "Réappro rapide") + '</span></div>' +
+        '<div class="shortcut-item"><kbd>S</kbd><span>' + t("shortcuts.scanner", "Scanner code-barres") + '</span></div>' +
+        '<div class="shortcut-item"><kbd>D</kbd><span>' + t("shortcuts.dashboard", "Dashboard") + '</span></div>' +
+        '<div class="shortcut-item"><kbd>P</kbd><span>' + t("shortcuts.products", "Produits") + '</span></div>' +
+        '<div class="shortcut-item"><kbd>Esc</kbd><span>' + t("shortcuts.closeModal", "Fermer fenêtre") + '</span></div>' +
+        '<div class="shortcut-item"><kbd>?</kbd><span>' + t("shortcuts.help", "Afficher cette aide") + '</span></div>' +
+        '</div>',
+      footer: '<button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.close", "Fermer") + '</button>'
+    });
+    if (typeof lucide !== "undefined") lucide.createIcons();
   }
 
   // Charger les settings silencieusement (pour getStatus)
@@ -433,16 +494,21 @@
     var totalValue = state.products.reduce(function (s, p) {
       return s + (p.totalGrams || 0) * (p.averageCostPerGram || 0);
     }, 0);
-    var lowStock = state.products.filter(function (p) {
+    var lowStockProducts = state.products.filter(function (p) {
       return (p.totalGrams || 0) < 100;
-    }).length;
+    });
+    var outOfStockProducts = state.products.filter(function (p) {
+      return (p.totalGrams || 0) === 0;
+    });
 
     c.innerHTML =
       '<div class="page-header"><div><h1 class="page-title">' + t("dashboard.title", "Tableau de bord") + '</h1><p class="page-subtitle">' + t("dashboard.subtitle", "Vue d\'ensemble") + '</p></div>' +
       '<div class="page-actions"><button class="btn btn-secondary" onclick="app.syncShopify()">' + t("dashboard.sync", "Sync") + '</button>' +
       '<button class="btn btn-primary" onclick="app.showAddProductModal()">' + t("dashboard.addProduct", "+ Produit") + '</button></div></div>' +
+      
+      // Stats principales
       '<div class="stats-grid">' +
-      '<div class="stat-card"><div class="stat-icon"><i data-lucide="boxes"></i></div><div class="stat-value">' +
+      '<div class="stat-card" onclick="app.navigateTo(\'products\')" style="cursor:pointer" title="Voir tous les produits"><div class="stat-icon"><i data-lucide="boxes"></i></div><div class="stat-value">' +
       state.products.length +
       '</div><div class="stat-label">' + t("dashboard.products", "Produits") + '</div></div>' +
       '<div class="stat-card"><div class="stat-icon"><i data-lucide="scale"></i></div><div class="stat-value">' +
@@ -451,18 +517,40 @@
       '<div class="stat-card"><div class="stat-icon"><i data-lucide="coins"></i></div><div class="stat-value">' +
       formatCurrency(totalValue) +
       '</div><div class="stat-label">' + t("dashboard.value", "Valeur") + '</div></div>' +
-      '<div class="stat-card stat-warning"><div class="stat-icon"><i data-lucide="alert-triangle"></i></div><div class="stat-value">' +
-      lowStock +
+      '<div class="stat-card stat-warning" onclick="app.showLowStockModal()" style="cursor:pointer" title="Voir les produits en stock bas"><div class="stat-icon"><i data-lucide="alert-triangle"></i></div><div class="stat-value">' +
+      lowStockProducts.length +
       '</div><div class="stat-label">' + t("dashboard.lowStock", "Stock bas") + '</div></div>' +
       "</div>" +
       
+      // Actions rapides
+      '<div class="quick-actions-bar">' +
+      '<div class="quick-actions-title"><i data-lucide="zap"></i> ' + t("dashboard.quickActions", "Actions rapides") + '</div>' +
+      '<div class="quick-actions-buttons">' +
+      '<button class="btn btn-ghost btn-sm" onclick="app.showQuickRestockModal()"><i data-lucide="package-plus"></i> ' + t("dashboard.quickRestock", "Réappro rapide") + '</button>' +
+      '<button class="btn btn-ghost btn-sm" onclick="app.showScannerModal()"><i data-lucide="scan-barcode"></i> ' + t("dashboard.scanBarcode", "Scanner") + '</button>' +
+      '<button class="btn btn-ghost btn-sm" onclick="app.showQuickAdjustModal()"><i data-lucide="sliders"></i> ' + t("dashboard.quickAdjust", "Ajustement") + '</button>' +
+      (hasFeature("hasInventoryCount") ? '<button class="btn btn-ghost btn-sm" onclick="app.navigateTo(\'inventory\')"><i data-lucide="clipboard-check"></i> ' + t("dashboard.inventory", "Inventaire") + '</button>' : '') +
+      '</div></div>' +
+      
       '<div class="dashboard-grid">' +
+      
+      // Alertes si stock bas ou rupture
+      (lowStockProducts.length > 0 || outOfStockProducts.length > 0 ? 
+        '<div class="card card-alerts">' +
+        '<div class="card-header"><h3 class="card-title"><i data-lucide="alert-circle"></i> ' + t("dashboard.alerts", "Alertes") + '</h3></div>' +
+        '<div class="card-body">' +
+        (outOfStockProducts.length > 0 ? '<div class="alert-item alert-danger" onclick="app.showOutOfStockModal()"><span class="alert-icon"><i data-lucide="x-circle"></i></span><span class="alert-text">' + outOfStockProducts.length + ' ' + t("dashboard.outOfStock", "produit(s) en rupture") + '</span><span class="alert-action"><i data-lucide="chevron-right"></i></span></div>' : '') +
+        (lowStockProducts.length > 0 ? '<div class="alert-item alert-warning" onclick="app.showLowStockModal()"><span class="alert-icon"><i data-lucide="alert-triangle"></i></span><span class="alert-text">' + lowStockProducts.length + ' ' + t("dashboard.lowStockAlert", "produit(s) stock bas") + '</span><span class="alert-action"><i data-lucide="chevron-right"></i></span></div>' : '') +
+        '</div></div>' : '') +
+      
+      // Produits
       '<div class="card"><div class="card-header"><h3 class="card-title"><i data-lucide="boxes"></i> ' + t("dashboard.products", "Produits") + '</h3>' +
       '<button class="btn btn-ghost btn-sm" onclick="app.navigateTo(\'products\')">' + t("dashboard.viewAll", "Voir tout") + '</button></div>' +
       '<div class="card-body" style="padding:0">' +
       (state.products.length ? renderTable(state.products.slice(0, 5)) : renderEmpty()) +
       "</div></div>" +
       
+      // Mouvements récents
       '<div class="card"><div class="card-header"><h3 class="card-title"><i data-lucide="activity"></i> ' + t("dashboard.recentMovements", "Mouvements recents") + '</h3>' +
       '</div>' +
       '<div class="card-body" id="dashboardMovements"><div class="text-center py-lg"><div class="spinner"></div></div></div></div>' +
@@ -471,6 +559,269 @@
     
     loadDashboardMovements();
     if (typeof lucide !== "undefined") lucide.createIcons();
+  }
+
+  // Modal produits stock bas
+  function showLowStockModal() {
+    var lowStockProducts = state.products.filter(function (p) {
+      return (p.totalGrams || 0) < 100 && (p.totalGrams || 0) > 0;
+    });
+    
+    if (lowStockProducts.length === 0) {
+      showToast(t("dashboard.noLowStock", "Aucun produit en stock bas"), "success");
+      return;
+    }
+    
+    var html = '<div class="low-stock-list">' + lowStockProducts.map(function(p) {
+      return '<div class="low-stock-item">' +
+        '<div class="low-stock-info">' +
+        '<div class="low-stock-name">' + esc(p.title || p.name) + '</div>' +
+        '<div class="low-stock-stock">' + formatWeight(p.totalGrams || 0) + ' ' + t("dashboard.remaining", "restant") + '</div>' +
+        '</div>' +
+        '<button class="btn btn-primary btn-sm" onclick="app.showRestockModal(\'' + p.id + '\')">' + t("action.restock", "Réappro") + '</button>' +
+        '</div>';
+    }).join('') + '</div>';
+    
+    showModal({
+      title: '<i data-lucide="alert-triangle"></i> ' + t("dashboard.lowStockProducts", "Produits stock bas"),
+      size: "md",
+      content: html,
+      footer: '<button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.close", "Fermer") + '</button>'
+    });
+    if (typeof lucide !== "undefined") lucide.createIcons();
+  }
+
+  // Modal produits en rupture
+  function showOutOfStockModal() {
+    var outOfStockProducts = state.products.filter(function (p) {
+      return (p.totalGrams || 0) === 0;
+    });
+    
+    if (outOfStockProducts.length === 0) {
+      showToast(t("dashboard.noOutOfStock", "Aucun produit en rupture"), "success");
+      return;
+    }
+    
+    var html = '<div class="low-stock-list">' + outOfStockProducts.map(function(p) {
+      return '<div class="low-stock-item out-of-stock">' +
+        '<div class="low-stock-info">' +
+        '<div class="low-stock-name">' + esc(p.title || p.name) + '</div>' +
+        '<div class="low-stock-stock text-danger">' + t("status.outOfStock", "Rupture de stock") + '</div>' +
+        '</div>' +
+        '<button class="btn btn-primary btn-sm" onclick="app.showRestockModal(\'' + p.id + '\')">' + t("action.restock", "Réappro") + '</button>' +
+        '</div>';
+    }).join('') + '</div>';
+    
+    showModal({
+      title: '<i data-lucide="x-circle"></i> ' + t("dashboard.outOfStockProducts", "Produits en rupture"),
+      size: "md",
+      content: html,
+      footer: '<button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.close", "Fermer") + '</button>'
+    });
+    if (typeof lucide !== "undefined") lucide.createIcons();
+  }
+
+  // Réappro rapide (sélection produit)
+  function showQuickRestockModal() {
+    var productOptions = state.products.map(function(p) {
+      return '<option value="' + p.id + '">' + esc(p.title || p.name) + ' (' + formatWeight(p.totalGrams || 0) + ')</option>';
+    }).join('');
+    
+    showModal({
+      title: '<i data-lucide="package-plus"></i> ' + t("dashboard.quickRestock", "Réappro rapide"),
+      size: "sm",
+      content: '<div class="form-group"><label>' + t("products.product", "Produit") + '</label>' +
+        '<select id="quickRestockProduct" class="form-select"><option value="">' + t("action.selectProduct", "Sélectionner...") + '</option>' + productOptions + '</select></div>' +
+        '<div class="form-group"><label>' + t("products.quantity", "Quantité") + ' (g)</label>' +
+        '<input type="number" id="quickRestockQty" class="form-input" placeholder="0" min="0" step="0.1"></div>' +
+        '<div class="form-group"><label>' + t("products.note", "Note") + ' (' + t("products.optional", "optionnel") + ')</label>' +
+        '<input type="text" id="quickRestockNote" class="form-input" placeholder="' + t("products.notePlaceholder", "Ex: Livraison fournisseur") + '"></div>',
+      footer: '<button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.cancel", "Annuler") + '</button>' +
+        '<button class="btn btn-primary" onclick="app.doQuickRestock()">' + t("action.confirm", "Valider") + '</button>'
+    });
+    if (typeof lucide !== "undefined") lucide.createIcons();
+  }
+
+  function doQuickRestock() {
+    var productId = document.getElementById('quickRestockProduct').value;
+    var qty = parseFloat(document.getElementById('quickRestockQty').value) || 0;
+    var note = document.getElementById('quickRestockNote').value || '';
+    
+    if (!productId) { showToast(t("msg.selectProduct", "Sélectionnez un produit"), "error"); return; }
+    if (qty <= 0) { showToast(t("msg.invalidQty", "Quantité invalide"), "error"); return; }
+    
+    authFetch(apiUrl("/products/" + productId + "/restock"), {
+      method: "POST",
+      body: JSON.stringify({ grams: qty, note: note })
+    }).then(function(res) {
+      if (res.ok) {
+        showToast(t("msg.restockSuccess", "Réappro effectuée"), "success");
+        closeModal();
+        loadProducts(true).then(function() { renderTab(state.currentTab); });
+      } else {
+        res.json().then(function(d) { showToast(d.error || t("msg.error", "Erreur"), "error"); });
+      }
+    }).catch(function() { showToast(t("msg.error", "Erreur"), "error"); });
+  }
+
+  // Ajustement rapide
+  function showQuickAdjustModal() {
+    var productOptions = state.products.map(function(p) {
+      return '<option value="' + p.id + '">' + esc(p.title || p.name) + ' (' + formatWeight(p.totalGrams || 0) + ')</option>';
+    }).join('');
+    
+    showModal({
+      title: '<i data-lucide="sliders"></i> ' + t("dashboard.quickAdjust", "Ajustement rapide"),
+      size: "sm",
+      content: '<div class="form-group"><label>' + t("products.product", "Produit") + '</label>' +
+        '<select id="quickAdjustProduct" class="form-select"><option value="">' + t("action.selectProduct", "Sélectionner...") + '</option>' + productOptions + '</select></div>' +
+        '<div class="form-group"><label>' + t("products.newStock", "Nouveau stock") + ' (g)</label>' +
+        '<input type="number" id="quickAdjustQty" class="form-input" placeholder="0" min="0" step="0.1"></div>' +
+        '<div class="form-group"><label>' + t("products.reason", "Raison") + '</label>' +
+        '<select id="quickAdjustReason" class="form-select">' +
+        '<option value="count">' + t("reason.count", "Comptage inventaire") + '</option>' +
+        '<option value="damage">' + t("reason.damage", "Produit endommagé") + '</option>' +
+        '<option value="theft">' + t("reason.theft", "Vol/Perte") + '</option>' +
+        '<option value="correction">' + t("reason.correction", "Correction erreur") + '</option>' +
+        '</select></div>',
+      footer: '<button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.cancel", "Annuler") + '</button>' +
+        '<button class="btn btn-primary" onclick="app.doQuickAdjust()">' + t("action.confirm", "Valider") + '</button>'
+    });
+    if (typeof lucide !== "undefined") lucide.createIcons();
+  }
+
+  function doQuickAdjust() {
+    var productId = document.getElementById('quickAdjustProduct').value;
+    var qty = parseFloat(document.getElementById('quickAdjustQty').value);
+    var reason = document.getElementById('quickAdjustReason').value || 'count';
+    
+    if (!productId) { showToast(t("msg.selectProduct", "Sélectionnez un produit"), "error"); return; }
+    if (isNaN(qty) || qty < 0) { showToast(t("msg.invalidQty", "Quantité invalide"), "error"); return; }
+    
+    authFetch(apiUrl("/products/" + productId + "/adjust"), {
+      method: "POST",
+      body: JSON.stringify({ newGrams: qty, reason: reason })
+    }).then(function(res) {
+      if (res.ok) {
+        showToast(t("msg.adjustSuccess", "Ajustement effectué"), "success");
+        closeModal();
+        loadProducts(true).then(function() { renderTab(state.currentTab); });
+      } else {
+        res.json().then(function(d) { showToast(d.error || t("msg.error", "Erreur"), "error"); });
+      }
+    }).catch(function() { showToast(t("msg.error", "Erreur"), "error"); });
+  }
+
+  // Scanner code-barres
+  function showScannerModal() {
+    showModal({
+      title: '<i data-lucide="scan-barcode"></i> ' + t("scanner.title", "Scanner code-barres"),
+      size: "md",
+      content: '<div class="scanner-container">' +
+        '<div id="scanner-video-container" style="width:100%;height:250px;background:#000;border-radius:8px;overflow:hidden;position:relative">' +
+        '<video id="scanner-video" style="width:100%;height:100%;object-fit:cover"></video>' +
+        '<div class="scanner-overlay"><div class="scanner-line"></div></div>' +
+        '</div>' +
+        '<div class="scanner-status" id="scanner-status">' + t("scanner.initializing", "Initialisation caméra...") + '</div>' +
+        '<div class="scanner-manual" style="margin-top:16px">' +
+        '<label>' + t("scanner.manualEntry", "Ou saisir manuellement") + '</label>' +
+        '<div style="display:flex;gap:8px"><input type="text" id="manual-barcode" class="form-input" placeholder="' + t("scanner.barcodePlaceholder", "Code-barres...") + '">' +
+        '<button class="btn btn-primary" onclick="app.searchBarcode()">' + t("action.search", "Rechercher") + '</button></div>' +
+        '</div></div>',
+      footer: '<button class="btn btn-secondary" onclick="app.stopScanner();app.closeModal()">' + t("action.close", "Fermer") + '</button>'
+    });
+    if (typeof lucide !== "undefined") lucide.createIcons();
+    initScanner();
+  }
+
+  var scannerStream = null;
+  
+  function initScanner() {
+    var video = document.getElementById('scanner-video');
+    var status = document.getElementById('scanner-status');
+    
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      status.innerHTML = '<span class="text-warning">' + t("scanner.notSupported", "Caméra non supportée sur ce navigateur") + '</span>';
+      return;
+    }
+    
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
+      .then(function(stream) {
+        scannerStream = stream;
+        video.srcObject = stream;
+        video.play();
+        status.innerHTML = '<span class="text-success"><i data-lucide="check-circle"></i> ' + t("scanner.ready", "Caméra prête - Présentez un code-barres") + '</span>';
+        if (typeof lucide !== "undefined") lucide.createIcons();
+        
+        // Détection simple via BarcodeDetector API (si supporté)
+        if ('BarcodeDetector' in window) {
+          var detector = new BarcodeDetector({ formats: ['ean_13', 'ean_8', 'code_128', 'code_39', 'upc_a', 'upc_e', 'qr_code'] });
+          var scanning = true;
+          
+          function scanFrame() {
+            if (!scanning || !video.srcObject) return;
+            detector.detect(video).then(function(barcodes) {
+              if (barcodes.length > 0) {
+                scanning = false;
+                var code = barcodes[0].rawValue;
+                stopScanner();
+                searchBarcode(code);
+              } else {
+                requestAnimationFrame(scanFrame);
+              }
+            }).catch(function() {
+              requestAnimationFrame(scanFrame);
+            });
+          }
+          scanFrame();
+        } else {
+          status.innerHTML += '<br><span class="text-muted text-sm">' + t("scanner.manualOnly", "Détection auto non supportée - utilisez la saisie manuelle") + '</span>';
+        }
+      })
+      .catch(function(err) {
+        status.innerHTML = '<span class="text-danger"><i data-lucide="x-circle"></i> ' + t("scanner.cameraError", "Erreur caméra") + ': ' + err.message + '</span>';
+        if (typeof lucide !== "undefined") lucide.createIcons();
+      });
+  }
+
+  function stopScanner() {
+    if (scannerStream) {
+      scannerStream.getTracks().forEach(function(track) { track.stop(); });
+      scannerStream = null;
+    }
+  }
+
+  function searchBarcode(code) {
+    if (!code) {
+      code = (document.getElementById('manual-barcode') || {}).value || '';
+    }
+    code = code.trim();
+    
+    if (!code) {
+      showToast(t("scanner.enterBarcode", "Entrez un code-barres"), "error");
+      return;
+    }
+    
+    // Chercher le produit par code-barres
+    var product = state.products.find(function(p) {
+      return p.barcode === code || p.sku === code || p.id === code;
+    });
+    
+    stopScanner();
+    closeModal();
+    
+    if (product) {
+      openProductDetails(product.id);
+    } else {
+      showModal({
+        title: '<i data-lucide="search-x"></i> ' + t("scanner.notFound", "Produit non trouvé"),
+        content: '<div class="text-center py-lg"><p>' + t("scanner.notFoundMsg", "Aucun produit trouvé avec le code") + ' <strong>' + esc(code) + '</strong></p>' +
+          '<p class="text-muted">' + t("scanner.notFoundHint", "Vérifiez que le code-barres est configuré sur le produit dans Shopify.") + '</p></div>',
+        footer: '<button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.close", "Fermer") + '</button>' +
+          '<button class="btn btn-primary" onclick="app.closeModal();app.showScannerModal()">' + t("scanner.scanAgain", "Scanner à nouveau") + '</button>'
+      });
+      if (typeof lucide !== "undefined") lucide.createIcons();
+    }
   }
 
   async function loadDashboardMovements() {
@@ -609,6 +960,7 @@
       '<div class="page-header"><div><h1 class="page-title">Produits</h1><p class="page-subtitle">' +
       state.products.length + " produit(s)</p></div>" +
       '<div class="page-actions">' +
+      '<button class="btn btn-ghost" onclick="app.showScannerModal()" title="Scanner code-barres"><i data-lucide="scan-barcode"></i></button>' +
       '<button class="btn btn-ghost" onclick="app.showCategoriesModal()">Categories</button>' +
       '<button class="btn btn-secondary" onclick="app.showImportModal()">Import Shopify</button>' +
       '<button class="btn btn-primary" onclick="app.showAddProductModal()">+ Ajouter</button></div></div>' +
@@ -616,7 +968,7 @@
       // Toolbar filtres
       '<div class="toolbar-filters">' +
       '<div class="filter-group">' +
-      '<input type="text" class="form-input" id="searchInput" placeholder="Rechercher..." value="' + esc(state.filters.search) + '" onkeyup="app.onSearchChange(event)">' +
+      '<input type="text" class="form-input" id="searchInput" placeholder="Rechercher... (Ctrl+K)" value="' + esc(state.filters.search) + '" onkeyup="app.onSearchChange(event)">' +
       '</div>' +
       '<div class="filter-group">' +
       '<select class="form-select" id="categoryFilter" onchange="app.onCategoryChange(this.value)">' + catOptions + '</select>' +
@@ -629,6 +981,8 @@
       '<div class="card"><div class="card-body" style="padding:0">' +
       (state.products.length ? renderTable(state.products) : renderEmpty()) +
       "</div></div>";
+    
+    if (typeof lucide !== "undefined") lucide.createIcons();
   }
 
   // ============================================
@@ -4179,98 +4533,10 @@
     return d.innerHTML;
   }
   function toggleNotifications() {
-    if (!hasFeature("hasNotifications")) {
-      showModal({
-        title: "🔔 Notifications",
-        content: '<div style="text-align:center;padding:40px"><div style="font-size:48px;margin-bottom:16px">🔒</div><h3>' + t("msg.featureLocked", "Fonctionnalité PRO") + '</h3><p style="color:var(--text-secondary)">' + t("notifications.lockedDesc", "Les alertes sont disponibles avec le plan Pro.") + '</p><button class="btn btn-primary" style="margin-top:20px" onclick="app.showUpgradeModal()">' + t("action.upgrade", "Passer à Pro") + '</button></div>',
-        footer: '<button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.close", "Fermer") + '</button>'
-      });
-      return;
-    }
-    authFetch(apiUrl("/notifications?limit=30")).then(function(res) {
-      if (res.ok) return res.json();
-      return { alerts: [] };
-    }).then(function(data) {
-      var alerts = data.alerts || [];
-      var html = !alerts.length 
-        ? '<div style="text-align:center;padding:40px"><div style="font-size:48px;margin-bottom:16px">✅</div><p>' + t("notifications.noAlerts", "Aucune alerte") + '</p><p style="color:var(--text-secondary)">' + t("notifications.allGood", "Tout va bien !") + '</p></div>'
-        : '<div style="max-height:400px;overflow-y:auto">' + alerts.map(function(a) {
-            var icon = a.priority === "critical" ? "🔴" : a.priority === "high" ? "🟡" : "🟢";
-            return '<div style="display:flex;gap:12px;padding:12px;background:var(--bg-secondary);border-radius:8px;margin-bottom:8px;cursor:pointer" onclick="app.closeModal();' + (a.productId ? 'app.openProductDetails(\'' + a.productId + '\')' : '') + '"><span>' + icon + '</span><div style="flex:1"><div style="font-weight:600">' + esc(a.title || '') + '</div><div style="font-size:13px;color:var(--text-secondary)">' + esc(a.message || '') + '</div></div></div>';
-          }).join('') + '</div>';
-      showModal({ title: "🔔 " + t("notifications.title", "Notifications"), size: "md", content: html, footer: '<button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.close", "Fermer") + '</button>' });
-    }).catch(function() { showToast(t("msg.error", "Erreur"), "error"); });
+    showToast("Bientot", "info");
   }
-  
   function toggleUserMenu() {
-    var pf = window._activeProfile || { id: "admin", name: "Admin", role: "admin", color: "#6366f1" };
-    var profiles = window._userProfiles || [pf];
-    var init = pf.name ? (pf.name.split(' ').length > 1 ? pf.name.split(' ')[0][0] + pf.name.split(' ')[1][0] : pf.name.substring(0,2)).toUpperCase() : "AD";
-    var list = profiles.map(function(p) {
-      var i = p.name ? (p.name.split(' ').length > 1 ? p.name.split(' ')[0][0] + p.name.split(' ')[1][0] : p.name.substring(0,2)).toUpperCase() : "?";
-      var active = p.id === pf.id;
-      return '<div style="display:flex;align-items:center;gap:12px;padding:12px;border-radius:8px;cursor:pointer;background:' + (active ? 'rgba(99,102,241,0.15)' : 'var(--bg-secondary)') + '" onclick="app.selectProfile(\'' + p.id + '\')"><span style="background:' + (p.color || '#6366f1') + ';width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:#fff">' + i + '</span><div style="flex:1"><div style="font-weight:600">' + esc(p.name) + '</div><div style="font-size:12px;color:var(--text-secondary)">' + esc(p.role || 'user') + '</div></div>' + (active ? '<span style="color:#6366f1">✓</span>' : '') + '</div>';
-    }).join('');
-    showModal({
-      title: "👤 " + t("profiles.myProfile", "Mon profil"),
-      size: "sm",
-      content: '<div style="display:flex;align-items:center;gap:16px;padding:20px;background:var(--bg-secondary);border-radius:12px;margin-bottom:20px"><span style="background:' + (pf.color || '#6366f1') + ';width:56px;height:56px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:700;color:#fff">' + init + '</span><div><div style="font-size:18px;font-weight:700">' + esc(pf.name) + '</div><div style="color:var(--text-secondary)">' + esc(pf.role) + '</div></div></div><div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:12px">' + t("profiles.switchProfile", "CHANGER DE PROFIL") + '</div><div style="display:flex;flex-direction:column;gap:8px">' + list + '</div><div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border)"><button class="btn btn-ghost" style="width:100%" onclick="app.showCreateProfileModal()">+ ' + t("profiles.createNew", "Nouveau profil") + '</button></div>',
-      footer: '<button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.close", "Fermer") + '</button>'
-    });
-  }
-  
-  function selectProfile(id) {
-    authFetch(apiUrl("/profiles/" + id + "/activate"), { method: "POST" }).then(function(res) {
-      if (res.ok) return res.json();
-    }).then(function(data) {
-      if (data && data.profile) {
-        window._activeProfile = data.profile;
-        var idx = (window._userProfiles || []).findIndex(function(p) { return p.id === id; });
-        if (idx >= 0) window._userProfiles[idx] = data.profile;
-        updateHeaderAvatar();
-        closeModal();
-        showToast(t("profiles.welcome", "Bienvenue") + ", " + data.profile.name + " !", "success");
-      }
-    }).catch(function() { showToast(t("msg.error", "Erreur"), "error"); });
-  }
-  
-  function updateHeaderAvatar() {
-    var pf = window._activeProfile || { name: "Admin", color: "#6366f1" };
-    var initials = pf.name ? (pf.name.split(' ').length > 1 ? pf.name.split(' ')[0][0] + pf.name.split(' ')[1][0] : pf.name.substring(0,2)).toUpperCase() : "AD";
-    var avatarBtn = document.querySelector('.user-avatar');
-    if (avatarBtn) {
-      avatarBtn.innerHTML = '<span style="background:' + (pf.color || '#6366f1') + ';width:100%;height:100%;display:flex;align-items:center;justify-content:center;border-radius:50%;font-weight:600;font-size:13px;color:#fff">' + initials + '</span>';
-    }
-  }
-  
-  function showCreateProfileModal() {
-    var colors = ["#6366f1","#8b5cf6","#ec4899","#ef4444","#f97316","#22c55e","#06b6d4","#3b82f6"];
-    var colorsHtml = colors.map(function(c, i) {
-      return '<div onclick="document.getElementById(\'newProfColor\').value=\'' + c + '\';this.parentNode.querySelectorAll(\'div\').forEach(function(e){e.style.outline=\'none\'});this.style.outline=\'3px solid white\'" style="background:' + c + ';width:32px;height:32px;border-radius:50%;cursor:pointer' + (i === 0 ? ';outline:3px solid white' : '') + '"></div>';
-    }).join('');
-    showModal({
-      title: "➕ " + t("profiles.createProfile", "Créer un profil"),
-      size: "sm",
-      content: '<div class="form-group"><label>' + t("profiles.name", "Nom") + '</label><input type="text" id="newProfName" class="form-input" placeholder="' + t("profiles.namePlaceholder", "Ex: Marie...") + '"></div><div class="form-group"><label>' + t("profiles.role", "Rôle") + '</label><select id="newProfRole" class="form-select"><option value="user">' + t("profiles.roleUser", "Utilisateur") + '</option><option value="manager">' + t("profiles.roleManager", "Manager") + '</option><option value="admin">' + t("profiles.roleAdmin", "Admin") + '</option></select></div><div class="form-group"><label>' + t("profiles.color", "Couleur") + '</label><div style="display:flex;gap:8px;flex-wrap:wrap">' + colorsHtml + '</div><input type="hidden" id="newProfColor" value="#6366f1"></div>',
-      footer: '<button class="btn btn-secondary" onclick="app.toggleUserMenu()">' + t("action.cancel", "Annuler") + '</button><button class="btn btn-primary" onclick="app.createProfile()">' + t("action.create", "Créer") + '</button>'
-    });
-  }
-  
-  function createProfile() {
-    var name = (document.getElementById('newProfName') || {}).value || '';
-    var role = (document.getElementById('newProfRole') || {}).value || 'user';
-    var color = (document.getElementById('newProfColor') || {}).value || '#6366f1';
-    if (!name.trim()) { showToast(t("profiles.nameRequired", "Nom requis"), "error"); return; }
-    authFetch(apiUrl("/profiles"), { method: "POST", body: JSON.stringify({ name: name.trim(), role: role, color: color }) }).then(function(res) {
-      if (res.ok) return res.json();
-    }).then(function(data) {
-      if (data && data.profile) {
-        window._userProfiles = window._userProfiles || [];
-        window._userProfiles.push(data.profile);
-        showToast(t("profiles.created", "Profil créé"), "success");
-        selectProfile(data.profile.id);
-      }
-    }).catch(function() { showToast(t("msg.error", "Erreur"), "error"); });
+    showToast("Bientot", "info");
   }
 
   // ============================================
@@ -5293,10 +5559,19 @@
     updateNestedSetting: updateNestedSetting,
     exportSettings: exportSettings,
     resetAllSettings: resetAllSettings,
-    // Profils
-    selectProfile: selectProfile,
-    showCreateProfileModal: showCreateProfileModal,
-    createProfile: createProfile,
+    // Dashboard amélioré
+    showLowStockModal: showLowStockModal,
+    showOutOfStockModal: showOutOfStockModal,
+    showQuickRestockModal: showQuickRestockModal,
+    doQuickRestock: doQuickRestock,
+    showQuickAdjustModal: showQuickAdjustModal,
+    doQuickAdjust: doQuickAdjust,
+    // Scanner
+    showScannerModal: showScannerModal,
+    stopScanner: stopScanner,
+    searchBarcode: searchBarcode,
+    // Raccourcis
+    showKeyboardShortcutsHelp: showKeyboardShortcutsHelp,
     get state() {
       return state;
     },
