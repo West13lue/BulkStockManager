@@ -1,7 +1,7 @@
-// server.js aEURâ€ PREFIX-SAFE (/apps/<slug>/...), STATIC FIX, JSON API SAFE, Multi-shop safe, Express 5 safe
-// aÅ“â€¦ ENRICHI avec CMP, Valeur stock, Stats categories, Suppression mouvements (stub)
-// aÅ“â€¦ + OAuth Shopify (Partner) : /api/auth/start + /api/auth/callback
-// aÅ“â€¦ + SECURE /api/* (App Store) via Shopify Session Token (JWT HS256)
+// server.js aEURÃ¢â‚¬Â PREFIX-SAFE (/apps/<slug>/...), STATIC FIX, JSON API SAFE, Multi-shop safe, Express 5 safe
+// aÃ…â€œÃ¢â‚¬Â¦ ENRICHI avec CMP, Valeur stock, Stats categories, Suppression mouvements (stub)
+// aÃ…â€œÃ¢â‚¬Â¦ + OAuth Shopify (Partner) : /api/auth/start + /api/auth/callback
+// aÃ…â€œÃ¢â‚¬Â¦ + SECURE /api/* (App Store) via Shopify Session Token (JWT HS256)
 
 if (process.env.NODE_ENV !== "production") {
   require("dotenv").config();
@@ -12,7 +12,7 @@ const path = require("path");
 const crypto = require("crypto");
 const fs = require("fs");
 
-// aÅ“â€¦ OAuth token store (Render disk)
+// aÃ…â€œÃ¢â‚¬Â¦ OAuth token store (Render disk)
 const tokenStore = require("./utils/tokenStore");
 
 // --- logger (compat : ./utils/logger OU ./logger)
@@ -26,7 +26,7 @@ try {
   } catch {}
 }
 
-// --- Shopify client (aÅ“â€¦ par shop)
+// --- Shopify client (aÃ…â€œÃ¢â‚¬Â¦ par shop)
 const {
   getShopifyClient,
   normalizeShopDomain,
@@ -76,7 +76,7 @@ try {
   console.warn("SalesOrderStore non disponible:", e.message);
 }
 
-// --- Analytics (multi-shop) aÅ“â€¦ NOUVEAU
+// --- Analytics (multi-shop) aÃ…â€œÃ¢â‚¬Â¦ NOUVEAU
 let analyticsStore = null;
 let analyticsManager = null;
 try {
@@ -86,7 +86,7 @@ try {
   console.warn("Analytics modules non disponibles:", e.message);
 }
 
-// --- Plan Manager (Free/Standard/Premium) aÅ“â€¦ NOUVEAU
+// --- Plan Manager (Free/Standard/Premium) aÃ…â€œÃ¢â‚¬Â¦ NOUVEAU
 let planManager = null;
 try {
   planManager = require("./planManager");
@@ -94,7 +94,7 @@ try {
   console.warn("PlanManager non disponible:", e.message);
 }
 
-// --- Settings Manager (parametres avances) aÅ“â€¦ NOUVEAU
+// --- Settings Manager (parametres avances) aÃ…â€œÃ¢â‚¬Â¦ NOUVEAU
 let settingsManager = null;
 try {
   settingsManager = require("./settingsManager");
@@ -136,12 +136,12 @@ try {
 }
 
 
-// aÅ“â€¦ OAuth config
+// aÃ…â€œÃ¢â‚¬Â¦ OAuth config
 const SHOPIFY_API_KEY = String(process.env.SHOPIFY_API_KEY || "").trim();
 const SHOPIFY_API_SECRET = String(process.env.SHOPIFY_API_SECRET || "").trim();
 const OAUTH_SCOPES = String(process.env.SHOPIFY_SCOPES || "").trim();
 
-// aÅ“â€¦ API auth switch (en prod => ON par defaut)
+// aÃ…â€œÃ¢â‚¬Â¦ API auth switch (en prod => ON par defaut)
 const API_AUTH_REQUIRED =
   String(process.env.API_AUTH_REQUIRED || "").trim() === ""
     ? process.env.NODE_ENV === "production"
@@ -191,7 +191,7 @@ function shopFromHostParam(hostParam) {
 }
 
 function getShop(req) {
-  // aÅ“â€¦ priorite: shop determine par middleware auth (session token)
+  // aÃ…â€œÃ¢â‚¬Â¦ priorite: shop determine par middleware auth (session token)
   const fromAuth = String(req.shopDomain || "").trim();
   if (fromAuth) return normalizeShopDomain(fromAuth);
 
@@ -222,7 +222,7 @@ function apiError(res, code, message, extra) {
   return res.status(code).json({ error: message, ...(extra ? { extra } : {}) });
 }
 
-// aÅ“â€¦ OAuth helpers
+// aÃ…â€œÃ¢â‚¬Â¦ OAuth helpers
 function verifyOAuthHmac(query) {
   const { hmac, ...rest } = query || {};
   if (!hmac || !SHOPIFY_API_SECRET) return false;
@@ -255,7 +255,7 @@ function requireOAuthEnv(res) {
 }
 
 // ===============================
-// aÅ“â€¦ Shopify Session Token (JWT)
+// aÃ…â€œÃ¢â‚¬Â¦ Shopify Session Token (JWT)
 // ===============================
 function base64UrlToBuffer(str) {
   const s = String(str || "")
@@ -344,10 +344,10 @@ function requireApiAuth(req, res, next) {
   // Laisse passer l'OAuth install/callback
   if (req.path === "/auth/start" || req.path === "/auth/callback") return next();
 
-  // âœ… config publique (front App Bridge)
+  // Ã¢Å“â€¦ config publique (front App Bridge)
   if (req.path === "/public/config") return next();
 
-  // âœ… returnUrl Shopify Billing (apres acceptation abonnement)
+  // Ã¢Å“â€¦ returnUrl Shopify Billing (apres acceptation abonnement)
   if (req.path === "/billing/return" || req.path === "/api/billing/return") return next();
 
   const token = extractBearerToken(req);
@@ -393,7 +393,7 @@ function safeJson(req, res, fn) {
     const status = Number(info?.statusCode || 0);
     if (status !== 401) return false;
 
-    // âœ… Token invalide/revoque => purge + renvoi URL de reauth
+    // Ã¢Å“â€¦ Token invalide/revoque => purge + renvoi URL de reauth
     if (resolvedShop) {
       try {
         tokenStore?.removeToken?.(resolvedShop);
@@ -471,7 +471,7 @@ async function getLocationIdForShop(shop) {
     }
   }
 
-  // 2) ENV locationId (aÅ¡Â iÂ¸Â uniquement si la boutique == SHOP_NAME)
+  // 2) ENV locationId (aÃ…Â¡Ã‚Â iÃ‚Â¸Ã‚Â uniquement si la boutique == SHOP_NAME)
   const envShop = resolveShopFallback(); // SHOP_NAME normalise
   const envLoc = process.env.SHOPIFY_LOCATION_ID || process.env.LOCATION_ID;
 
@@ -527,7 +527,7 @@ function findGramsPerUnitByInventoryItemId(productView, inventoryItemId) {
 }
 
 // =====================================================
-// aÅ“â€¦ DURCISSEMENT #1 : Anti-spoof multi-shop (API)
+// aÃ…â€œÃ¢â‚¬Â¦ DURCISSEMENT #1 : Anti-spoof multi-shop (API)
 // =====================================================
 function getShopRequestedByClient(req) {
   const q = String(req.query?.shop || "").trim();
@@ -560,7 +560,7 @@ function enforceAuthShopMatch(req, res, next) {
 }
 
 // =====================================================
-// aÅ“â€¦ DURCISSEMENT #2 : Webhooks shop + HMAC strict
+// aÃ…â€œÃ¢â‚¬Â¦ DURCISSEMENT #2 : Webhooks shop + HMAC strict
 // =====================================================
 function getShopFromWebhook(req, payloadObj) {
   const headerShop = String(req.get("X-Shopify-Shop-Domain") || "").trim();
@@ -605,7 +605,7 @@ router.use((req, res, next) => {
   next();
 });
 
-// aÅ“â€¦ Public config (sans session token)
+// aÃ…â€œÃ¢â‚¬Â¦ Public config (sans session token)
 router.get("/api/public/config", (req, res) => {
   res.json({
     apiKey: SHOPIFY_API_KEY || "",
@@ -613,13 +613,13 @@ router.get("/api/public/config", (req, res) => {
   });
 });
 
-// aÅ“â€¦ SECURE toutes les routes /api/*
+// aÃ…â€œÃ¢â‚¬Â¦ SECURE toutes les routes /api/*
 router.use("/api", requireApiAuth);
 
-// aÅ“â€¦ DURCISSEMENT #1 (suite) : anti-spoof APRES auth
+// aÃ…â€œÃ¢â‚¬Â¦ DURCISSEMENT #1 (suite) : anti-spoof APRES auth
 router.use("/api", enforceAuthShopMatch);
 
-// aÅ“â€¦ Resout le shop une fois pour toutes (utile pour auto-reauth)
+// aÃ…â€œÃ¢â‚¬Â¦ Resout le shop une fois pour toutes (utile pour auto-reauth)
 router.use("/api", (req, _res, next) => {
   req.resolvedShop = getShop(req);
   next();
@@ -819,13 +819,13 @@ router.get("/api/stock", (req, res) => {
   });
 });
 
-// aÅ“â€¦ Valeur totale du stock - STANDARD+ ONLY
+// aÃ…â€œÃ¢â‚¬Â¦ Valeur totale du stock - STANDARD+ ONLY
 router.get("/api/stock/value", (req, res) => {
   safeJson(req, res, () => {
     const shop = getShop(req);
     if (!shop) return apiError(res, 400, "Shop introuvable");
 
-    // aÅ“â€¦ Verifier le plan
+    // aÃ…â€œÃ¢â‚¬Â¦ Verifier le plan
     if (planManager) {
       const check = planManager.checkLimit(shop, "view_stock_value");
       if (!check.allowed) {
@@ -847,13 +847,13 @@ router.get("/api/stock/value", (req, res) => {
   });
 });
 
-// aÅ“â€¦ Stats par categorie - STANDARD+ ONLY
+// aÃ…â€œÃ¢â‚¬Â¦ Stats par categorie - STANDARD+ ONLY
 router.get("/api/stats/categories", (req, res) => {
   safeJson(req, res, () => {
     const shop = getShop(req);
     if (!shop) return apiError(res, 400, "Shop introuvable");
 
-    // aÅ“â€¦ Verifier le plan
+    // aÃ…â€œÃ¢â‚¬Â¦ Verifier le plan
     if (planManager) {
       const check = planManager.checkLimit(shop, "view_categories");
       if (!check.allowed) {
@@ -904,7 +904,7 @@ router.get("/api/categories", (req, res) => {
     const shop = getShop(req);
     if (!shop) return apiError(res, 400, "Shop introuvable");
 
-    // aÅ“â€¦ Verifier le plan (categories = Standard+)
+    // aÃ…â€œÃ¢â‚¬Â¦ Verifier le plan (categories = Standard+)
     if (planManager) {
       const check = planManager.checkLimit(shop, "view_categories");
       if (!check.allowed) {
@@ -928,7 +928,7 @@ router.post("/api/categories", (req, res) => {
     const shop = getShop(req);
     if (!shop) return apiError(res, 400, "Shop introuvable");
 
-    // aÅ“â€¦ Verifier le plan
+    // aÃ…â€œÃ¢â‚¬Â¦ Verifier le plan
     if (planManager) {
       const check = planManager.checkLimit(shop, "manage_categories");
       if (!check.allowed) {
@@ -998,7 +998,7 @@ router.get("/api/movements", (req, res) => {
     const limit = Math.min(Number(req.query.limit || 200), 2000);
     let days = Math.min(Math.max(Number(req.query.days || 7), 1), 365);
 
-    // aÅ“â€¦ Appliquer la limite de jours selon le plan
+    // aÃ…â€œÃ¢â‚¬Â¦ Appliquer la limite de jours selon le plan
     let daysLimited = false;
     if (planManager) {
       const maxDays = planManager.applyMovementDaysLimit(shop, days);
@@ -1023,7 +1023,7 @@ router.get("/api/movements.csv", (req, res) => {
     const shop = getShop(req);
     if (!shop) return apiError(res, 400, "Shop introuvable");
 
-    // aÅ“â€¦ Verifier le plan pour export avance
+    // aÃ…â€œÃ¢â‚¬Â¦ Verifier le plan pour export avance
     if (planManager) {
       const check = planManager.checkLimit(shop, "advanced_export");
       if (!check.allowed) {
@@ -1081,7 +1081,7 @@ router.delete("/api/movements/:id", (req, res) => {
   });
 });
 
-// ✅ NOUVEAU : Détail produit avec variantes et stats
+// âœ… NOUVEAU : DÃ©tail produit avec variantes et stats
 router.get("/api/products/:productId", (req, res) => {
   safeJson(req, res, () => {
     const shop = getShop(req);
@@ -1090,15 +1090,15 @@ router.get("/api/products/:productId", (req, res) => {
     const productId = String(req.params.productId || "");
     if (!productId) return apiError(res, 400, "productId manquant");
 
-    // Récupérer le snapshot du produit
+    // RÃ©cupÃ©rer le snapshot du produit
     const product = stock.getProductSnapshot ? stock.getProductSnapshot(shop, productId) : null;
     if (!product) return apiError(res, 404, "Produit introuvable");
 
-    // Récupérer les catégories
+    // RÃ©cupÃ©rer les catÃ©gories
     const allCategories = catalogStore.listCategories ? catalogStore.listCategories(shop) : [];
     const productCategories = allCategories.filter(c => (product.categoryIds || []).includes(c.id));
 
-    // Récupérer les variantes avec calcul des stats
+    // RÃ©cupÃ©rer les variantes avec calcul des stats
     const storeObj = stock.PRODUCT_CONFIG_BY_SHOP?.get(shop);
     const cfg = storeObj ? storeObj[productId] : null;
     const variants = cfg?.variants || {};
@@ -1125,7 +1125,7 @@ router.get("/api/products/:productId", (req, res) => {
       });
     }
 
-    // Calcul du pourcentage (basé sur les unités vendables)
+    // Calcul du pourcentage (basÃ© sur les unitÃ©s vendables)
     for (const vs of variantStats) {
       vs.shareByUnits = totalCanSell > 0 ? Math.round((vs.canSell / totalCanSell) * 100 * 100) / 100 : 0;
     }
@@ -1133,7 +1133,7 @@ router.get("/api/products/:productId", (req, res) => {
     // Trier par gramsPerUnit croissant
     variantStats.sort((a, b) => a.gramsPerUnit - b.gramsPerUnit);
 
-    // Déterminer le statut stock
+    // DÃ©terminer le statut stock
     let stockStatus = "good";
     let stockLabel = "OK";
     if (totalGrams <= 0) {
@@ -1331,7 +1331,7 @@ router.post("/api/products/:productId/categories", (req, res) => {
   });
 });
 
-// âœ… Creer un produit manuellement (sans import Shopify)
+// Ã¢Å“â€¦ Creer un produit manuellement (sans import Shopify)
 router.post("/api/products", (req, res) => {
   safeJson(req, res, () => {
     const shop = getShop(req);
@@ -1344,7 +1344,7 @@ router.post("/api/products", (req, res) => {
 
     if (!name) return apiError(res, 400, "Nom du produit requis");
 
-    // âœ… Verifier le plan (limite de produits)
+    // Ã¢Å“â€¦ Verifier le plan (limite de produits)
     if (planManager) {
       const snapshot = stock.getCatalogSnapshot ? stock.getCatalogSnapshot(shop) : { products: [] };
       const currentCount = Array.isArray(snapshot.products) ? snapshot.products.length : 0;
@@ -1451,7 +1451,7 @@ router.post("/api/import/product", (req, res) => {
     const shop = getShop(req);
     if (!shop) return apiError(res, 400, "Shop introuvable");
 
-    // aÅ“â€¦ Verifier le plan (import Shopify = Standard+)
+    // aÃ…â€œÃ¢â‚¬Â¦ Verifier le plan (import Shopify = Standard+)
     if (planManager) {
       const checkImport = planManager.checkLimit(shop, "import_shopify");
       if (!checkImport.allowed) {
@@ -1696,7 +1696,7 @@ router.get("/api/auth/callback", (req, res) => {
 
     res.type("html").send(`
       <div style="font-family:system-ui;padding:24px">
-        <h2>aÅ“â€¦ OAuth OK</h2>
+        <h2>aÃ…â€œÃ¢â‚¬Â¦ OAuth OK</h2>
         <p>Token enregistre pour <b>${shop}</b>.</p>
         <p>Tu peux fermer cette page et relancer l'app.</p>
       </div>
@@ -1705,7 +1705,7 @@ router.get("/api/auth/callback", (req, res) => {
 });
 
 // =====================================================
-// SETTINGS ROUTES aÅ“â€¦ NOUVEAU (Parametres avances)
+// SETTINGS ROUTES aÃ…â€œÃ¢â‚¬Â¦ NOUVEAU (Parametres avances)
 // =====================================================
 
 // Recuperer tous les parametres
@@ -1735,7 +1735,7 @@ router.get("/api/settings/:section", (req, res) => {
   });
 });
 
-// Mettre ÃƒÂ  jour une section
+// Mettre ÃƒÆ’Ã‚Â  jour une section
 router.put("/api/settings/:section", (req, res) => {
   safeJson(req, res, () => {
     const shop = getShop(req);
@@ -1865,7 +1865,140 @@ router.get("/api/settings/support-bundle", (req, res) => {
 });
 
 // =====================================================
-// PLAN ROUTES aÅ“â€¦ Billing Shopify (AppSubscription)
+// USER PROFILES ROUTES
+// =====================================================
+
+let userProfileStore = null;
+try {
+  userProfileStore = require("./userProfileStore");
+  console.log("[Server] userProfileStore loaded");
+} catch (e) {
+  console.warn("[Server] userProfileStore not available");
+}
+
+const defaultProfile = { id: "admin", name: "Admin", role: "admin", color: "#6366f1", isDefault: true };
+
+router.get("/api/profiles", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    if (!userProfileStore) return res.json({ profiles: [defaultProfile], activeProfileId: "admin", settings: {} });
+    const data = userProfileStore.loadProfiles(shop);
+    res.json({ profiles: data.profiles || [defaultProfile], activeProfileId: data.activeProfileId || "admin", settings: data.settings || {} });
+  });
+});
+
+router.post("/api/profiles", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    if (!userProfileStore) return apiError(res, 503, "Module profils non disponible");
+    const { name, role, color } = req.body;
+    if (!name || !name.trim()) return apiError(res, 400, "Le nom est requis");
+    const profile = userProfileStore.createProfile(shop, { name: name.trim(), role, color });
+    res.json({ success: true, profile });
+  });
+});
+
+router.post("/api/profiles/:id/activate", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    if (!userProfileStore) return res.json({ success: true, profile: defaultProfile });
+    const result = userProfileStore.setActiveProfile(shop, req.params.id);
+    if (!result.success) return apiError(res, 404, result.error || "Profil introuvable");
+    res.json({ success: true, profile: result.profile });
+  });
+});
+
+router.put("/api/profiles/:id", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    if (!userProfileStore) return apiError(res, 503, "Module profils non disponible");
+    const profile = userProfileStore.updateProfile(shop, req.params.id, req.body);
+    if (!profile) return apiError(res, 404, "Profil introuvable");
+    res.json({ success: true, profile });
+  });
+});
+
+router.delete("/api/profiles/:id", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    if (!userProfileStore) return apiError(res, 503, "Module profils non disponible");
+    const result = userProfileStore.deleteProfile(shop, req.params.id);
+    if (!result.success) return apiError(res, 400, result.error || "Impossible de supprimer");
+    res.json({ success: true });
+  });
+});
+
+// =====================================================
+// NOTIFICATIONS ROUTES
+// =====================================================
+
+let notificationStore = null;
+let alertChecker = null;
+try {
+  notificationStore = require("./notificationStore");
+  alertChecker = require("./alertChecker");
+  console.log("[Server] notificationStore & alertChecker loaded");
+} catch (e) {
+  console.warn("[Server] Notification modules not available");
+}
+
+router.get("/api/notifications", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    if (!notificationStore) return res.json({ alerts: [], counts: {}, unreadCount: 0 });
+    const limit = parseInt(req.query.limit) || 50;
+    const alerts = notificationStore.getAlerts(shop, { limit });
+    const counts = notificationStore.getCountByPriority(shop);
+    res.json({ alerts, counts, unreadCount: counts.critical + counts.high + counts.normal });
+  });
+});
+
+router.get("/api/notifications/count", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    if (!notificationStore) return res.json({ unreadCount: 0, critical: 0, high: 0, normal: 0 });
+    const counts = notificationStore.getCountByPriority(shop);
+    res.json({ unreadCount: notificationStore.getUnreadCount(shop), ...counts });
+  });
+});
+
+router.post("/api/notifications/check", async (req, res) => {
+  safeJson(req, res, async () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    if (!alertChecker) return res.json({ success: true, newAlerts: 0 });
+    const results = await alertChecker.checkAllAlerts(shop);
+    res.json({ success: true, ...results });
+  });
+});
+
+router.post("/api/notifications/:id/read", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    if (notificationStore) notificationStore.markAsRead(shop, req.params.id);
+    res.json({ success: true });
+  });
+});
+
+router.post("/api/notifications/:id/dismiss", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    if (notificationStore) notificationStore.dismissAlert(shop, req.params.id);
+    res.json({ success: true });
+  });
+});
+
+// =====================================================
+// PLAN ROUTES – Billing Shopify (AppSubscription)
 // =====================================================
 
 // Helper: map planId -> billing config
@@ -1948,7 +2081,7 @@ router.get("/api/plans", (req, res) => {
   });
 });
 
-// aÅ“â€¦ Retour Billing Shopify (apres acceptation abonnement)
+// aÃ…â€œÃ¢â‚¬Â¦ Retour Billing Shopify (apres acceptation abonnement)
 // IMPORTANT: cette route passe SANS session token (bypass dans requireApiAuth)
 router.get("/api/billing/return", (req, res) => {
   safeJson(req, res, async () => {
@@ -1971,7 +2104,7 @@ router.get("/api/billing/return", (req, res) => {
       });
       return res.type("html").send(`
         <div style="font-family:system-ui;padding:24px">
-          <h2>aÅ“â€¦ Plan active (bypass)</h2>
+          <h2>aÃ…â€œÃ¢â‚¬Â¦ Plan active (bypass)</h2>
           <p>Boutique: <b>${shop}</b></p>
           <p>Plan: <b>${String(bypassPlan).toUpperCase()}</b></p>
           <p>Tu peux fermer cette page.</p>
@@ -1989,10 +2122,10 @@ router.get("/api/billing/return", (req, res) => {
       // Le marchand a peut-etre ferme avant de confirmer
       return res.type("html").send(`
         <div style="font-family:system-ui;padding:24px">
-          <h2>aÅ¡Â iÂ¸Â Abonnement non detecte</h2>
+          <h2>aÃ…Â¡Ã‚Â iÃ‚Â¸Ã‚Â Abonnement non detecte</h2>
           <p>Boutique: <b>${shop}</b></p>
           <p>Aucun abonnement actif trouve cote Shopify.</p>
-          <p>Retourne dans laEURâ„¢app et relance laEURâ„¢upgrade.</p>
+          <p>Retourne dans laEURÃ¢â€žÂ¢app et relance laEURÃ¢â€žÂ¢upgrade.</p>
         </div>
       `);
     }
@@ -2010,17 +2143,17 @@ router.get("/api/billing/return", (req, res) => {
 
     return res.type("html").send(`
       <div style="font-family:system-ui;padding:24px">
-        <h2>aÅ“â€¦ Abonnement active</h2>
+        <h2>aÃ…â€œÃ¢â‚¬Â¦ Abonnement active</h2>
         <p>Boutique: <b>${shop}</b></p>
         <p>Plan: <b>${planId.toUpperCase()}</b></p>
         <p>Statut: <b>${String(chosen.status || "")}</b></p>
-        <p>Tu peux fermer cette page et retourner dans laEURâ„¢app.</p>
+        <p>Tu peux fermer cette page et retourner dans laEURÃ¢â€žÂ¢app.</p>
       </div>
     `);
   });
 });
 
-// aÅ“â€¦ Upgrade: cree un abonnement Shopify et renvoie confirmationUrl
+// aÃ…â€œÃ¢â‚¬Â¦ Upgrade: cree un abonnement Shopify et renvoie confirmationUrl
 router.post("/api/plan/upgrade", (req, res) => {
   safeJson(req, res, async () => {
     const shop = getShop(req);
@@ -2032,11 +2165,11 @@ router.post("/api/plan/upgrade", (req, res) => {
 
     if (!planManager.PLANS[planId]) return apiError(res, 400, `Plan inconnu: ${planId}`);
     if (planId === "free") {
-      // Si laEURâ„¢utilisateur downgrade vers free => passe par cancel
+      // Si laEURÃ¢â€žÂ¢utilisateur downgrade vers free => passe par cancel
       return apiError(res, 400, "Pour revenir en Free, utilise /api/plan/cancel");
     }
 
-    // aÅ“â€¦ Bypass billing => on fixe direct sans Shopify
+    // aÃ…â€œÃ¢â‚¬Â¦ Bypass billing => on fixe direct sans Shopify
     const bypassPlan = planManager.getBypassPlan ? planManager.getBypassPlan(shop) : null;
     if (bypassPlan) {
       const result = planManager.setShopPlan(shop, bypassPlan, {
@@ -2049,12 +2182,12 @@ router.post("/api/plan/upgrade", (req, res) => {
       return res.json({ success: true, bypass: true, ...result });
     }
 
-    // aÅ“â€¦ Si dejÃƒÂ  un abonnement actif Shopify => on evite doublon
+    // aÃ…â€œÃ¢â‚¬Â¦ Si dejÃƒÆ’Ã‚Â  un abonnement actif Shopify => on evite doublon
     const existingSubs = await getActiveAppSubscriptions(shop);
     if (Array.isArray(existingSubs) && existingSubs.length) {
       return res.status(409).json({
         error: "billing_already_active",
-        message: "Un abonnement Shopify est dejÃƒÂ  actif pour cette boutique. Annule avant de recreer.",
+        message: "Un abonnement Shopify est dejÃƒÆ’Ã‚Â  actif pour cette boutique. Annule avant de recreer.",
         subscriptions: existingSubs.map((s) => ({ id: s.id, name: s.name, status: s.status })),
       });
     }
@@ -2081,7 +2214,7 @@ router.post("/api/plan/upgrade", (req, res) => {
     if (created.userErrors && created.userErrors.length) {
       return res.status(400).json({
         error: "billing_user_errors",
-        message: "Shopify a refuse la creation daEURâ„¢abonnement",
+        message: "Shopify a refuse la creation daEURÃ¢â€žÂ¢abonnement",
         userErrors: created.userErrors,
       });
     }
@@ -2107,14 +2240,14 @@ router.post("/api/plan/upgrade", (req, res) => {
   });
 });
 
-// aÅ“â€¦ Cancel: annule laEURâ„¢abonnement Shopify + downgrade local en Free
+// aÃ…â€œÃ¢â‚¬Â¦ Cancel: annule laEURÃ¢â€žÂ¢abonnement Shopify + downgrade local en Free
 router.post("/api/plan/cancel", (req, res) => {
   safeJson(req, res, async () => {
     const shop = getShop(req);
     if (!shop) return apiError(res, 400, "Shop introuvable");
     if (!planManager) return apiError(res, 500, "PlanManager non disponible");
 
-    // Bypass => on ne cancel pas Shopify (il naEURâ„¢y a rien), et ca restera bypass
+    // Bypass => on ne cancel pas Shopify (il naEURÃ¢â€žÂ¢y a rien), et ca restera bypass
     const bypassPlan = planManager.getBypassPlan ? planManager.getBypassPlan(shop) : null;
     if (bypassPlan) {
       const current = planManager.getShopPlan(shop);
@@ -2129,7 +2262,7 @@ router.post("/api/plan/cancel", (req, res) => {
     const subs = await getActiveAppSubscriptions(shop);
     const sub = Array.isArray(subs) && subs.length ? subs[0] : null;
 
-    // SaEURâ„¢il naEURâ„¢y a rien cote Shopify, on downgrade quand meme localement
+    // SaEURÃ¢â€žÂ¢il naEURÃ¢â€žÂ¢y a rien cote Shopify, on downgrade quand meme localement
     if (!sub?.id) {
       const result = planManager.cancelSubscription(shop);
       logEvent("plan_cancelled_no_shopify_sub", { shop }, "warn");
@@ -2141,7 +2274,7 @@ router.post("/api/plan/cancel", (req, res) => {
     if (cancelled.userErrors && cancelled.userErrors.length) {
       return res.status(400).json({
         error: "billing_cancel_user_errors",
-        message: "Shopify a refuse laEURâ„¢annulation",
+        message: "Shopify a refuse laEURÃ¢â€žÂ¢annulation",
         userErrors: cancelled.userErrors,
       });
     }
@@ -2183,17 +2316,17 @@ router.get("/api/plan/check/:action", (req, res) => {
 });
 
 // =====================================================
-// ANALYTICS ROUTES aÅ“â€¦ NOUVEAU
+// ANALYTICS ROUTES aÃ…â€œÃ¢â‚¬Â¦ NOUVEAU
 // =====================================================
 
-// Summary (KPIs globaux) - aÅ“â€¦ PREMIUM ONLY
+// Summary (KPIs globaux) - aÃ…â€œÃ¢â‚¬Â¦ PREMIUM ONLY
 router.get("/api/analytics/summary", (req, res) => {
   safeJson(req, res, () => {
     const shop = getShop(req);
     if (!shop) return apiError(res, 400, "Shop introuvable");
     if (!analyticsManager) return apiError(res, 500, "Analytics non disponible");
 
-    // aÅ“â€¦ Verifier le plan
+    // aÃ…â€œÃ¢â‚¬Â¦ Verifier le plan
     if (planManager) {
       const check = planManager.checkLimit(shop, "view_analytics");
       if (!check.allowed) {
@@ -2214,14 +2347,14 @@ router.get("/api/analytics/summary", (req, res) => {
   });
 });
 
-// Timeseries (donnees graphiques) - aÅ“â€¦ PREMIUM ONLY
+// Timeseries (donnees graphiques) - aÃ…â€œÃ¢â‚¬Â¦ PREMIUM ONLY
 router.get("/api/analytics/timeseries", (req, res) => {
   safeJson(req, res, () => {
     const shop = getShop(req);
     if (!shop) return apiError(res, 400, "Shop introuvable");
     if (!analyticsManager) return apiError(res, 500, "Analytics non disponible");
 
-    // aÅ“â€¦ Verifier le plan
+    // aÃ…â€œÃ¢â‚¬Â¦ Verifier le plan
     if (planManager) {
       const check = planManager.checkLimit(shop, "view_analytics");
       if (!check.allowed) {
@@ -2242,14 +2375,14 @@ router.get("/api/analytics/timeseries", (req, res) => {
   });
 });
 
-// Liste des commandes recentes - aÅ“â€¦ PREMIUM ONLY
+// Liste des commandes recentes - aÃ…â€œÃ¢â‚¬Â¦ PREMIUM ONLY
 router.get("/api/analytics/orders", (req, res) => {
   safeJson(req, res, () => {
     const shop = getShop(req);
     if (!shop) return apiError(res, 400, "Shop introuvable");
     if (!analyticsManager) return apiError(res, 500, "Analytics non disponible");
 
-    // aÅ“â€¦ Verifier le plan
+    // aÃ…â€œÃ¢â‚¬Â¦ Verifier le plan
     if (planManager) {
       const check = planManager.checkLimit(shop, "view_analytics");
       if (!check.allowed) {
@@ -2270,14 +2403,14 @@ router.get("/api/analytics/orders", (req, res) => {
   });
 });
 
-// Top produits - aÅ“â€¦ PREMIUM ONLY
+// Top produits - aÃ…â€œÃ¢â‚¬Â¦ PREMIUM ONLY
 router.get("/api/analytics/products/top", (req, res) => {
   safeJson(req, res, () => {
     const shop = getShop(req);
     if (!shop) return apiError(res, 400, "Shop introuvable");
     if (!analyticsManager) return apiError(res, 500, "Analytics non disponible");
 
-    // aÅ“â€¦ Verifier le plan
+    // aÃ…â€œÃ¢â‚¬Â¦ Verifier le plan
     if (planManager) {
       const check = planManager.checkLimit(shop, "view_analytics");
       if (!check.allowed) {
@@ -3752,7 +3885,7 @@ router.get("/api/kits", (req, res) => {
     const shop = getShop(req);
     if (!shop) return apiError(res, 400, "Shop introuvable");
 
-    // Vérifier le plan
+    // VÃ©rifier le plan
     if (planManager) {
       const check = planManager.checkLimit(shop, "view_kits");
       if (!check.allowed) {
@@ -3768,7 +3901,7 @@ router.get("/api/kits", (req, res) => {
       includeArchived: includeArchived === "true" 
     });
 
-    // Enrichir avec calcul coût/marge
+    // Enrichir avec calcul coÃ»t/marge
     const snapshot = stock.getCatalogSnapshot ? stock.getCatalogSnapshot(shop) : { products: [] };
     const productCosts = {};
     (snapshot.products || []).forEach(p => {
@@ -3798,7 +3931,7 @@ router.get("/api/kits", (req, res) => {
   });
 });
 
-// Détail d'un kit
+// DÃ©tail d'un kit
 router.get("/api/kits/:id", (req, res) => {
   safeJson(req, res, () => {
     const shop = getShop(req);
@@ -3806,9 +3939,9 @@ router.get("/api/kits/:id", (req, res) => {
     if (!kitStore) return apiError(res, 500, "Module kits non disponible");
 
     const kit = kitStore.getKit(shop, req.params.id);
-    if (!kit) return apiError(res, 404, "Kit non trouvé");
+    if (!kit) return apiError(res, 404, "Kit non trouvÃ©");
 
-    // Enrichir avec calcul coût/marge
+    // Enrichir avec calcul coÃ»t/marge
     const snapshot = stock.getCatalogSnapshot ? stock.getCatalogSnapshot(shop) : { products: [] };
     const productCosts = {};
     (snapshot.products || []).forEach(p => {
@@ -3831,13 +3964,13 @@ router.get("/api/kits/:id", (req, res) => {
   });
 });
 
-// Créer un kit
+// CrÃ©er un kit
 router.post("/api/kits", (req, res) => {
   safeJson(req, res, () => {
     const shop = getShop(req);
     if (!shop) return apiError(res, 400, "Shop introuvable");
 
-    // Vérifier le plan
+    // VÃ©rifier le plan
     if (planManager) {
       const check = planManager.checkLimit(shop, "manage_kits");
       if (!check.allowed) {
@@ -3941,7 +4074,7 @@ router.delete("/api/kits/:id/items/:itemId", (req, res) => {
   });
 });
 
-// Mapper un kit à Shopify
+// Mapper un kit Ã  Shopify
 router.post("/api/kits/:id/map-shopify", (req, res) => {
   safeJson(req, res, () => {
     const shop = getShop(req);
@@ -3988,7 +4121,7 @@ router.post("/api/kits/:id/simulate", (req, res) => {
     if (!kitStore) return apiError(res, 500, "Module kits non disponible");
 
     try {
-      // Récupérer les coûts produits
+      // RÃ©cupÃ©rer les coÃ»ts produits
       const snapshot = stock.getCatalogSnapshot ? stock.getCatalogSnapshot(shop) : { products: [] };
       const productCosts = {};
       (snapshot.products || []).forEach(p => {
@@ -4025,13 +4158,13 @@ router.get("/api/kits-stats", (req, res) => {
 // FORECAST / PREVISIONS API (Business)
 // ============================================
 
-// Liste des prévisions
+// Liste des prÃ©visions
 router.get("/api/forecast", (req, res) => {
   safeJson(req, res, () => {
     const shop = getShop(req);
     if (!shop) return apiError(res, 400, "Shop introuvable");
 
-    // Vérifier le plan
+    // VÃ©rifier le plan
     if (planManager) {
       const check = planManager.checkLimit(shop, "view_forecast");
       if (!check.allowed) {
@@ -4044,16 +4177,16 @@ router.get("/api/forecast", (req, res) => {
     const windowDays = parseInt(req.query.windowDays) || 30;
     const categoryId = req.query.categoryId || null;
 
-    // Récupérer les produits
+    // RÃ©cupÃ©rer les produits
     const snapshot = stock.getCatalogSnapshot ? stock.getCatalogSnapshot(shop) : { products: [] };
     let products = snapshot.products || [];
 
-    // Filtrer par catégorie
+    // Filtrer par catÃ©gorie
     if (categoryId) {
       products = products.filter(p => p.categoryIds && p.categoryIds.includes(categoryId));
     }
 
-    // Récupérer les données de ventes (depuis analyticsStore si disponible)
+    // RÃ©cupÃ©rer les donnÃ©es de ventes (depuis analyticsStore si disponible)
     let salesData = [];
     if (analyticsStore && typeof analyticsStore.listSales === "function") {
       const fromDate = new Date();
@@ -4077,7 +4210,7 @@ router.get("/api/forecast", (req, res) => {
   });
 });
 
-// Détail prévision d'un produit
+// DÃ©tail prÃ©vision d'un produit
 router.get("/api/forecast/:productId", (req, res) => {
   safeJson(req, res, () => {
     const shop = getShop(req);
@@ -4086,13 +4219,13 @@ router.get("/api/forecast/:productId", (req, res) => {
 
     const windowDays = parseInt(req.query.windowDays) || 30;
 
-    // Récupérer le produit
+    // RÃ©cupÃ©rer le produit
     const snapshot = stock.getCatalogSnapshot ? stock.getCatalogSnapshot(shop) : { products: [] };
     const product = (snapshot.products || []).find(p => p.productId === req.params.productId);
     
-    if (!product) return apiError(res, 404, "Produit non trouvé");
+    if (!product) return apiError(res, 404, "Produit non trouvÃ©");
 
-    // Récupérer les ventes
+    // RÃ©cupÃ©rer les ventes
     let salesData = [];
     if (analyticsStore && typeof analyticsStore.listSales === "function") {
       const fromDate = new Date();
@@ -4123,11 +4256,11 @@ router.get("/api/forecast/recommendations", (req, res) => {
 
     const windowDays = parseInt(req.query.windowDays) || 30;
 
-    // Récupérer les produits
+    // RÃ©cupÃ©rer les produits
     const snapshot = stock.getCatalogSnapshot ? stock.getCatalogSnapshot(shop) : { products: [] };
     const products = snapshot.products || [];
 
-    // Récupérer les ventes
+    // RÃ©cupÃ©rer les ventes
     let salesData = [];
     if (analyticsStore && typeof analyticsStore.listSales === "function") {
       const fromDate = new Date();
@@ -4136,7 +4269,7 @@ router.get("/api/forecast/recommendations", (req, res) => {
         .map(s => ({ date: s.orderDate, productId: s.productId, qty: s.totalGrams || 0 }));
     }
 
-    // Récupérer les fournisseurs
+    // RÃ©cupÃ©rer les fournisseurs
     let suppliersData = [];
     if (supplierStore && typeof supplierStore.loadSuppliers === "function") {
       suppliersData = supplierStore.loadSuppliers(shop);
@@ -4186,7 +4319,7 @@ router.get("/api/inventory/sessions", (req, res) => {
     const shop = getShop(req);
     if (!shop) return apiError(res, 400, "Shop introuvable");
 
-    // Vérifier le plan
+    // VÃ©rifier le plan
     if (planManager) {
       const check = planManager.checkLimit(shop, "view_inventory");
       if (!check.allowed) {
@@ -4206,7 +4339,7 @@ router.get("/api/inventory/sessions", (req, res) => {
   });
 });
 
-// Créer une session
+// CrÃ©er une session
 router.post("/api/inventory/sessions", (req, res) => {
   safeJson(req, res, () => {
     const shop = getShop(req);
@@ -4230,7 +4363,7 @@ router.post("/api/inventory/sessions", (req, res) => {
   });
 });
 
-// Détail d'une session
+// DÃ©tail d'une session
 router.get("/api/inventory/sessions/:id", (req, res) => {
   safeJson(req, res, () => {
     const shop = getShop(req);
@@ -4238,7 +4371,7 @@ router.get("/api/inventory/sessions/:id", (req, res) => {
     if (!inventoryCountStore) return apiError(res, 500, "Module inventaire non disponible");
 
     const session = inventoryCountStore.getSession(shop, req.params.id);
-    if (!session) return apiError(res, 404, "Session non trouvée");
+    if (!session) return apiError(res, 404, "Session non trouvÃ©e");
 
     const items = inventoryCountStore.getSessionItems(shop, session.id);
     res.json({ session, items });
@@ -4261,7 +4394,7 @@ router.put("/api/inventory/sessions/:id", (req, res) => {
   });
 });
 
-// Démarrer une session (créer les items)
+// DÃ©marrer une session (crÃ©er les items)
 router.post("/api/inventory/sessions/:id/start", (req, res) => {
   safeJson(req, res, () => {
     const shop = getShop(req);
@@ -4269,7 +4402,7 @@ router.post("/api/inventory/sessions/:id/start", (req, res) => {
     if (!inventoryCountStore) return apiError(res, 500, "Module inventaire non disponible");
 
     try {
-      // Récupérer les produits du catalogue
+      // RÃ©cupÃ©rer les produits du catalogue
       const snapshot = stock.getCatalogSnapshot ? stock.getCatalogSnapshot(shop) : { products: [] };
       const products = snapshot.products || [];
 
@@ -4300,7 +4433,7 @@ router.get("/api/inventory/sessions/:id/items", (req, res) => {
   });
 });
 
-// Mettre à jour un item
+// Mettre Ã  jour un item
 router.put("/api/inventory/sessions/:id/items/:itemId", (req, res) => {
   safeJson(req, res, () => {
     const shop = getShop(req);
@@ -4316,7 +4449,7 @@ router.put("/api/inventory/sessions/:id/items/:itemId", (req, res) => {
   });
 });
 
-// Mise à jour en masse (autosave)
+// Mise Ã  jour en masse (autosave)
 router.post("/api/inventory/sessions/:id/items/bulk-upsert", (req, res) => {
   safeJson(req, res, () => {
     const shop = getShop(req);
@@ -4400,7 +4533,7 @@ router.post("/api/inventory/sessions/:id/duplicate", (req, res) => {
   });
 });
 
-// Événements d'audit
+// Ã‰vÃ©nements d'audit
 router.get("/api/inventory/events", (req, res) => {
   safeJson(req, res, () => {
     const shop = getShop(req);
@@ -4461,7 +4594,7 @@ router.get(/^\/(?!api\/|webhooks\/|health|css\/|js\/).*/, (req, res) => res.send
 // WEBHOOKS
 // =====================================================
 
-// aÅ“â€¦ DURCISSEMENT #3 : purge complete + cache (et hooks optionnels stock/catalog)
+// aÃ…â€œÃ¢â‚¬Â¦ DURCISSEMENT #3 : purge complete + cache (et hooks optionnels stock/catalog)
 async function purgeShopData(shop) {
   const s = normalizeShopDomain(String(shop || "").trim());
   if (!s) return;
@@ -4567,7 +4700,7 @@ app.post("/webhooks/shop/redact", express.raw({ type: "application/json" }), asy
   }
 });
 
-// âœ… Webhook pour les mises Ã  jour d'abonnement (Shopify Billing)
+// Ã¢Å“â€¦ Webhook pour les mises ÃƒÂ  jour d'abonnement (Shopify Billing)
 app.post("/webhooks/app_subscriptions/update", express.raw({ type: "application/json" }), async (req, res) => {
   try {
     if (!requireVerifiedWebhook(req, res)) return res.sendStatus(401);
@@ -4596,7 +4729,7 @@ app.post("/webhooks/app_subscriptions/update", express.raw({ type: "application/
 
     // Si l'abonnement est actif (apres trial ou renouvellement)
     if (status === "active") {
-      // On pourrait mettre Ã  jour le statut local si necessaire
+      // On pourrait mettre ÃƒÂ  jour le statut local si necessaire
       logEvent("subscription_confirmed_active", { shop }, "info");
     }
 
@@ -4668,7 +4801,7 @@ app.post("/webhooks/orders/create", express.raw({ type: "application/json" }), a
       }
     }
 
-    // aÅ“â€¦ ANALYTICS : Enregistrer la vente complete
+    // aÃ…â€œÃ¢â‚¬Â¦ ANALYTICS : Enregistrer la vente complete
     try {
       if (analyticsManager && typeof analyticsManager.recordSaleFromOrder === "function") {
         await analyticsManager.recordSaleFromOrder(shop, payload);
@@ -4692,5 +4825,5 @@ app.use("/apps/:appSlug", router);
 
 app.listen(PORT, "0.0.0.0", () => {
   logEvent("server_started", { port: PORT, indexHtml: INDEX_HTML, apiAuthRequired: API_AUTH_REQUIRED });
-  console.log("aÅ“â€¦ Server running on port", PORT);
+  console.log("aÃ…â€œÃ¢â‚¬Â¦ Server running on port", PORT);
 });
