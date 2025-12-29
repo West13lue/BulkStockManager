@@ -1,4 +1,4 @@
-// movementStore.js — Multi-shop safe (NDJSON/day) sur /var/data/<shop>/movements
+// movementStore.js aEUR Multi-shop safe (NDJSON/day) sur /var/data/<shop>/movements
 const fs = require("fs");
 const path = require("path");
 
@@ -99,6 +99,8 @@ function toCSV(rows = []) {
     "gramsDelta",
     "gramsBefore",
     "totalAfter",
+    "userId",
+    "userName",
     "shop",
   ];
   const header = cols.join(",");
@@ -106,12 +108,12 @@ function toCSV(rows = []) {
   return [header, ...lines].join("\n");
 }
 
-// Ajout de la fonction pour supprimer les mouvements d’un shop
+// Ajout de la fonction pour supprimer les mouvements daEURun shop
 function clearShopMovements(shop) {
   const dir = movementsDir(shop);
   if (fs.existsSync(dir)) {
     fs.rmdirSync(dir, { recursive: true });
-    console.log(`Mouvements supprimés pour le shop: ${shop}`);
+    console.log(`Mouvements supprims pour le shop: ${shop}`);
   }
 }
 

@@ -1,23 +1,21 @@
 <!DOCTYPE html>
-<html lang="fr" data-theme="dark">
+<html lang="fr">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Stock Manager Pro</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="./css/style.css">
-  <!-- Lucide Icons -->
-  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+  <link rel="stylesheet" href="/css/style.css">
+  <link rel="stylesheet" href="/css/ux-polish.css">
+  <link rel="stylesheet" href="/css/notifications.css">
 </head>
 <body>
-  <div id="app">
-    <!-- SIDEBAR -->
+  <div class="app-wrapper" id="app">
+    <div id="trialBanner" class="trial-banner" style="display:none"></div>
+    
     <aside class="sidebar" id="sidebar">
       <div class="sidebar-header">
         <div class="logo">
-          <span class="logo-icon"><i data-lucide="package" class="icon"></i></span>
+          <span class="logo-icon">B</span>
           <span class="logo-text">Stock Manager</span>
         </div>
         <span class="version-badge">PRO</span>
@@ -25,45 +23,45 @@
 
       <nav class="sidebar-nav">
         <a href="#" class="nav-item active" data-tab="dashboard">
-          <span class="nav-icon"><i data-lucide="layout-dashboard" class="icon"></i></span>
+          <span class="nav-icon">D</span>
           <span class="nav-label">Tableau de bord</span>
         </a>
         <a href="#" class="nav-item" data-tab="products">
-          <span class="nav-icon"><i data-lucide="boxes" class="icon"></i></span>
+          <span class="nav-icon">P</span>
           <span class="nav-label">Produits</span>
         </a>
         <a href="#" class="nav-item" data-tab="batches" data-feature="hasBatchTracking">
-          <span class="nav-icon"><i data-lucide="tags" class="icon"></i></span>
-          <span class="nav-label">Lots et DLC</span>
+          <span class="nav-icon">L</span>
+          <span class="nav-label">Lots & DLC</span>
           <span class="nav-badge pro">PRO</span>
         </a>
         <a href="#" class="nav-item" data-tab="suppliers" data-feature="hasSuppliers">
-          <span class="nav-icon"><i data-lucide="factory" class="icon"></i></span>
+          <span class="nav-icon">F</span>
           <span class="nav-label">Fournisseurs</span>
           <span class="nav-badge pro">PRO</span>
         </a>
         <a href="#" class="nav-item" data-tab="orders" data-feature="hasPurchaseOrders">
-          <span class="nav-icon"><i data-lucide="clipboard-list" class="icon"></i></span>
+          <span class="nav-icon">C</span>
           <span class="nav-label">Commandes</span>
           <span class="nav-badge business">BIZ</span>
         </a>
         <a href="#" class="nav-item" data-tab="forecast" data-feature="hasForecast">
-          <span class="nav-icon"><i data-lucide="trending-up" class="icon"></i></span>
+          <span class="nav-icon">V</span>
           <span class="nav-label">Previsions</span>
           <span class="nav-badge business">BIZ</span>
         </a>
         <a href="#" class="nav-item" data-tab="kits" data-feature="hasKits">
-          <span class="nav-icon"><i data-lucide="puzzle" class="icon"></i></span>
-          <span class="nav-label">Kits et Bundles</span>
+          <span class="nav-icon">K</span>
+          <span class="nav-label">Kits & Bundles</span>
           <span class="nav-badge business">BIZ</span>
         </a>
         <a href="#" class="nav-item" data-tab="analytics" data-feature="hasAnalytics">
-          <span class="nav-icon"><i data-lucide="bar-chart-3" class="icon"></i></span>
+          <span class="nav-icon">A</span>
           <span class="nav-label">Analytics</span>
           <span class="nav-badge pro">PRO</span>
         </a>
         <a href="#" class="nav-item" data-tab="inventory" data-feature="hasInventoryCount">
-          <span class="nav-icon"><i data-lucide="clipboard-check" class="icon"></i></span>
+          <span class="nav-icon">I</span>
           <span class="nav-label">Inventaire</span>
           <span class="nav-badge pro">PRO</span>
         </a>
@@ -71,80 +69,62 @@
 
       <div class="sidebar-footer">
         <a href="#" class="nav-item" data-tab="settings">
-          <span class="nav-icon"><i data-lucide="settings" class="icon"></i></span>
+          <span class="nav-icon">S</span>
           <span class="nav-label">Parametres</span>
         </a>
         <div class="plan-widget" id="planWidget">
           <div class="plan-info">
-            <span class="plan-name">Plan Free</span>
-            <span class="plan-usage">2/2 produits</span>
+            <span class="plan-name" id="planName">Free</span>
+            <span class="plan-usage" id="planUsage">0/2 produits</span>
           </div>
-          <button class="btn btn-upgrade btn-sm" onclick="app.showUpgradeModal()">
-            Upgrade
-          </button>
+          <button class="btn btn-upgrade btn-sm" onclick="app.showUpgradeModal()">Upgrade</button>
         </div>
       </div>
     </aside>
 
-    <!-- MAIN CONTENT -->
     <main class="main-content">
-      <!-- TOP BAR -->
       <header class="topbar">
-        <button class="btn-icon sidebar-toggle" onclick="app.toggleSidebar()">
-          <i data-lucide="menu" class="icon"></i>
-        </button>
-
-        <div class="search-box">
-          <i data-lucide="search" class="search-icon icon"></i>
-          <input type="text" placeholder="Rechercher un produit, lot, fournisseur..." id="globalSearch">
-        </div>
-
-        <div class="topbar-actions">
-          <div class="sync-status" id="syncStatus">
-            <span class="sync-dot"></span>
-            <span class="sync-text">Synchronise</span>
-          </div>
-
-          <button class="btn-icon" onclick="app.toggleNotifications()" data-tooltip="Notifications">
-            <i data-lucide="bell" class="icon"></i>
-            <span class="notification-badge" id="notifBadge" style="display:none">3</span>
+        <div class="topbar-left">
+          <button class="menu-toggle" onclick="app.toggleSidebar()">
+            <span></span><span></span><span></span>
           </button>
-
-          <div class="user-menu">
-            <button class="user-avatar" onclick="app.toggleUserMenu()">
-              <span>M</span>
-            </button>
+          <div class="breadcrumb">
+            <span id="currentPageTitle">Tableau de bord</span>
           </div>
+        </div>
+        <div class="topbar-right">
+          <button class="topbar-btn" onclick="app.syncShopify()" title="Synchroniser">
+            <span>Sync</span>
+          </button>
+          <button class="topbar-btn topbar-btn-notif" onclick="app.toggleNotifications()" title="Notifications">
+            <span>🔔</span>
+            <span class="notif-badge" id="notifBadge">0</span>
+          </button>
+          <button class="topbar-btn" onclick="app.toggleUserMenu()" title="Compte">
+            <span>U</span>
+          </button>
         </div>
       </header>
 
-      <!-- TRIAL BANNER -->
-      <div id="trialBanner" class="trial-banner" style="display:none"></div>
-
-      <!-- PAGE CONTENT -->
-      <div class="page-content" id="pageContent"></div>
+      <div class="page-content" id="pageContent">
+        <div class="loading-spinner">
+          <div class="spinner"></div>
+          <p>Chargement...</p>
+        </div>
+      </div>
     </main>
   </div>
 
-  <!-- MODALS CONTAINER -->
   <div id="modalsContainer"></div>
-
-  <!-- TOAST CONTAINER -->
   <div id="toastContainer" class="toast-container"></div>
 
-  <!-- SCRIPTS -->
-  <script src="https://unpkg.com/@shopify/app-bridge@3/umd/index.js"></script>
-  <script src="https://unpkg.com/@shopify/app-bridge-utils@3/umd/index.js"></script>
-  <script src="./js/i18n.js"></script>
-  <script src="./js/app.js"></script>
-  
-  <!-- Initialize Lucide Icons -->
-  <script>
-    document.addEventListener('DOMContentLoaded', function() {
-      if (typeof lucide !== 'undefined') {
-        lucide.createIcons();
-      }
-    });
-  </script>
+  <script src="https://cdn.shopify.com/shopifycloud/app-bridge.js"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script src="/js/i18n.js"></script>
+  <script src="/js/app.js"></script>
+  <script src="/js/analytics.js"></script>
+  <script src="/js/settings.js"></script>
+  <script src="/js/onboarding.js"></script>
+  <script src="/js/ux-utils.js"></script>
 </body>
 </html>

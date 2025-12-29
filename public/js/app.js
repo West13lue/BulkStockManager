@@ -253,9 +253,367 @@
     await loadPlanInfo();
     await loadSettingsDataSilent();  // Charger les settings pour getStatus
     await loadProducts();
+    
+    // Charger le compteur de notifications si PRO+
+    if (hasFeature("hasNotifications")) {
+      loadNotificationCount();
+      // Vérifier les alertes toutes les 5 minutes
+      setInterval(function() { loadNotificationCount(); }, 5 * 60 * 1000);
+    }
+    
+    // Charger les profils et afficher le popup de sélection
+    await loadUserProfiles();
+    showProfileSelectionPopup();
+    
     renderTab("dashboard");
     updateUI();
     console.log("[Init] Ready - Plan:", state.planId, "Features:", state.limits);
+  }
+
+  // ============================================
+  // 👤 SYSTÈME DE PROFILS UTILISATEURS
+  // ============================================
+  
+  var userProfiles = {
+    profiles: [],
+    activeProfileId: null,
+    activeProfile: null,
+    settings: {}
+  };
+  
+  // Charger les profils
+  async function loadUserProfiles() {
+    try {
+      var res = await authFetch(apiUrl("/profiles"));
+      if (res.ok) {
+        var data = await res.json();
+        userProfiles.profiles = data.profiles || [];
+        userProfiles.activeProfileId = data.activeProfileId;
+        userProfiles.settings = data.settings || {};
+        userProfiles.activeProfile = userProfiles.profiles.find(function(p) {
+          return p.id === userProfiles.activeProfileId;
+        }) || userProfiles.profiles[0] || null;
+        updateProfileDisplay();
+      }
+    } catch (e) {
+      console.warn("[Profiles] Load error:", e);
+    }
+  }
+  
+  // Afficher le popup de sélection de profil au démarrage
+  function showProfileSelectionPopup() {
+    // Ne pas afficher si un seul profil
+    if (userProfiles.profiles.length <= 1 && userProfiles.activeProfile) {
+      showToast(t("profiles.welcome", "Bienvenue") + ", " + userProfiles.activeProfile.name + " !", "success");
+      return;
+    }
+    
+    var profilesHtml = userProfiles.profiles.map(function(p) {
+      var initials = getProfileInitials(p.name);
+      var isActive = p.id === userProfiles.activeProfileId;
+      return '<div class="profile-select-item' + (isActive ? ' active' : '') + '" onclick="app.selectProfile(\'' + p.id + '\')">' +
+        '<div class="profile-avatar" style="background-color: ' + (p.color || '#6366f1') + '">' + initials + '</div>' +
+        '<div class="profile-info">' +
+        '<div class="profile-name">' + esc(p.name) + '</div>' +
+        '<div class="profile-role">' + esc(p.role || 'user') + '</div>' +
+        '</div>' +
+        (isActive ? '<div class="profile-check"><i data-lucide="check"></i></div>' : '') +
+        '</div>';
+    }).join("");
+    
+    showModal({
+      title: '<i data-lucide="users"></i> ' + t("profiles.whoIsConnecting", "Qui se connecte ?"),
+      size: "sm",
+      content: '<div class="profile-selection-grid">' + profilesHtml + '</div>' +
+        '<div class="profile-selection-footer">' +
+        '<button class="btn btn-ghost btn-sm" onclick="app.showCreateProfileModal()">' +
+        '<i data-lucide="user-plus"></i> ' + t("profiles.createNew", "Nouveau profil") + '</button>' +
+        '</div>',
+      footer: ''
+    });
+    if (typeof lucide !== "undefined") lucide.createIcons();
+  }
+  
+  // Sélectionner un profil
+  async function selectProfile(profileId) {
+    try {
+      var res = await authFetch(apiUrl("/profiles/" + profileId + "/activate"), { method: "POST" });
+      if (res.ok) {
+        var data = await res.json();
+        userProfiles.activeProfileId = profileId;
+        userProfiles.activeProfile = data.profile;
+        updateProfileDisplay();
+        closeModal();
+        showToast(t("profiles.welcome", "Bienvenue") + ", " + data.profile.name + " !", "success");
+      }
+    } catch (e) {
+      showToast(t("msg.error", "Erreur"), "error");
+    }
+  }
+  
+  // Afficher le modal de création de profil
+  function showCreateProfileModal() {
+    var colors = ["#6366f1", "#8b5cf6", "#ec4899", "#f43f5e", "#ef4444", "#f97316", "#eab308", "#22c55e", "#14b8a6", "#06b6d4", "#3b82f6"];
+    var colorsHtml = colors.map(function(c) {
+      return '<div class="color-option" style="background-color: ' + c + '" onclick="app.selectProfileColor(\'' + c + '\')" data-color="' + c + '"></div>';
+    }).join("");
+    
+    showModal({
+      title: '<i data-lucide="user-plus"></i> ' + t("profiles.createProfile", "Creer un profil"),
+      size: "sm",
+      content: '<div class="form-group">' +
+        '<label>' + t("profiles.name", "Nom") + '</label>' +
+        '<input type="text" id="newProfileName" class="form-input" placeholder="' + t("profiles.namePlaceholder", "Ex: Marie, Pierre...") + '" autofocus>' +
+        '</div>' +
+        '<div class="form-group">' +
+        '<label>' + t("profiles.role", "Role") + '</label>' +
+        '<select id="newProfileRole" class="form-select">' +
+        '<option value="user">' + t("profiles.roleUser", "Utilisateur") + '</option>' +
+        '<option value="manager">' + t("profiles.roleManager", "Manager") + '</option>' +
+        '<option value="admin">' + t("profiles.roleAdmin", "Administrateur") + '</option>' +
+        '</select>' +
+        '</div>' +
+        '<div class="form-group">' +
+        '<label>' + t("profiles.color", "Couleur") + '</label>' +
+        '<div class="color-picker-grid" id="colorPicker">' + colorsHtml + '</div>' +
+        '<input type="hidden" id="newProfileColor" value="#6366f1">' +
+        '</div>',
+      footer: '<button class="btn btn-secondary" onclick="app.showProfileSelectionPopup()">' + t("action.cancel", "Annuler") + '</button>' +
+        '<button class="btn btn-primary" onclick="app.createProfile()">' + t("action.create", "Creer") + '</button>'
+    });
+    
+    // Sélectionner la première couleur
+    setTimeout(function() {
+      var firstColor = document.querySelector('.color-option');
+      if (firstColor) firstColor.classList.add('selected');
+      if (typeof lucide !== "undefined") lucide.createIcons();
+    }, 100);
+  }
+  
+  function selectProfileColor(color) {
+    document.querySelectorAll('.color-option').forEach(function(el) {
+      el.classList.remove('selected');
+    });
+    document.querySelector('.color-option[data-color="' + color + '"]').classList.add('selected');
+    document.getElementById('newProfileColor').value = color;
+  }
+  
+  // Créer un profil
+  async function createProfile() {
+    var name = document.getElementById('newProfileName').value.trim();
+    var role = document.getElementById('newProfileRole').value;
+    var color = document.getElementById('newProfileColor').value;
+    
+    if (!name) {
+      showToast(t("profiles.nameRequired", "Le nom est requis"), "error");
+      return;
+    }
+    
+    try {
+      var res = await authFetch(apiUrl("/profiles"), {
+        method: "POST",
+        body: JSON.stringify({ name: name, role: role, color: color })
+      });
+      
+      if (res.ok) {
+        var data = await res.json();
+        userProfiles.profiles.push(data.profile);
+        showToast(t("profiles.created", "Profil cree"), "success");
+        
+        // Sélectionner automatiquement le nouveau profil
+        selectProfile(data.profile.id);
+      } else {
+        showToast(t("msg.error", "Erreur"), "error");
+      }
+    } catch (e) {
+      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
+    }
+  }
+  
+  // Mettre à jour l'affichage du profil dans le header
+  function updateProfileDisplay() {
+    var btn = document.querySelector('.topbar-btn[onclick*="toggleUserMenu"]');
+    if (btn && userProfiles.activeProfile) {
+      var initials = getProfileInitials(userProfiles.activeProfile.name);
+      btn.innerHTML = '<span class="user-avatar" style="background-color: ' + (userProfiles.activeProfile.color || '#6366f1') + '">' + initials + '</span>';
+    }
+  }
+  
+  // Obtenir les initiales d'un nom
+  function getProfileInitials(name) {
+    if (!name) return "?";
+    var parts = name.trim().split(/\s+/);
+    if (parts.length === 1) {
+      return parts[0].substring(0, 2).toUpperCase();
+    }
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  }
+  
+  // Récupérer le profil actif (pour les mouvements)
+  function getActiveUserId() {
+    return userProfiles.activeProfileId || "admin";
+  }
+  
+  function getActiveUserName() {
+    return userProfiles.activeProfile ? userProfiles.activeProfile.name : "Admin";
+  }
+  
+  // Menu utilisateur avec gestion des profils
+  function toggleUserMenu() {
+    var profile = userProfiles.activeProfile || { name: "Admin", role: "admin", color: "#6366f1" };
+    var initials = getProfileInitials(profile.name);
+    
+    var profilesListHtml = userProfiles.profiles.map(function(p) {
+      var pInitials = getProfileInitials(p.name);
+      var isActive = p.id === userProfiles.activeProfileId;
+      return '<div class="user-menu-profile' + (isActive ? ' active' : '') + '" onclick="app.selectProfile(\'' + p.id + '\')">' +
+        '<div class="profile-avatar-sm" style="background-color: ' + (p.color || '#6366f1') + '">' + pInitials + '</div>' +
+        '<span>' + esc(p.name) + '</span>' +
+        (isActive ? '<i data-lucide="check" class="check-icon"></i>' : '') +
+        '</div>';
+    }).join("");
+    
+    showModal({
+      title: '<i data-lucide="user"></i> ' + t("profiles.myProfile", "Mon profil"),
+      size: "sm",
+      content: '<div class="user-profile-card">' +
+        '<div class="profile-avatar-lg" style="background-color: ' + (profile.color || '#6366f1') + '">' + initials + '</div>' +
+        '<div class="profile-details">' +
+        '<div class="profile-name-lg">' + esc(profile.name) + '</div>' +
+        '<div class="profile-role-lg">' + esc(profile.role || 'user') + '</div>' +
+        '</div>' +
+        '</div>' +
+        '<div class="user-menu-section">' +
+        '<div class="user-menu-title">' + t("profiles.switchProfile", "Changer de profil") + '</div>' +
+        profilesListHtml +
+        '</div>' +
+        '<div class="user-menu-actions">' +
+        '<button class="btn btn-ghost btn-block" onclick="app.showCreateProfileModal()">' +
+        '<i data-lucide="user-plus"></i> ' + t("profiles.createNew", "Nouveau profil") + '</button>' +
+        '<button class="btn btn-ghost btn-block" onclick="app.showManageProfilesModal()">' +
+        '<i data-lucide="settings"></i> ' + t("profiles.manage", "Gerer les profils") + '</button>' +
+        '</div>',
+      footer: '<button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.close", "Fermer") + '</button>'
+    });
+    if (typeof lucide !== "undefined") lucide.createIcons();
+  }
+  
+  // Modal de gestion des profils
+  function showManageProfilesModal() {
+    var profilesHtml = userProfiles.profiles.map(function(p) {
+      var initials = getProfileInitials(p.name);
+      var canDelete = !p.isDefault;
+      return '<div class="manage-profile-item">' +
+        '<div class="profile-avatar-sm" style="background-color: ' + (p.color || '#6366f1') + '">' + initials + '</div>' +
+        '<div class="manage-profile-info">' +
+        '<div class="profile-name">' + esc(p.name) + (p.isDefault ? ' <span class="badge badge-secondary">Admin</span>' : '') + '</div>' +
+        '<div class="profile-role">' + esc(p.role || 'user') + '</div>' +
+        '</div>' +
+        '<div class="manage-profile-actions">' +
+        '<button class="btn btn-ghost btn-xs" onclick="app.showEditProfileModal(\'' + p.id + '\')" title="' + t("action.edit", "Modifier") + '">' +
+        '<i data-lucide="edit-2"></i></button>' +
+        (canDelete ? '<button class="btn btn-ghost btn-xs text-danger" onclick="app.deleteProfile(\'' + p.id + '\')" title="' + t("action.delete", "Supprimer") + '">' +
+        '<i data-lucide="trash-2"></i></button>' : '') +
+        '</div>' +
+        '</div>';
+    }).join("");
+    
+    showModal({
+      title: '<i data-lucide="users"></i> ' + t("profiles.manageProfiles", "Gerer les profils"),
+      size: "md",
+      content: '<div class="manage-profiles-list">' + profilesHtml + '</div>',
+      footer: '<button class="btn btn-secondary" onclick="app.toggleUserMenu()">' + t("action.back", "Retour") + '</button>' +
+        '<button class="btn btn-primary" onclick="app.showCreateProfileModal()">' +
+        '<i data-lucide="user-plus"></i> ' + t("profiles.createNew", "Nouveau profil") + '</button>'
+    });
+    if (typeof lucide !== "undefined") lucide.createIcons();
+  }
+  
+  // Modal d'édition de profil
+  function showEditProfileModal(profileId) {
+    var profile = userProfiles.profiles.find(function(p) { return p.id === profileId; });
+    if (!profile) return;
+    
+    var colors = ["#6366f1", "#8b5cf6", "#ec4899", "#f43f5e", "#ef4444", "#f97316", "#eab308", "#22c55e", "#14b8a6", "#06b6d4", "#3b82f6"];
+    var colorsHtml = colors.map(function(c) {
+      var selected = c === profile.color ? ' selected' : '';
+      return '<div class="color-option' + selected + '" style="background-color: ' + c + '" onclick="app.selectProfileColor(\'' + c + '\')" data-color="' + c + '"></div>';
+    }).join("");
+    
+    showModal({
+      title: '<i data-lucide="edit-2"></i> ' + t("profiles.editProfile", "Modifier le profil"),
+      size: "sm",
+      content: '<div class="form-group">' +
+        '<label>' + t("profiles.name", "Nom") + '</label>' +
+        '<input type="text" id="editProfileName" class="form-input" value="' + esc(profile.name) + '">' +
+        '</div>' +
+        '<div class="form-group">' +
+        '<label>' + t("profiles.role", "Role") + '</label>' +
+        '<select id="editProfileRole" class="form-select">' +
+        '<option value="user"' + (profile.role === 'user' ? ' selected' : '') + '>' + t("profiles.roleUser", "Utilisateur") + '</option>' +
+        '<option value="manager"' + (profile.role === 'manager' ? ' selected' : '') + '>' + t("profiles.roleManager", "Manager") + '</option>' +
+        '<option value="admin"' + (profile.role === 'admin' ? ' selected' : '') + '>' + t("profiles.roleAdmin", "Administrateur") + '</option>' +
+        '</select>' +
+        '</div>' +
+        '<div class="form-group">' +
+        '<label>' + t("profiles.color", "Couleur") + '</label>' +
+        '<div class="color-picker-grid" id="colorPicker">' + colorsHtml + '</div>' +
+        '<input type="hidden" id="editProfileColor" value="' + (profile.color || '#6366f1') + '">' +
+        '</div>' +
+        '<input type="hidden" id="editProfileId" value="' + profile.id + '">',
+      footer: '<button class="btn btn-secondary" onclick="app.showManageProfilesModal()">' + t("action.cancel", "Annuler") + '</button>' +
+        '<button class="btn btn-primary" onclick="app.updateProfile()">' + t("action.save", "Enregistrer") + '</button>'
+    });
+    if (typeof lucide !== "undefined") lucide.createIcons();
+  }
+  
+  // Mettre à jour un profil
+  async function updateProfile() {
+    var profileId = document.getElementById('editProfileId').value;
+    var name = document.getElementById('editProfileName').value.trim();
+    var role = document.getElementById('editProfileRole').value;
+    var color = document.getElementById('editProfileColor').value;
+    
+    if (!name) {
+      showToast(t("profiles.nameRequired", "Le nom est requis"), "error");
+      return;
+    }
+    
+    try {
+      var res = await authFetch(apiUrl("/profiles/" + profileId), {
+        method: "PUT",
+        body: JSON.stringify({ name: name, role: role, color: color })
+      });
+      
+      if (res.ok) {
+        showToast(t("profiles.updated", "Profil mis a jour"), "success");
+        await loadUserProfiles();
+        showManageProfilesModal();
+      } else {
+        showToast(t("msg.error", "Erreur"), "error");
+      }
+    } catch (e) {
+      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
+    }
+  }
+  
+  // Supprimer un profil
+  async function deleteProfile(profileId) {
+    if (!confirm(t("profiles.confirmDelete", "Supprimer ce profil ?"))) return;
+    
+    try {
+      var res = await authFetch(apiUrl("/profiles/" + profileId), { method: "DELETE" });
+      if (res.ok) {
+        showToast(t("profiles.deleted", "Profil supprime"), "success");
+        await loadUserProfiles();
+        showManageProfilesModal();
+      } else {
+        var err = await res.json().catch(function() { return {}; });
+        showToast(err.error || t("msg.error", "Erreur"), "error");
+      }
+    } catch (e) {
+      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
+    }
   }
 
   // Charger les settings silencieusement (pour getStatus)
@@ -478,12 +836,17 @@
         var delta = m.delta || 0;
         var deltaStr = delta >= 0 ? '+' + formatWeight(delta) : formatWeight(delta);
         var dateStr = formatRelativeDate(m.createdAt || m.date);
+        var userName = m.userName || m.userId || '';
         
         html += '<div class="movement-item">' +
           '<div class="movement-icon ' + typeClass + '"><i data-lucide="' + typeIcon + '"></i></div>' +
           '<div class="movement-info">' +
           '<div class="movement-product">' + esc(m.productName || m.product || 'Produit') + '</div>' +
-          '<div class="movement-meta"><span class="movement-type">' + typeLabel + '</span><span class="movement-date">' + dateStr + '</span></div>' +
+          '<div class="movement-meta">' +
+          '<span class="movement-type">' + typeLabel + '</span>' +
+          (userName ? '<span class="movement-user"><i data-lucide="user" class="icon-xs"></i> ' + esc(userName) + '</span>' : '') +
+          '<span class="movement-date">' + dateStr + '</span>' +
+          '</div>' +
           '</div>' +
           '<div class="movement-delta ' + typeClass + '">' + deltaStr + '</div>' +
           '</div>';
@@ -3407,22 +3770,64 @@
       '<label class="toggle"><input type="checkbox" ' + (s.units && !s.units.neverNegative ? 'checked' : '') + ' onchange="app.updateSetting(\'units\',\'neverNegative\',!this.checked)"><span class="toggle-slider"></span></label></div>' +
       '</div></div>';
 
-    // Section Notifications (PRO)
+    // Section Notifications (PRO) - Version complète
     var notifSection = '';
+    var notifSettings = s.notifications || {};
+    var notifTriggers = notifSettings.triggers || {};
+    
     if (hasFeature('hasNotifications')) {
       notifSection = 
-        '<div class="settings-section">' +
-        '<div class="settings-section-header"><h3>' + t("settings.notifications", "Notifications") + '</h3><span class="badge badge-pro">PRO</span><p class="text-secondary">' + t("settings.notificationsDesc", "Configurez vos alertes") + '</p></div>' +
+        '<div class="settings-section" id="notificationSettingsSection">' +
+        '<div class="settings-section-header"><h3><i data-lucide="bell"></i> ' + t("settings.notifications", "Notifications") + '</h3><span class="badge badge-pro">PRO</span><p class="text-secondary">' + t("settings.notificationsDesc", "Configurez vos alertes") + '</p></div>' +
         '<div class="settings-section-body">' +
-        '<div class="setting-row"><label class="setting-label">' + t("settings.notificationsEnabled", "Notifications activees") + '</label>' +
-        '<label class="toggle"><input type="checkbox" ' + (s.notifications && s.notifications.enabled ? 'checked' : '') + ' onchange="app.updateSetting(\'notifications\',\'enabled\',this.checked)"><span class="toggle-slider"></span></label></div>' +
-        '<div class="setting-row"><label class="setting-label">' + t("settings.lowStockAlert", "Alerte stock bas") + '</label>' +
-        '<label class="toggle"><input type="checkbox" ' + (s.notifications && s.notifications.triggers && s.notifications.triggers.lowStock ? 'checked' : '') + ' onchange="app.updateNestedSetting(\'notifications\',\'triggers\',\'lowStock\',this.checked)"><span class="toggle-slider"></span></label></div>' +
+        
+        // Activation générale
+        '<div class="setting-row"><label class="setting-label">' + t("notifications.enabled", "Notifications activees") + '</label>' +
+        '<label class="toggle"><input type="checkbox" ' + (notifSettings.enabled !== false ? 'checked' : '') + ' onchange="app.updateNotificationSetting(\'enabled\',this.checked)"><span class="toggle-slider"></span></label></div>' +
+        
+        '<div class="setting-group-title mt-lg">' + t("notifications.stockAlerts", "Alertes de stock") + '</div>' +
+        
+        '<div class="setting-row"><label class="setting-label"><span class="status-dot critical"></span> ' + t("notifications.outOfStock", "Rupture de stock") + '</label>' +
+        '<label class="toggle"><input type="checkbox" ' + (notifTriggers.outOfStock !== false ? 'checked' : '') + ' onchange="app.updateNotificationTrigger(\'outOfStock\',this.checked)"><span class="toggle-slider"></span></label></div>' +
+        
+        '<div class="setting-row"><label class="setting-label"><span class="status-dot low"></span> ' + t("notifications.criticalStock", "Stock critique") + '</label>' +
+        '<label class="toggle"><input type="checkbox" ' + (notifTriggers.criticalStock !== false ? 'checked' : '') + ' onchange="app.updateNotificationTrigger(\'criticalStock\',this.checked)"><span class="toggle-slider"></span></label></div>' +
+        
+        '<div class="setting-row"><label class="setting-label"><span class="status-dot good"></span> ' + t("notifications.lowStock", "Stock bas") + '</label>' +
+        '<label class="toggle"><input type="checkbox" ' + (notifTriggers.lowStock !== false ? 'checked' : '') + ' onchange="app.updateNotificationTrigger(\'lowStock\',this.checked)"><span class="toggle-slider"></span></label></div>' +
+        
+        '<div class="setting-group-title mt-lg">' + t("notifications.expiryAlerts", "Alertes DLC / Lots") + '</div>' +
+        
+        '<div class="setting-row"><label class="setting-label"><span class="status-dot critical"></span> ' + t("notifications.lotExpired", "Lot expire") + '</label>' +
+        '<label class="toggle"><input type="checkbox" ' + (notifTriggers.lotExpired !== false ? 'checked' : '') + ' onchange="app.updateNotificationTrigger(\'lotExpired\',this.checked)"><span class="toggle-slider"></span></label></div>' +
+        
+        '<div class="setting-row"><label class="setting-label">' + t("notifications.expiring7", "Expire dans 7 jours") + '</label>' +
+        '<label class="toggle"><input type="checkbox" ' + (notifTriggers.lotExpiring7 !== false ? 'checked' : '') + ' onchange="app.updateNotificationTrigger(\'lotExpiring7\',this.checked)"><span class="toggle-slider"></span></label></div>' +
+        
+        '<div class="setting-row"><label class="setting-label">' + t("notifications.expiring15", "Expire dans 15 jours") + '</label>' +
+        '<label class="toggle"><input type="checkbox" ' + (notifTriggers.lotExpiring15 === true ? 'checked' : '') + ' onchange="app.updateNotificationTrigger(\'lotExpiring15\',this.checked)"><span class="toggle-slider"></span></label></div>' +
+        
+        '<div class="setting-row"><label class="setting-label">' + t("notifications.expiring30", "Expire dans 30 jours") + '</label>' +
+        '<label class="toggle"><input type="checkbox" ' + (notifTriggers.lotExpiring30 === true ? 'checked' : '') + ' onchange="app.updateNotificationTrigger(\'lotExpiring30\',this.checked)"><span class="toggle-slider"></span></label></div>' +
+        
+        '<div class="setting-group-title mt-lg">' + t("notifications.forecastAlerts", "Alertes previsions") + '</div>' +
+        
+        '<div class="setting-row"><label class="setting-label">' + t("notifications.forecastCritical", "Rupture prevue (<7j)") + '</label>' +
+        '<label class="toggle"><input type="checkbox" ' + (notifTriggers.forecastCritical !== false ? 'checked' : '') + ' onchange="app.updateNotificationTrigger(\'forecastCritical\',this.checked)"><span class="toggle-slider"></span></label></div>' +
+        
+        '<div class="setting-row"><label class="setting-label">' + t("notifications.forecastUrgent", "Stock urgent (<14j)") + '</label>' +
+        '<label class="toggle"><input type="checkbox" ' + (notifTriggers.forecastUrgent === true ? 'checked' : '') + ' onchange="app.updateNotificationTrigger(\'forecastUrgent\',this.checked)"><span class="toggle-slider"></span></label></div>' +
+        
+        '<div class="setting-group-title mt-lg">' + t("notifications.actions", "Actions") + '</div>' +
+        
+        '<div class="setting-row"><button class="btn btn-secondary" onclick="app.checkNotificationsNow()">' +
+        '<i data-lucide="refresh-cw"></i> ' + t("notifications.checkNow", "Verifier maintenant") + '</button></div>' +
+        
         '</div></div>';
     } else {
       notifSection = 
-        '<div class="settings-section settings-locked">' +
-        '<div class="settings-section-header"><h3>' + t("settings.notifications", "Notifications") + '</h3><span class="badge badge-pro">PRO</span></div>' +
+        '<div class="settings-section settings-locked" id="notificationSettingsSection">' +
+        '<div class="settings-section-header"><h3><i data-lucide="bell"></i> ' + t("settings.notifications", "Notifications") + '</h3><span class="badge badge-pro">PRO</span></div>' +
         '<div class="settings-section-body">' +
         '<div class="locked-overlay"><p>' + t("settings.notificationsLocked", "Passez au plan Pro pour configurer les notifications.") + '</p>' +
         '<button class="btn btn-upgrade btn-sm" onclick="app.showUpgradeModal()">' + t("action.upgrade", "Passer a Pro") + '</button></div>' +
@@ -3542,6 +3947,52 @@
       }
     } catch (e) {
       showToast(t("msg.error", "Erreur"), "error");
+    }
+  }
+
+  // Fonctions de mise à jour des paramètres de notifications
+  async function updateNotificationSetting(key, value) {
+    try {
+      var body = {};
+      body[key] = value;
+      var res = await authFetch(apiUrl("/notifications/settings"), {
+        method: "PUT",
+        body: JSON.stringify(body)
+      });
+      if (res.ok) {
+        showToast(t("settings.saved", "Parametre enregistre"), "success");
+        // Mettre à jour le cache local
+        if (!settingsData.notifications) settingsData.notifications = {};
+        settingsData.notifications[key] = value;
+      } else {
+        showToast(t("msg.error", "Erreur"), "error");
+      }
+    } catch (e) {
+      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
+    }
+  }
+  
+  async function updateNotificationTrigger(triggerKey, value) {
+    try {
+      var body = {
+        triggers: {}
+      };
+      body.triggers[triggerKey] = value;
+      var res = await authFetch(apiUrl("/notifications/settings"), {
+        method: "PUT",
+        body: JSON.stringify(body)
+      });
+      if (res.ok) {
+        showToast(t("settings.saved", "Parametre enregistre"), "success");
+        // Mettre à jour le cache local
+        if (!settingsData.notifications) settingsData.notifications = {};
+        if (!settingsData.notifications.triggers) settingsData.notifications.triggers = {};
+        settingsData.notifications.triggers[triggerKey] = value;
+      } else {
+        showToast(t("msg.error", "Erreur"), "error");
+      }
+    } catch (e) {
+      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
     }
   }
 
@@ -3887,7 +4338,13 @@
     try {
       var res = await authFetch(apiUrl("/restock"), {
         method: "POST",
-        body: JSON.stringify({ productId: pid, grams: qtyInGrams, purchasePricePerGram: pricePerGram }),
+        body: JSON.stringify({ 
+          productId: pid, 
+          grams: qtyInGrams, 
+          purchasePricePerGram: pricePerGram,
+          userId: getActiveUserId(),
+          userName: getActiveUserName()
+        }),
       });
       if (res.ok) {
         showToast("Stock mis a jour", "success");
@@ -3919,7 +4376,11 @@
     try {
       var res = await authFetch(apiUrl("/products/" + encodeURIComponent(pid) + "/adjust-total"), {
         method: "POST",
-        body: JSON.stringify({ gramsDelta: delta }),
+        body: JSON.stringify({ 
+          gramsDelta: delta,
+          userId: getActiveUserId(),
+          userName: getActiveUserName()
+        }),
       });
       if (res.ok) {
         showToast("Ajustement OK", "success");
@@ -4155,9 +4616,257 @@
     d.textContent = s;
     return d.innerHTML;
   }
-  function toggleNotifications() {
-    showToast("Bientot", "info");
+
+  // ============================================
+  // 🔔 SYSTÈME DE NOTIFICATIONS
+  // ============================================
+  
+  var notificationsData = {
+    alerts: [],
+    counts: { critical: 0, high: 0, normal: 0, total: 0 },
+    unreadCount: 0,
+    settings: {}
+  };
+  var notificationsLoaded = false;
+  
+  // Charger les notifications
+  async function loadNotifications(force) {
+    if (notificationsLoaded && !force) return;
+    
+    try {
+      var res = await authFetch(apiUrl("/notifications?limit=50"));
+      if (res.ok) {
+        notificationsData = await res.json();
+        notificationsLoaded = true;
+        updateNotificationBadge();
+      }
+    } catch (e) {
+      console.error("[Notifications] Load error:", e);
+    }
   }
+  
+  // Charger juste le compteur (léger)
+  async function loadNotificationCount() {
+    try {
+      var res = await authFetch(apiUrl("/notifications/count"));
+      if (res.ok) {
+        var data = await res.json();
+        notificationsData.unreadCount = data.unreadCount;
+        notificationsData.counts = data;
+        updateNotificationBadge();
+      }
+    } catch (e) {
+      // Silencieux
+    }
+  }
+  
+  // Mettre à jour le badge
+  function updateNotificationBadge() {
+    var badge = document.getElementById("notifBadge");
+    var btn = document.querySelector(".topbar-btn-notif");
+    
+    if (badge) {
+      var count = notificationsData.unreadCount || 0;
+      if (count > 0) {
+        badge.textContent = count > 99 ? "99+" : count;
+        badge.style.display = "flex";
+        if (btn) btn.classList.add("has-notifications");
+      } else {
+        badge.style.display = "none";
+        if (btn) btn.classList.remove("has-notifications");
+      }
+    }
+  }
+  
+  // Afficher le panel de notifications
+  function toggleNotifications() {
+    // Vérifier si PRO
+    if (!hasFeature("hasNotifications")) {
+      showModal({
+        title: '<i data-lucide="bell"></i> ' + t("notifications.title", "Notifications"),
+        content: '<div class="text-center py-lg">' +
+          '<div class="lock-icon mb-md"><i data-lucide="lock"></i></div>' +
+          '<h3>' + t("msg.featureLocked", "Fonctionnalite PRO") + '</h3>' +
+          '<p class="text-secondary">' + t("notifications.lockedDesc", "Les alertes et notifications sont disponibles avec le plan Pro.") + '</p>' +
+          '<button class="btn btn-upgrade mt-lg" onclick="app.showUpgradeModal()">' + t("action.upgrade", "Passer a Pro") + '</button>' +
+          '</div>',
+        footer: '<button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.close", "Fermer") + '</button>'
+      });
+      if (typeof lucide !== "undefined") lucide.createIcons();
+      return;
+    }
+    
+    showNotificationsPanel();
+  }
+  
+  async function showNotificationsPanel() {
+    // Recharger les données
+    await loadNotifications(true);
+    
+    var alerts = notificationsData.alerts || [];
+    var counts = notificationsData.counts || {};
+    
+    // Header avec compteurs
+    var headerHtml = '<div class="notif-header-stats">' +
+      (counts.critical > 0 ? '<span class="notif-stat critical"><i data-lucide="alert-circle"></i> ' + counts.critical + '</span>' : '') +
+      (counts.high > 0 ? '<span class="notif-stat high"><i data-lucide="alert-triangle"></i> ' + counts.high + '</span>' : '') +
+      (counts.normal > 0 ? '<span class="notif-stat normal"><i data-lucide="info"></i> ' + counts.normal + '</span>' : '') +
+      '</div>';
+    
+    // Liste des alertes
+    var alertsHtml;
+    if (alerts.length === 0) {
+      alertsHtml = '<div class="empty-state-small py-xl">' +
+        '<div class="empty-icon"><i data-lucide="bell-off"></i></div>' +
+        '<p class="text-secondary">' + t("notifications.noAlerts", "Aucune alerte") + '</p>' +
+        '<p class="text-secondary text-sm">' + t("notifications.allGood", "Tout va bien !") + '</p>' +
+        '</div>';
+    } else {
+      alertsHtml = '<div class="notifications-list">' + alerts.map(function(a) {
+        var priorityClass = a.priority === "critical" ? "notif-critical" : 
+                            a.priority === "high" ? "notif-high" : "notif-normal";
+        var icon = a.icon || getNotificationIcon(a.type);
+        var timeAgo = formatTimeAgo(a.createdAt);
+        
+        return '<div class="notification-item ' + priorityClass + (a.read ? " read" : "") + '" data-id="' + a.id + '">' +
+          '<div class="notif-icon"><i data-lucide="' + icon + '"></i></div>' +
+          '<div class="notif-content" onclick="app.handleNotificationClick(\'' + a.id + '\')">' +
+          '<div class="notif-title">' + esc(a.title) + '</div>' +
+          '<div class="notif-message">' + esc(a.message) + '</div>' +
+          '<div class="notif-meta"><span class="notif-time">' + timeAgo + '</span>' +
+          (a.action ? '<span class="notif-action-label">' + esc(a.action.label) + ' →</span>' : '') +
+          '</div></div>' +
+          '<button class="btn btn-ghost btn-xs notif-dismiss" onclick="event.stopPropagation();app.dismissNotification(\'' + a.id + '\')" title="' + t("notifications.dismiss", "Ignorer") + '">' +
+          '<i data-lucide="x"></i></button>' +
+          '</div>';
+      }).join("") + '</div>';
+    }
+    
+    showModal({
+      title: '<i data-lucide="bell"></i> ' + t("notifications.title", "Notifications"),
+      size: "md",
+      content: headerHtml + alertsHtml,
+      footer: '<div class="notif-footer-actions">' +
+        '<button class="btn btn-ghost btn-sm" onclick="app.openNotificationSettings()">' +
+        '<i data-lucide="settings"></i> ' + t("notifications.settings", "Parametres") + '</button>' +
+        '<button class="btn btn-ghost btn-sm" onclick="app.checkNotificationsNow()">' +
+        '<i data-lucide="refresh-cw"></i> ' + t("notifications.refresh", "Actualiser") + '</button>' +
+        '</div>' +
+        '<div class="notif-footer-right">' +
+        (alerts.length > 0 ? '<button class="btn btn-secondary btn-sm" onclick="app.markAllNotificationsRead()">' + t("notifications.markAllRead", "Tout marquer lu") + '</button>' : '') +
+        '<button class="btn btn-primary btn-sm" onclick="app.closeModal()">' + t("action.close", "Fermer") + '</button>' +
+        '</div>'
+    });
+    if (typeof lucide !== "undefined") lucide.createIcons();
+  }
+  
+  function getNotificationIcon(type) {
+    var icons = {
+      "out_of_stock": "package-x",
+      "critical_stock": "alert-triangle",
+      "low_stock": "package",
+      "lot_expired": "calendar-x",
+      "lot_expiring_7": "calendar-clock",
+      "lot_expiring_15": "calendar",
+      "lot_expiring_30": "calendar",
+      "forecast_critical": "trending-down",
+      "forecast_urgent": "eye",
+      "negative_margin": "trending-down",
+      "po_to_receive": "truck"
+    };
+    return icons[type] || "bell";
+  }
+  
+  async function handleNotificationClick(alertId) {
+    // Marquer comme lu
+    try {
+      await authFetch(apiUrl("/notifications/" + alertId + "/read"), { method: "POST" });
+    } catch (e) {}
+    
+    // Trouver l'alerte
+    var alert = (notificationsData.alerts || []).find(function(a) { return a.id === alertId; });
+    if (alert) {
+      closeModal();
+      
+      // Naviguer selon l'action
+      if (alert.action && alert.action.tab) {
+        switchTab(alert.action.tab);
+        
+        // Ouvrir le détail si produit
+        if (alert.productId && (alert.action.tab === "products" || alert.action.type === "restock")) {
+          setTimeout(function() { openProductDetails(alert.productId); }, 500);
+        }
+      } else if (alert.productId) {
+        switchTab("products");
+        setTimeout(function() { openProductDetails(alert.productId); }, 500);
+      }
+    }
+    
+    // Recharger le compteur
+    loadNotificationCount();
+  }
+  
+  async function dismissNotification(alertId) {
+    try {
+      await authFetch(apiUrl("/notifications/" + alertId + "/dismiss"), { method: "POST" });
+      
+      // Retirer de la liste locale
+      notificationsData.alerts = notificationsData.alerts.filter(function(a) { return a.id !== alertId; });
+      notificationsData.unreadCount = Math.max(0, notificationsData.unreadCount - 1);
+      updateNotificationBadge();
+      
+      // Rafraîchir le panel si ouvert
+      var panel = document.querySelector(".notifications-list");
+      if (panel) {
+        showNotificationsPanel();
+      }
+    } catch (e) {
+      showToast(t("msg.error", "Erreur"), "error");
+    }
+  }
+  
+  async function markAllNotificationsRead() {
+    try {
+      await authFetch(apiUrl("/notifications/read-all"), { method: "POST" });
+      notificationsData.unreadCount = 0;
+      notificationsData.alerts.forEach(function(a) { a.read = true; });
+      updateNotificationBadge();
+      showToast(t("notifications.allMarkedRead", "Tout marque comme lu"), "success");
+      showNotificationsPanel();
+    } catch (e) {
+      showToast(t("msg.error", "Erreur"), "error");
+    }
+  }
+  
+  async function checkNotificationsNow() {
+    showToast(t("notifications.checking", "Verification en cours..."), "info");
+    try {
+      var res = await authFetch(apiUrl("/notifications/check"), { method: "POST" });
+      if (res.ok) {
+        var data = await res.json();
+        showToast(t("notifications.checked", "Verification terminee") + " - " + data.newAlerts + " " + t("notifications.newAlerts", "nouvelle(s) alerte(s)"), "success");
+        await loadNotifications(true);
+        showNotificationsPanel();
+      }
+    } catch (e) {
+      showToast(t("msg.error", "Erreur"), "error");
+    }
+  }
+  
+  // Ouvrir les paramètres de notifications
+  function openNotificationSettings() {
+    closeModal();
+    switchTab("settings");
+    // Scroll vers la section notifications après un délai
+    setTimeout(function() {
+      var notifSection = document.querySelector(".settings-section:has([onclick*='notifications'])") ||
+                         document.getElementById("notificationSettingsSection");
+      if (notifSection) {
+        notifSection.scrollIntoView({ behavior: "smooth" });
+      }
+    }, 500);
+  }
+
   function toggleUserMenu() {
     showToast("Bientot", "info");
   }
@@ -5182,6 +5891,30 @@
     updateNestedSetting: updateNestedSetting,
     exportSettings: exportSettings,
     resetAllSettings: resetAllSettings,
+    // Notifications
+    loadNotifications: loadNotifications,
+    loadNotificationCount: loadNotificationCount,
+    showNotificationsPanel: showNotificationsPanel,
+    handleNotificationClick: handleNotificationClick,
+    dismissNotification: dismissNotification,
+    markAllNotificationsRead: markAllNotificationsRead,
+    checkNotificationsNow: checkNotificationsNow,
+    openNotificationSettings: openNotificationSettings,
+    updateNotificationSetting: updateNotificationSetting,
+    updateNotificationTrigger: updateNotificationTrigger,
+    // Profils utilisateurs
+    loadUserProfiles: loadUserProfiles,
+    showProfileSelectionPopup: showProfileSelectionPopup,
+    selectProfile: selectProfile,
+    showCreateProfileModal: showCreateProfileModal,
+    selectProfileColor: selectProfileColor,
+    createProfile: createProfile,
+    showManageProfilesModal: showManageProfilesModal,
+    showEditProfileModal: showEditProfileModal,
+    updateProfile: updateProfile,
+    deleteProfile: deleteProfile,
+    getActiveUserId: getActiveUserId,
+    getActiveUserName: getActiveUserName,
     get state() {
       return state;
     },

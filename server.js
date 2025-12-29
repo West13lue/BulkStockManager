@@ -1865,6 +1865,239 @@ router.get("/api/settings/support-bundle", (req, res) => {
 });
 
 // =====================================================
+// USER PROFILES ROUTES - Gestion des profils utilisateurs
+// =====================================================
+
+const userProfileStore = require("./userProfileStore");
+
+// GET /api/profiles - Liste des profils
+router.get("/api/profiles", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    
+    const data = userProfileStore.loadProfiles(shop);
+    res.json({
+      profiles: data.profiles || [],
+      activeProfileId: data.activeProfileId,
+      settings: data.settings || {}
+    });
+  });
+});
+
+// GET /api/profiles/active - Profil actif
+router.get("/api/profiles/active", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    
+    const profile = userProfileStore.getActiveProfile(shop);
+    res.json({ profile });
+  });
+});
+
+// POST /api/profiles - Créer un profil
+router.post("/api/profiles", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    
+    const { name, role, color } = req.body;
+    if (!name || !name.trim()) {
+      return apiError(res, 400, "Le nom est requis");
+    }
+    
+    const profile = userProfileStore.createProfile(shop, { name, role, color });
+    res.json({ success: true, profile });
+  });
+});
+
+// PUT /api/profiles/:id - Mettre à jour un profil
+router.put("/api/profiles/:id", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    
+    const profile = userProfileStore.updateProfile(shop, req.params.id, req.body);
+    if (!profile) {
+      return apiError(res, 404, "Profil introuvable");
+    }
+    res.json({ success: true, profile });
+  });
+});
+
+// DELETE /api/profiles/:id - Supprimer un profil
+router.delete("/api/profiles/:id", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    
+    const result = userProfileStore.deleteProfile(shop, req.params.id);
+    if (!result.success) {
+      return apiError(res, 400, result.error || "Impossible de supprimer ce profil");
+    }
+    res.json({ success: true });
+  });
+});
+
+// POST /api/profiles/:id/activate - Définir le profil actif
+router.post("/api/profiles/:id/activate", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    
+    const result = userProfileStore.setActiveProfile(shop, req.params.id);
+    if (!result.success) {
+      return apiError(res, 404, result.error || "Profil introuvable");
+    }
+    res.json({ success: true, profile: result.profile });
+  });
+});
+
+// PUT /api/profiles/settings - Paramètres des profils
+router.put("/api/profiles/settings", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    
+    const settings = userProfileStore.updateSettings(shop, req.body);
+    res.json({ success: true, settings });
+  });
+});
+
+
+// =====================================================
+// NOTIFICATIONS ROUTES - Centre d'alertes
+// =====================================================
+
+const notificationStore = require("./notificationStore");
+const alertChecker = require("./alertChecker");
+
+// GET /api/notifications - Liste des alertes
+router.get("/api/notifications", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    
+    const unreadOnly = req.query.unreadOnly === "true";
+    const limit = parseInt(req.query.limit) || 50;
+    
+    const alerts = notificationStore.getAlerts(shop, { unreadOnly, limit });
+    const counts = notificationStore.getCountByPriority(shop);
+    const settings = notificationStore.getSettings(shop);
+    
+    res.json({
+      alerts,
+      counts,
+      settings,
+      unreadCount: counts.critical + counts.high + counts.normal
+    });
+  });
+});
+
+// GET /api/notifications/count - Juste le compteur (léger)
+router.get("/api/notifications/count", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    
+    const counts = notificationStore.getCountByPriority(shop);
+    res.json({
+      unreadCount: notificationStore.getUnreadCount(shop),
+      ...counts
+    });
+  });
+});
+
+// POST /api/notifications/check - Forcer la vérification des alertes
+router.post("/api/notifications/check", async (req, res) => {
+  safeJson(req, res, async () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    
+    try {
+      const results = await alertChecker.checkAllAlerts(shop);
+      const counts = notificationStore.getCountByPriority(shop);
+      
+      res.json({
+        success: true,
+        ...results,
+        counts
+      });
+    } catch (e) {
+      console.error("[Notifications] Check error:", e);
+      apiError(res, 500, "Erreur lors de la verification: " + e.message);
+    }
+  });
+});
+
+// POST /api/notifications/:id/read - Marquer comme lu
+router.post("/api/notifications/:id/read", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    
+    const success = notificationStore.markAsRead(shop, req.params.id);
+    res.json({ success });
+  });
+});
+
+// POST /api/notifications/read-all - Marquer tout comme lu
+router.post("/api/notifications/read-all", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    
+    const count = notificationStore.markAllAsRead(shop);
+    res.json({ success: true, markedAsRead: count });
+  });
+});
+
+// POST /api/notifications/:id/dismiss - Ignorer une alerte
+router.post("/api/notifications/:id/dismiss", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    
+    const success = notificationStore.dismissAlert(shop, req.params.id);
+    res.json({ success });
+  });
+});
+
+// POST /api/notifications/:id/resolve - Résoudre une alerte
+router.post("/api/notifications/:id/resolve", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    
+    const success = notificationStore.resolveAlert(shop, req.params.id);
+    res.json({ success });
+  });
+});
+
+// GET /api/notifications/settings - Paramètres de notifications
+router.get("/api/notifications/settings", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    
+    const settings = notificationStore.getSettings(shop);
+    res.json({ settings });
+  });
+});
+
+// PUT /api/notifications/settings - Mettre à jour les paramètres
+router.put("/api/notifications/settings", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    
+    const settings = notificationStore.updateSettings(shop, req.body);
+    res.json({ success: true, settings });
+  });
+});
+
+// =====================================================
 // PLAN ROUTES aÅ“â€¦ Billing Shopify (AppSubscription)
 // =====================================================
 
