@@ -261,13 +261,23 @@
       setInterval(function() { loadNotificationCount(); }, 5 * 60 * 1000);
     }
     
-    // Charger les profils et afficher le popup de sélection
-    await loadUserProfiles();
-    showProfileSelectionPopup();
-    
+    // Afficher d'abord le dashboard
     renderTab("dashboard");
     updateUI();
     console.log("[Init] Ready - Plan:", state.planId, "Features:", state.limits);
+    
+    // Charger les profils en arrière-plan (non bloquant)
+    loadUserProfiles().then(function() {
+      // Afficher le popup seulement si plusieurs profils
+      if (userProfiles.profiles.length > 1) {
+        showProfileSelectionPopup();
+      } else if (userProfiles.activeProfile) {
+        showToast(t("profiles.welcome", "Bienvenue") + ", " + userProfiles.activeProfile.name + " !", "success");
+        updateProfileDisplay();
+      }
+    }).catch(function(e) {
+      console.warn("[Profiles] Load failed:", e);
+    });
   }
 
   // ============================================
@@ -275,9 +285,9 @@
   // ============================================
   
   var userProfiles = {
-    profiles: [],
-    activeProfileId: null,
-    activeProfile: null,
+    profiles: [{ id: "admin", name: "Admin", role: "admin", color: "#6366f1", isDefault: true }],
+    activeProfileId: "admin",
+    activeProfile: { id: "admin", name: "Admin", role: "admin", color: "#6366f1", isDefault: true },
     settings: {}
   };
   
@@ -287,24 +297,26 @@
       var res = await authFetch(apiUrl("/profiles"));
       if (res.ok) {
         var data = await res.json();
-        userProfiles.profiles = data.profiles || [];
-        userProfiles.activeProfileId = data.activeProfileId;
-        userProfiles.settings = data.settings || {};
-        userProfiles.activeProfile = userProfiles.profiles.find(function(p) {
-          return p.id === userProfiles.activeProfileId;
-        }) || userProfiles.profiles[0] || null;
+        if (data.profiles && data.profiles.length > 0) {
+          userProfiles.profiles = data.profiles;
+          userProfiles.activeProfileId = data.activeProfileId || data.profiles[0].id;
+          userProfiles.settings = data.settings || {};
+          userProfiles.activeProfile = userProfiles.profiles.find(function(p) {
+            return p.id === userProfiles.activeProfileId;
+          }) || userProfiles.profiles[0];
+        }
         updateProfileDisplay();
       }
     } catch (e) {
       console.warn("[Profiles] Load error:", e);
+      // Garder les valeurs par défaut
     }
   }
   
   // Afficher le popup de sélection de profil au démarrage
   function showProfileSelectionPopup() {
-    // Ne pas afficher si un seul profil
-    if (userProfiles.profiles.length <= 1 && userProfiles.activeProfile) {
-      showToast(t("profiles.welcome", "Bienvenue") + ", " + userProfiles.activeProfile.name + " !", "success");
+    // Ne pas afficher si un seul profil ou moins
+    if (userProfiles.profiles.length <= 1) {
       return;
     }
     
@@ -4865,10 +4877,6 @@
         notifSection.scrollIntoView({ behavior: "smooth" });
       }
     }, 500);
-  }
-
-  function toggleUserMenu() {
-    showToast("Bientot", "info");
   }
 
   // ============================================
