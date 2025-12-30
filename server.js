@@ -1768,11 +1768,15 @@ router.put("/api/settings/:section", (req, res) => {
     if (!settingsManager) return apiError(res, 500, "SettingsManager non disponible");
 
     const currentSettings = settingsManager.loadSettings(shop);
-    if (currentSettings.security?.readOnlyMode) {
+    const section = String(req.params.section);
+    
+    // Permettre de modifier readOnlyMode même en mode lecture seule
+    const isDisablingReadOnly = section === "security" && req.body.readOnlyMode === false;
+    
+    if (currentSettings.security?.readOnlyMode && !isDisablingReadOnly) {
       return res.status(403).json({ error: "readonly_mode", message: "Mode lecture seule active" });
     }
 
-    const section = String(req.params.section);
     try {
       const updated = settingsManager.updateSettings(shop, section, req.body);
       logEvent("settings_updated", { shop, section }, "info");
