@@ -5834,6 +5834,13 @@
     },
   };
 
-  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
-  else init();
+  // Init après que window.app soit défini
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", function() {
+      init();
+    });
+  } else {
+    // Petit délai pour s'assurer que tout est prêt
+    setTimeout(init, 10);
+  }
 })();
