@@ -1,4858 +1,1686 @@
-// server.js aEURÃ¢â‚¬Â PREFIX-SAFE (/apps/<slug>/...), STATIC FIX, JSON API SAFE, Multi-shop safe, Express 5 safe
-// aÃ…â€œÃ¢â‚¬Â¦ ENRICHI avec CMP, Valeur stock, Stats categories, Suppression mouvements (stub)
-// aÃ…â€œÃ¢â‚¬Â¦ + OAuth Shopify (Partner) : /api/auth/start + /api/auth/callback
-// aÃ…â€œÃ¢â‚¬Â¦ + SECURE /api/* (App Store) via Shopify Session Token (JWT HS256)
+// i18n.js - Systeme de traduction complet pour Stock Manager Pro
 
-if (process.env.NODE_ENV !== "production") {
-  require("dotenv").config();
-}
-
-const express = require("express");
-const path = require("path");
-const crypto = require("crypto");
-const fs = require("fs");
-const helmet = require("helmet");
-const rateLimit = require("express-rate-limit");
-
-// aÃ…â€œÃ¢â‚¬Â¦ OAuth token store (Render disk)
-const tokenStore = require("./utils/tokenStore");
-
-// --- logger (compat : ./utils/logger OU ./logger)
-let logEvent = (event, data = {}, level = "info") =>
-  console.log(JSON.stringify({ ts: new Date().toISOString(), level, event, ...data }));
-try {
-  ({ logEvent } = require("./utils/logger"));
-} catch {
-  try {
-    ({ logEvent } = require("./logger"));
-  } catch {}
-}
-
-// --- Shopify client (aÃ…â€œÃ¢â‚¬Â¦ par shop)
-const {
-  getShopifyClient,
-  normalizeShopDomain,
-  createAppSubscription,
-  getActiveAppSubscriptions,
-  cancelAppSubscription,
-} = require("./shopifyClient");
-
-// --- Stock (source de verite app)
-const stock = require("./stockManager");
-
-// --- Catalog/categories (multi-shop)
-const catalogStore = require("./catalogStore");
-
-// --- Movements (multi-shop)
-const movementStore = require("./movementStore");
-
-// --- Batch/Lots tracking (multi-shop) - PRO
-let batchStore = null;
-try {
-  batchStore = require("./batchStore");
-} catch (e) {
-  console.warn("BatchStore non disponible:", e.message);
-}
-
-// --- Supplier Store (multi-shop) - PRO
-let supplierStore = null;
-try {
-  supplierStore = require("./supplierStore");
-} catch (e) {
-  console.warn("SupplierStore non disponible:", e.message);
-}
-
-// --- Purchase Order Store (multi-shop) - Business
-let purchaseOrderStore = null;
-try {
-  purchaseOrderStore = require("./purchaseOrderStore");
-} catch (e) {
-  console.warn("PurchaseOrderStore non disponible:", e.message);
-}
-
-// --- Sales Order Store (multi-shop) - PRO
-let salesOrderStore = null;
-try {
-  salesOrderStore = require("./salesOrderStore");
-} catch (e) {
-  console.warn("SalesOrderStore non disponible:", e.message);
-}
-
-// --- Analytics (multi-shop) aÃ…â€œÃ¢â‚¬Â¦ NOUVEAU
-let analyticsStore = null;
-let analyticsManager = null;
-try {
-  analyticsStore = require("./analyticsStore");
-  analyticsManager = require("./analyticsManager");
-} catch (e) {
-  console.warn("Analytics modules non disponibles:", e.message);
-}
-
-// --- Plan Manager (Free/Standard/Premium) aÃ…â€œÃ¢â‚¬Â¦ NOUVEAU
-let planManager = null;
-try {
-  planManager = require("./planManager");
-} catch (e) {
-  console.warn("PlanManager non disponible:", e.message);
-}
-
-// --- Settings Manager (parametres avances) aÃ…â€œÃ¢â‚¬Â¦ NOUVEAU
-let settingsManager = null;
-try {
-  settingsManager = require("./settingsManager");
-} catch (e) {
-  console.warn("SettingsManager non disponible:", e.message);
-}
-
-// --- Settings (multi-shop) : locationId par boutique
-let settingsStore = null;
-try {
-  settingsStore = require("./settingsStore");
-} catch (e) {
-  settingsStore = {
-    loadSettings: () => ({}),
-    setLocationId: (_shop, locationId) => ({ locationId }),
-  };
-}
-
-// --- Kit Store (Kits & Bundles)
-let kitStore = null;
-try {
-  kitStore = require("./kitStore");
-} catch (e) {
-  console.warn("KitStore non disponible:", e.message);
-}
-// --- Inventory Count Store (Sessions d'inventaire)
-let inventoryCountStore = null;
-try {
-  inventoryCountStore = require("./inventoryCountStore");
-} catch (e) {
-  console.warn("InventoryCountStore non disponible:", e.message);
-}
-// --- Forecast Manager (Previsions)
-let forecastManager = null;
-try {
-  forecastManager = require("./forecastManager");
-} catch (e) {
-  console.warn("ForecastManager non disponible:", e.message);
-}
-
-
-// aÃ…â€œÃ¢â‚¬Â¦ OAuth config
-const SHOPIFY_API_KEY = String(process.env.SHOPIFY_API_KEY || "").trim();
-const SHOPIFY_API_SECRET = String(process.env.SHOPIFY_API_SECRET || "").trim();
-const OAUTH_SCOPES = String(process.env.SHOPIFY_SCOPES || "").trim();
-
-// aÃ…â€œÃ¢â‚¬Â¦ API auth switch (en prod => ON par defaut)
-const API_AUTH_REQUIRED =
-  String(process.env.API_AUTH_REQUIRED || "").trim() === ""
-    ? process.env.NODE_ENV === "production"
-    : String(process.env.API_AUTH_REQUIRED).trim().toLowerCase() !== "false";
-
-// state anti-CSRF simple en memoire (ok pour 1 instance Render)
-const _oauthStateByShop = new Map();
-
-const app = express();
-const PORT = process.env.PORT || 3000;
-
-// ✅ Security: Helmet (headers de sécurité)
-app.use(helmet({
-  contentSecurityPolicy: false, // On gère CSP manuellement pour Shopify embedded
-  crossOriginEmbedderPolicy: false,
-  crossOriginOpenerPolicy: false
-}));
-
-// ✅ Security: Rate limiting
-const apiLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 200, // 200 requêtes par fenêtre
-  message: { error: "Trop de requêtes, réessayez dans quelques minutes" },
-  standardHeaders: true,
-  legacyHeaders: false,
-  skip: (req) => {
-    // Ne pas limiter les webhooks Shopify
-    return req.path.startsWith("/webhooks/");
-  }
-});
-
-const ROOT_DIR = __dirname;
-const PUBLIC_DIR = path.join(ROOT_DIR, "public");
-
-function fileExists(p) {
-  try {
-    return fs.existsSync(p);
-  } catch {
+var I18N = {
+  currentLang: "fr",
+  
+  translations: {
+    // =========================================
+    // FRANÃ‡AIS (FR) - Langue par dÃ©faut
+    // =========================================
+    fr: {
+      // Navigation
+      "nav.dashboard": "Tableau de bord",
+      "nav.products": "Produits",
+      "nav.batches": "Lots et DLC",
+      "nav.suppliers": "Fournisseurs",
+      "nav.orders": "Commandes",
+      "nav.forecast": "Previsions",
+      "nav.kits": "Kits et Bundles",
+      "nav.analytics": "Analytics",
+      "nav.inventory": "Inventaire",
+      "nav.settings": "Parametres",
+      
+      // Dashboard
+      "dashboard.title": "Tableau de bord",
+      "dashboard.subtitle": "Vue d'ensemble",
+      "dashboard.products": "Produits",
+      "dashboard.totalStock": "Stock total",
+      "dashboard.value": "Valeur",
+      "dashboard.lowStock": "Stock bas",
+      "dashboard.sync": "Sync",
+      "dashboard.addProduct": "+ Produit",
+      "dashboard.viewAll": "Voir tout",
+      "dashboard.recentMovements": "Mouvements recents",
+      "dashboard.noMovements": "Aucun mouvement",
+      
+      // Produits
+      "products.title": "Produits",
+      "products.search": "Rechercher...",
+      "products.allCategories": "Toutes les categories",
+      "products.noCategory": "Sans categorie",
+      "products.sortBy": "Trier par",
+      "products.name": "Nom",
+      "products.stock": "Stock",
+      "products.cmp": "CMP",
+      "products.value": "Valeur",
+      "products.status": "Statut",
+      "products.categories": "Categories",
+      "products.noProducts": "Aucun produit",
+      "products.addFirst": "Commencez par synchroniser vos produits Shopify",
+      "products.add": "Ajouter un produit",
+      "products.added": "Produit ajoute",
+      "products.adjustStock": "Ajuster le stock",
+      "products.details": "Fiche produit",
+      "products.editCMP": "Modifier le cout moyen (CMP)",
+      "products.importShopify": "Import Shopify",
+      "products.restock": "Reapprovisionner",
+      "products.product": "Produit",
+      
+      // Statuts
+      "status.ok": "OK",
+      "status.low": "Bas",
+      "status.critical": "Critique",
+      "status.outOfStock": "Rupture",
+      
+      // Actions
+      "action.save": "Enregistrer",
+      "action.cancel": "Annuler",
+      "action.close": "Fermer",
+      "action.edit": "Modifier",
+      "action.delete": "Supprimer",
+      "action.add": "Ajouter",
+      "action.sync": "Synchroniser",
+      "action.export": "Exporter",
+      "action.import": "Importer",
+      "action.upgrade": "Passer a PRO",
+      
+      // Messages communs
+      "msg.loading": "Chargement...",
+      "msg.saving": "Enregistrement...",
+      "msg.success": "Succes",
+      "msg.error": "Erreur",
+      "msg.confirm": "Confirmer",
+      "msg.featureLocked": "Fonctionnalite verrouillee",
+      "msg.upgradeRequired": "Passez a un plan superieur pour debloquer.",
+      "msg.nameRequired": "Nom requis",
+      "msg.productQtyRequired": "Produit et quantite requis",
+      "msg.selectProducts": "Selectionnez au moins un produit",
+      "msg.noProducts": "Aucun produit a afficher.",
+      "msg.noEvents": "Aucun evenement.",
+      "msg.exportError": "Erreur export",
+      
+      // Plans
+      "plan.free": "Free",
+      "plan.starter": "Starter",
+      "plan.pro": "Pro",
+      "plan.business": "Business",
+      "plan.enterprise": "Enterprise",
+      "plan.trial": "Essai",
+      "plan.daysLeft": "jours restants",
+      "plan.products": "produits",
+      "plan.unlimited": "Illimite",
+      "plan.changePlan": "Changer de plan",
+      "plans.choosePlan": "Choisir un plan",
+      "plans.featureLocked": "Fonctionnalite verrouillee",
+      
+      // Settings
+      "settings.title": "Parametres",
+      "settings.subscription": "Mon abonnement",
+      "settings.language": "Langue et Region",
+      "settings.languageDesc": "Personnalisez l'affichage selon votre pays",
+      "settings.appLanguage": "Langue de l'application",
+      "settings.timezone": "Fuseau horaire",
+      "settings.dateFormat": "Format de date",
+      "settings.timeFormat": "Format horaire",
+      "settings.currency": "Devise et Unites",
+      "settings.currencyDesc": "Configurez vos preferences monetaires",
+      "settings.mainCurrency": "Devise principale",
+      "settings.symbolPosition": "Position du symbole",
+      "settings.weightUnit": "Unite de poids",
+      "settings.stock": "Gestion du stock",
+      "settings.stockDesc": "Regles de calcul et seuils d'alerte",
+      "settings.thresholds": "Seuils de statut",
+      "settings.criticalThreshold": "Seuil critique",
+      "settings.lowThreshold": "Seuil bas",
+      "settings.alerts": "Alertes",
+      "settings.lowStockAlerts": "Alertes stock bas",
+      "settings.valuation": "Valorisation",
+      "settings.valuationMethod": "Methode de valorisation",
+      "settings.freezeCMP": "Figer le CMP",
+      "settings.allowNegative": "Autoriser stock negatif",
+      "settings.saved": "Parametre enregistre",
+      "settings.backupDownloaded": "Backup telecharge",
+      "settings.reset": "Parametres reinitialises",
+      "settings.thisThreshold": "ce seuil",
+      "settings.aboveThreshold": "Au-dessus du seuil bas = Vert (OK)",
+      "settings.cmpFull": "Cout Moyen Pondere",
+      "settings.fifoFull": "Premier Entre, Premier Sorti",
+      "settings.notifications": "Notifications",
+      "settings.notificationsDesc": "Configurez vos alertes",
+      "settings.notificationsEnabled": "Notifications activees",
+      "settings.lowStockAlert": "Alerte stock bas",
+      "settings.notificationsLocked": "Passez au plan Pro pour configurer les notifications.",
+      "settings.advanced": "Parametres avances",
+      "settings.freebiesPerOrder": "Freebies par commande",
+      "settings.freebiesEnabled": "Freebies actives",
+      "settings.dataAndSecurity": "Donnees & Securite",
+      "settings.readOnlyMode": "Mode lecture seule",
+      "settings.exportData": "Exporter les donnees",
+      "settings.downloadBackup": "Telecharger backup",
+      "settings.resetSettings": "Reinitialiser les parametres",
+      "action.reset": "Reinitialiser",
+      
+      // Mouvements
+      "movement.restock": "Reappro",
+      "movement.sale": "Vente",
+      "movement.adjustment": "Ajustement",
+      "movement.transfer": "Transfert",
+      "movement.return": "Retour",
+      "movement.loss": "Perte",
+      "movement.production": "Production",
+      "movement.inventory": "Inventaire",
+      
+      // Temps
+      "time.justNow": "A l'instant",
+      "time.minutesAgo": "min",
+      "time.hoursAgo": "h",
+      "time.daysAgo": "j",
+      "common.days": "jours",
+      
+      // Categories
+      "categories.manage": "Gerer les categories",
+      "categories.rename": "Renommer la categorie",
+      "categories.forProduct": "Categories pour",
+      
+      // Lots & DLC
+      "batches.title": "Lots et DLC",
+      "batches.subtitle": "Tracabilite et gestion des dates limites",
+      "batches.lockedDesc": "Gerez vos lots, tracez vos DLC et anticipez les pertes avec le plan Pro.",
+      "batches.feature1": "Tracabilite complete",
+      "batches.feature2": "Alertes DLC automatiques",
+      "batches.feature3": "FIFO / FEFO automatique",
+      "batches.addBatch": "Nouveau lot",
+      "batches.markExpired": "Marquer expires",
+      "batches.totalLots": "Total lots",
+      "batches.activeLots": "Lots actifs",
+      "batches.expiringSoon": "Expirent sous 30j",
+      "batches.expiredLots": "Expires",
+      "batches.valueAtRisk": "Valeur a risque",
+      "batches.allProducts": "Tous les produits",
+      "batches.allStatus": "Tous les statuts",
+      "batches.allDates": "Toutes les dates",
+      "batches.statusActive": "Actif",
+      "batches.statusDepleted": "Epuise",
+      "batches.statusExpired": "Expire",
+      "batches.statusRecalled": "Rappele",
+      "batches.expiring7": "Expire sous 7j",
+      "batches.expiring15": "Expire sous 15j",
+      "batches.expiring30": "Expire sous 30j",
+      "batches.noLots": "Aucun lot",
+      "batches.noLotsDesc": "Creez votre premier lot pour commencer la tracabilite.",
+      "batches.noLotsForProduct": "Aucun lot pour ce produit",
+      "batches.createFirstLot": "Creer le premier lot",
+      "batches.lotId": "Lot",
+      "batches.product": "Produit",
+      "batches.stock": "Stock",
+      "batches.dlc": "DLC",
+      "batches.daysLeft": "Jours",
+      "batches.cost": "Cout",
+      "batches.value": "Valeur",
+      "batches.status": "Statut",
+      "batches.expired": "Expire",
+      "batches.quantity": "Quantite",
+      "batches.costPerUnit": "Cout unitaire",
+      "batches.expiryType": "Type de date",
+      "batches.expiryDate": "Date d'expiration",
+      "batches.supplierRef": "Ref fournisseur",
+      "batches.notes": "Notes",
+      "batches.errorRequired": "Produit et quantite requis",
+      "batches.lotCreated": "Lot cree avec succes",
+      "batches.adjustBatch": "Ajuster le lot",
+      "batches.adjustment": "Ajustement",
+      "batches.reason": "Raison",
+      "batches.errorAdjustment": "Entrez une valeur d'ajustement",
+      "batches.lotAdjusted": "Lot ajuste",
+      "batches.lotDetails": "Details du lot",
+      "batches.info": "Informations",
+      "batches.history": "Historique",
+      "batches.received": "Recu",
+      "batches.initial": "Initial",
+      "batches.remaining": "Restant",
+      "batches.used": "Utilise",
+      "batches.expiry": "Expiration",
+      "batches.type": "Type",
+      "batches.date": "Date",
+      "batches.totalCost": "Cout total",
+      "batches.valueRemaining": "Valeur restante",
+      "batches.lotDeactivated": "Lot desactive",
+      "batches.markedExpired": "lots marques expires",
+      "batches.addAnotherLot": "Ajouter un autre lot",
+      "batches.addBatchFor": "Ajouter lot pour",
+      "batches.adjust": "Ajuster",
+      "batches.deactivate": "Desactiver",
+      "batches.confirmDeactivate": "Desactiver ce lot ?",
+      "batches.noMovements": "Aucun mouvement",
+      
+      // Fournisseurs
+      "suppliers.title": "Fournisseurs",
+      "suppliers.subtitle": "Gestion des fournisseurs et approvisionnement",
+      "suppliers.lockedDesc": "Gerez vos fournisseurs, comparez les prix et optimisez vos achats.",
+      "suppliers.feature1": "Fiches fournisseurs completes",
+      "suppliers.feature2": "Liaison produits-fournisseurs",
+      "suppliers.feature3": "Historique des achats",
+      "suppliers.add": "Nouveau fournisseur",
+      "suppliers.total": "Fournisseurs",
+      "suppliers.active": "Actifs",
+      "suppliers.withProducts": "Avec produits",
+      "suppliers.totalPurchased": "Total achete",
+      "suppliers.search": "Rechercher...",
+      "suppliers.allStatus": "Tous les statuts",
+      "suppliers.statusActive": "Actifs",
+      "suppliers.statusInactive": "Inactifs",
+      "suppliers.statusBlocked": "Bloques",
+      "suppliers.noSuppliers": "Aucun fournisseur",
+      "suppliers.noSuppliersDesc": "Ajoutez votre premier fournisseur pour commencer.",
+      "suppliers.name": "Nom",
+      "suppliers.type": "Type",
+      "suppliers.email": "Email",
+      "suppliers.products": "Produits",
+      "suppliers.lots": "Lots",
+      "suppliers.purchased": "Achats",
+      "suppliers.status": "Statut",
+      "suppliers.code": "Code",
+      "suppliers.typeProducer": "Producteur",
+      "suppliers.typeWholesaler": "Grossiste",
+      "suppliers.typeDistributor": "Distributeur",
+      "suppliers.typeImporter": "Importateur",
+      "suppliers.typeOther": "Autre",
+      "suppliers.generalInfo": "Informations generales",
+      "suppliers.contact": "Contact",
+      "suppliers.contactName": "Nom du contact",
+      "suppliers.phone": "Telephone",
+      "suppliers.website": "Site web",
+      "suppliers.country": "Pays",
+      "suppliers.terms": "Conditions",
+      "suppliers.paymentTerms": "Conditions de paiement",
+      "suppliers.paymentImmediate": "Immediat",
+      "suppliers.paymentNet30": "Net 30",
+      "suppliers.paymentNet60": "Net 60",
+      "suppliers.deliveryDays": "Delai livraison (jours)",
+      "suppliers.minOrder": "Commande minimum",
+      "suppliers.moq": "MOQ",
+      "suppliers.notes": "Notes",
+      "suppliers.errorName": "Le nom est requis",
+      "suppliers.saved": "Fournisseur enregistre",
+      "suppliers.details": "Fiche fournisseur",
+      "suppliers.tabInfo": "Infos",
+      "suppliers.tabProducts": "Produits",
+      "suppliers.tabLots": "Lots",
+      "suppliers.tabAnalytics": "Analytics",
+      "suppliers.noProducts": "Aucun produit lie",
+      "suppliers.linkProduct": "Lier un produit",
+      "suppliers.avgPrice": "Prix moyen",
+      "suppliers.lastPurchase": "Dernier achat",
+      "suppliers.totalLots": "Lots",
+      "suppliers.totalSpent": "Total depense",
+      "suppliers.noLots": "Aucun lot",
+      "suppliers.confirmDelete": "Supprimer ce fournisseur ?",
+      "suppliers.deleted": "Fournisseur supprime",
+      
+      // Commandes
+      "orders.title": "Commandes",
+      "orders.subtitle": "Achats fournisseurs et ventes clients",
+      "orders.lockedDesc": "Gerez vos commandes fournisseurs et suivez vos ventes.",
+      "orders.feature1": "Commandes fournisseurs",
+      "orders.feature2": "Import ventes Shopify",
+      "orders.feature3": "Analyse des marges",
+      "orders.tabPurchases": "Achats",
+      "orders.tabSales": "Ventes",
+      "orders.totalPO": "Commandes",
+      "orders.pending": "En cours",
+      "orders.received": "Recues",
+      "orders.totalValue": "Valeur totale",
+      "orders.allStatus": "Tous les statuts",
+      "orders.statusDraft": "Brouillon",
+      "orders.statusSent": "Envoyee",
+      "orders.statusConfirmed": "Confirmee",
+      "orders.statusPartial": "Partielle",
+      "orders.statusComplete": "Complete",
+      "orders.statusCancelled": "Annulee",
+      "orders.noPO": "Aucune commande",
+      "orders.noPODesc": "Creez votre premiere commande fournisseur.",
+      "orders.newPO": "Nouvelle commande fournisseur",
+      "orders.number": "Numero",
+      "orders.supplier": "Fournisseur",
+      "orders.items": "articles",
+      "orders.total": "Total",
+      "orders.date": "Date",
+      "orders.status": "Statut",
+      "orders.selectSupplier": "Selectionnez un fournisseur",
+      "orders.addLine": "Ajouter une ligne",
+      "orders.product": "Produit",
+      "orders.quantity": "Quantite",
+      "orders.unitPrice": "Prix unitaire",
+      "orders.lineTotal": "Total ligne",
+      "orders.shipping": "Frais de port",
+      "orders.notes": "Notes",
+      "orders.errorSupplier": "Selectionnez un fournisseur",
+      "orders.errorLines": "Ajoutez au moins une ligne",
+      "orders.poCreated": "Commande creee",
+      "orders.poDetails": "Commande",
+      "orders.poSent": "Commande envoyee",
+      "orders.poConfirmed": "Commande confirmee",
+      "orders.poReceived": "Commande receptionnee - stock mis a jour",
+      "orders.poCancelled": "Commande annulee",
+      "orders.confirmCancel": "Annuler cette commande ?",
+      "orders.send": "Envoyer",
+      "orders.confirm": "Confirmer",
+      "orders.receive": "Receptionner",
+      "orders.salesCount": "Commandes",
+      "orders.revenue": "CA",
+      "orders.margin": "Marge",
+      "orders.marginPct": "Marge %",
+      "orders.avgOrder": "Panier moy.",
+      "orders.period": "Periode",
+      "orders.seeAnalytics": "Voir Analytics pour CA, marges et tendances detaillees",
+      "orders.last7": "7 derniers jours",
+      "orders.last30": "30 derniers jours",
+      "orders.last90": "90 derniers jours",
+      "orders.allSources": "Toutes sources",
+      "orders.manual": "Manuel",
+      "orders.noSales": "Aucune vente",
+      "orders.noSalesDesc": "Importez vos ventes Shopify pour voir vos marges.",
+      "orders.importShopify": "Import Shopify",
+      "orders.importing": "Import en cours...",
+      "orders.imported": "commandes importees",
+      "orders.source": "Source",
+      "orders.customer": "Client",
+      
+      // Kits & Bundles
+      "kits.title": "Kits et Bundles",
+      "kits.subtitle": "Packs, bundles et recettes",
+      "kits.lockedDesc": "Creez des packs, bundles et recettes.",
+      "kits.newKit": "Nouveau kit",
+      "kits.created": "Kit cree",
+      "kits.addComponent": "Ajouter un composant",
+      "kits.componentAdded": "Composant ajoute",
+      "kits.componentRemoved": "Composant supprime",
+      "kits.activated": "Kit active",
+      "kits.deleted": "Kit supprime",
+      "kits.confirmDelete": "Supprimer ce kit ?",
+      "kits.assemble": "Assembler des kits",
+      
+      // Previsions / Forecast
+      "forecast.title": "Previsions",
+      "forecast.subtitle": "Anticipez vos besoins en stock",
+      "forecast.lockedDesc": "Predisez vos ruptures et optimisez vos commandes.",
+      "forecast.feature1": "Prediction des ruptures",
+      "forecast.feature2": "Recommandations de commande",
+      "forecast.feature3": "Scenarios multiples",
+      "forecast.healthScore": "Sante stock",
+      "forecast.urgent": "Urgents",
+      "forecast.avgCoverage": "Couverture moy.",
+      "forecast.toOrder": "A commander",
+      "forecast.allStatus": "Tous statuts",
+      "forecast.critical": "Critique (<7j)",
+      "forecast.urgentStatus": "Urgent (<14j)",
+      "forecast.watch": "A surveiller",
+      "forecast.outOfStock": "Rupture",
+      "forecast.overstock": "Surstock",
+      "forecast.noData": "Sans donnees",
+      "forecast.allCategories": "Toutes categories",
+      "forecast.product": "Produit",
+      "forecast.stock": "Stock",
+      "forecast.avgSales": "Ventes moy.",
+      "forecast.coverage": "Couverture",
+      "forecast.stockout": "Rupture est.",
+      "forecast.reorder": "A commander",
+      "forecast.status": "Statut",
+      "forecast.scenarios": "Scenarios",
+      "forecast.pessimistic": "Pessimiste",
+      "forecast.normal": "Normal",
+      "forecast.optimistic": "Optimiste",
+      "forecast.howCalculated": "Comment ce calcul est fait",
+      
+      // Inventaire
+      "inventory.title": "Inventaire",
+      "inventory.subtitle": "Sessions de comptage et ajustements",
+      "inventory.lockedDesc": "Sessions de comptage, ecarts et audit complet.",
+      "inventory.feature1": "Sessions de comptage",
+      "inventory.feature2": "Ecarts theorique vs compte",
+      "inventory.feature3": "Audit trail complet",
+      "inventory.newSession": "Nouvelle session d'inventaire",
+      "inventory.sessionCreated": "Session creee",
+      "inventory.sessionStarted": "Session demarree",
+      "inventory.sessionValidated": "Session validee",
+      "inventory.sessionDuplicated": "Session dupliquee",
+      "inventory.sessionArchived": "Session archivee",
+      "inventory.clickStart": "Cliquez sur Demarrer pour lancer le comptage.",
+      "inventory.sessionFinished": "Cette session est terminee.",
+      "inventory.noSessions": "Aucune session",
+      "inventory.createFirst": "Creez votre premiere session d'inventaire.",
+      "inventory.session": "Session",
+      "inventory.scope": "Perimetre",
+      "inventory.progress": "Progression",
+      "inventory.discrepancies": "Ecarts",
+      "inventory.value": "Valeur",
+      "inventory.statusDraft": "Brouillon",
+      "inventory.statusInProgress": "En cours",
+      "inventory.statusReviewed": "Valide",
+      "inventory.statusApplied": "Applique",
+      "inventory.statusArchived": "Archive",
+      
+      // Dashboard amélioré
+      "dashboard.quickActions": "Actions rapides",
+      "dashboard.quickRestock": "Réappro rapide",
+      "dashboard.quickAdjust": "Ajustement",
+      "dashboard.scanBarcode": "Scanner",
+      "dashboard.alerts": "Alertes",
+      "dashboard.outOfStock": "produit(s) en rupture",
+      "dashboard.lowStockAlert": "produit(s) stock bas",
+      "dashboard.lowStockProducts": "Produits stock bas",
+      "dashboard.outOfStockProducts": "Produits en rupture",
+      "dashboard.noLowStock": "Aucun produit en stock bas",
+      "dashboard.noOutOfStock": "Aucun produit en rupture",
+      "dashboard.remaining": "restant",
+      "dashboard.inventory": "Inventaire",
+      
+      // Actions
+      "action.selectProduct": "Sélectionner...",
+      "action.restock": "Réappro",
+      "action.confirm": "Valider",
+      "action.search": "Rechercher",
+      "action.create": "Créer",
+      "action.back": "Retour",
+      
+      // Produits
+      "products.quantity": "Quantité",
+      "products.note": "Note",
+      "products.optional": "optionnel",
+      "products.notePlaceholder": "Ex: Livraison fournisseur",
+      "products.newStock": "Nouveau stock",
+      "products.reason": "Raison",
+      
+      // Raisons ajustement
+      "reason.count": "Comptage inventaire",
+      "reason.damage": "Produit endommagé",
+      "reason.theft": "Vol/Perte",
+      "reason.correction": "Correction erreur",
+      
+      // Messages
+      "msg.selectProduct": "Sélectionnez un produit",
+      "msg.invalidQty": "Quantité invalide",
+      "msg.restockSuccess": "Réappro effectuée",
+      "msg.adjustSuccess": "Ajustement effectué",
+      
+      // Scanner
+      "scanner.title": "Scanner code-barres",
+      "scanner.initializing": "Initialisation caméra...",
+      "scanner.notSupported": "Caméra non supportée sur ce navigateur",
+      "scanner.ready": "Caméra prête - Présentez un code-barres",
+      "scanner.manualEntry": "Ou saisir manuellement",
+      "scanner.barcodePlaceholder": "Code-barres...",
+      "scanner.enterBarcode": "Entrez un code-barres",
+      "scanner.notFound": "Produit non trouvé",
+      "scanner.notFoundMsg": "Aucun produit trouvé avec le code",
+      "scanner.notFoundHint": "Vérifiez que le code-barres est configuré sur le produit dans Shopify.",
+      "scanner.scanAgain": "Scanner à nouveau",
+      "scanner.manualOnly": "Détection auto non supportée - utilisez la saisie manuelle",
+      "scanner.cameraError": "Erreur caméra",
+      
+      // Raccourcis clavier
+      "shortcuts.title": "Raccourcis clavier",
+      "shortcuts.search": "Rechercher",
+      "shortcuts.newProduct": "Nouveau produit",
+      "shortcuts.quickRestock": "Réappro rapide",
+      "shortcuts.scanner": "Scanner code-barres",
+      "shortcuts.dashboard": "Dashboard",
+      "shortcuts.products": "Produits",
+      "shortcuts.closeModal": "Fermer fenêtre",
+      "shortcuts.help": "Afficher cette aide",
+      
+      // Tutoriels
+      "tutorial.title": "Guide rapide",
+      "tutorial.dontShowAgain": "Ne plus afficher pour cet onglet",
+      "tutorial.understood": "Compris !",
+      "tutorial.reset": "Tutoriels réinitialisés",
+      "tutorial.allTutorials": "Tous les tutoriels",
+      "tutorial.resetAll": "Réinitialiser tout",
+      "tutorial.seen": "Vu",
+      "tutorial.notSeen": "Non vu",
+      
+      // Tutoriel Dashboard
+      "tutorial.dashboard.title": "Bienvenue sur le Dashboard !",
+      "tutorial.dashboard.step1": "Visualisez vos statistiques clés : nombre de produits, stock total et valeur.",
+      "tutorial.dashboard.step2": "Les alertes vous signalent les produits en stock bas ou en rupture.",
+      "tutorial.dashboard.step3": "Utilisez les actions rapides pour réappro, scanner ou ajuster le stock.",
+      "tutorial.dashboard.step4": "Les mouvements récents montrent l'activité de votre stock.",
+      "tutorial.dashboard.tip": "Astuce : Appuyez sur ? pour voir tous les raccourcis clavier !",
+      
+      // Tutoriel Produits
+      "tutorial.products.title": "Gestion des Produits",
+      "tutorial.products.step1": "Recherchez vos produits par nom, SKU ou code-barres.",
+      "tutorial.products.step2": "Filtrez par catégorie et triez selon vos besoins.",
+      "tutorial.products.step3": "Utilisez le scanner pour trouver un produit rapidement.",
+      "tutorial.products.step4": "Cliquez sur un produit pour voir ses détails et ajuster le stock.",
+      "tutorial.products.tip": "Astuce : Raccourci N pour ajouter un produit, R pour réappro rapide !",
+      
+      // Tutoriel Lots
+      "tutorial.batches.title": "Lots et DLC",
+      "tutorial.batches.step1": "Gérez les dates de péremption de vos produits.",
+      "tutorial.batches.step2": "Recevez des alertes pour les lots qui arrivent à expiration.",
+      "tutorial.batches.step3": "Suivez la traçabilité de chaque lot entrant.",
+      "tutorial.batches.tip": "Les lots expirés sont automatiquement signalés en rouge.",
+      
+      // Tutoriel Fournisseurs
+      "tutorial.suppliers.title": "Gestion Fournisseurs",
+      "tutorial.suppliers.step1": "Centralisez les informations de vos fournisseurs.",
+      "tutorial.suppliers.step2": "Gardez leurs contacts et conditions à portée de main.",
+      "tutorial.suppliers.step3": "Associez les produits à leurs fournisseurs pour un suivi optimal.",
+      "tutorial.suppliers.tip": "Ajoutez les délais de livraison pour anticiper vos commandes.",
+      
+      // Tutoriel Commandes
+      "tutorial.orders.title": "Commandes",
+      "tutorial.orders.step1": "Créez des bons de commande vers vos fournisseurs.",
+      "tutorial.orders.step2": "Suivez l'état de vos commandes en cours.",
+      "tutorial.orders.step3": "Réceptionnez les commandes pour mettre à jour le stock automatiquement.",
+      "tutorial.orders.tip": "Importez vos commandes Shopify pour un suivi complet.",
+      
+      // Tutoriel Prévisions
+      "tutorial.forecast.title": "Prévisions",
+      "tutorial.forecast.step1": "Analysez les tendances de ventes de vos produits.",
+      "tutorial.forecast.step2": "Anticipez les ruptures grâce aux prévisions.",
+      "tutorial.forecast.step3": "Recevez des suggestions de réapprovisionnement.",
+      "tutorial.forecast.tip": "Plus vous avez d'historique, plus les prévisions sont précises.",
+      
+      // Tutoriel Kits
+      "tutorial.kits.title": "Kits et Bundles",
+      "tutorial.kits.step1": "Créez des kits composés de plusieurs produits.",
+      "tutorial.kits.step2": "Le stock des composants est automatiquement déduit.",
+      "tutorial.kits.step3": "Simulez l'assemblage avant de valider.",
+      "tutorial.kits.tip": "Utilisez les kits pour vos coffrets cadeaux ou packs promo.",
+      
+      // Tutoriel Analytics
+      "tutorial.analytics.title": "Analytics",
+      "tutorial.analytics.step1": "Visualisez la répartition de votre stock par catégorie.",
+      "tutorial.analytics.step2": "Suivez l'évolution de la valeur de votre inventaire.",
+      "tutorial.analytics.step3": "Analysez les mouvements pour optimiser votre gestion.",
+      "tutorial.analytics.tip": "Exportez vos rapports en PDF ou Excel.",
+      
+      // Tutoriel Inventaire
+      "tutorial.inventory.title": "Inventaire",
+      "tutorial.inventory.step1": "Créez des sessions d'inventaire complet ou partiel.",
+      "tutorial.inventory.step2": "Utilisez le scanner pour compter plus rapidement.",
+      "tutorial.inventory.step3": "Comparez le stock théorique vs réel et validez les écarts.",
+      "tutorial.inventory.tip": "Planifiez des inventaires réguliers pour une meilleure précision.",
+      
+      // Tutoriel Paramètres
+      "tutorial.settings.title": "Paramètres",
+      "tutorial.settings.step1": "Configurez la langue et les unités de mesure.",
+      "tutorial.settings.step2": "Personnalisez vos seuils d'alerte de stock.",
+      "tutorial.settings.step3": "Adaptez l'interface à vos préférences.",
+      "tutorial.settings.tip": "Sauvegardez vos paramètres pour les restaurer facilement.",
+      
+      // Paramètres - Aide
+      "settings.helpAndSupport": "Aide & Support",
+      "settings.tutorials": "Tutoriels",
+      "settings.viewTutorials": "Voir les tutoriels",
+      "settings.shortcuts": "Raccourcis clavier",
+      "settings.viewShortcuts": "Voir les raccourcis",
+      "settings.resetTutorials": "Revoir les tutoriels",
+      "settings.resetTutorialsBtn": "Réinitialiser",
+      
+      // Profils
+      "profiles.whoIsConnecting": "Qui se connecte ?",
+      "profiles.welcome": "Bienvenue",
+      "profiles.myProfile": "Mon profil",
+      "profiles.switchProfile": "Changer de profil",
+      "profiles.createNew": "Nouveau profil",
+      "profiles.createProfile": "Créer un profil",
+      "profiles.name": "Nom",
+      "profiles.namePlaceholder": "Ex: Marie, Pierre...",
+      "profiles.nameRequired": "Le nom est requis",
+      "profiles.role": "Rôle",
+      "profiles.roleUser": "Utilisateur",
+      "profiles.roleManager": "Manager",
+      "profiles.roleAdmin": "Administrateur",
+      "profiles.color": "Couleur",
+      "profiles.created": "Profil créé",
+      
+      // Notifications
+      "notifications.title": "Notifications",
+      "notifications.noAlerts": "Aucune alerte",
+      "notifications.allGood": "Tout va bien !",
+      "notifications.lockedDesc": "Les alertes sont disponibles avec le plan Pro.",
+    },
+    
+    // =========================================
+    // ENGLISH (EN)
+    // =========================================
+    en: {
+      // Navigation
+      "nav.dashboard": "Dashboard",
+      "nav.products": "Products",
+      "nav.batches": "Batches & Expiry",
+      "nav.suppliers": "Suppliers",
+      "nav.orders": "Orders",
+      "nav.forecast": "Forecast",
+      "nav.kits": "Kits & Bundles",
+      "nav.analytics": "Analytics",
+      "nav.inventory": "Inventory",
+      "nav.settings": "Settings",
+      
+      // Dashboard
+      "dashboard.title": "Dashboard",
+      "dashboard.subtitle": "Overview",
+      "dashboard.products": "Products",
+      "dashboard.totalStock": "Total stock",
+      "dashboard.value": "Value",
+      "dashboard.lowStock": "Low stock",
+      "dashboard.sync": "Sync",
+      "dashboard.addProduct": "+ Product",
+      "dashboard.viewAll": "View all",
+      "dashboard.recentMovements": "Recent movements",
+      "dashboard.noMovements": "No movements",
+      
+      // Products
+      "products.title": "Products",
+      "products.search": "Search...",
+      "products.allCategories": "All categories",
+      "products.noCategory": "Uncategorized",
+      "products.sortBy": "Sort by",
+      "products.name": "Name",
+      "products.stock": "Stock",
+      "products.cmp": "Avg Cost",
+      "products.value": "Value",
+      "products.status": "Status",
+      "products.categories": "Categories",
+      "products.noProducts": "No products",
+      "products.addFirst": "Start by syncing your Shopify products",
+      "products.add": "Add product",
+      "products.added": "Product added",
+      "products.adjustStock": "Adjust stock",
+      "products.details": "Product details",
+      "products.editCMP": "Edit average cost",
+      "products.importShopify": "Import Shopify",
+      "products.restock": "Restock",
+      "products.product": "Product",
+      
+      // Status
+      "status.ok": "OK",
+      "status.low": "Low",
+      "status.critical": "Critical",
+      "status.outOfStock": "Out of Stock",
+      
+      // Actions
+      "action.save": "Save",
+      "action.cancel": "Cancel",
+      "action.close": "Close",
+      "action.edit": "Edit",
+      "action.delete": "Delete",
+      "action.add": "Add",
+      "action.sync": "Sync",
+      "action.export": "Export",
+      "action.import": "Import",
+      "action.upgrade": "Upgrade to PRO",
+      
+      // Common messages
+      "msg.loading": "Loading...",
+      "msg.saving": "Saving...",
+      "msg.success": "Success",
+      "msg.error": "Error",
+      "msg.confirm": "Confirm",
+      "msg.featureLocked": "Feature locked",
+      "msg.upgradeRequired": "Upgrade to a higher plan to unlock.",
+      "msg.nameRequired": "Name required",
+      "msg.productQtyRequired": "Product and quantity required",
+      "msg.selectProducts": "Select at least one product",
+      "msg.noProducts": "No products to display.",
+      "msg.noEvents": "No events.",
+      "msg.exportError": "Export error",
+      
+      // Plans
+      "plan.free": "Free",
+      "plan.starter": "Starter",
+      "plan.pro": "Pro",
+      "plan.business": "Business",
+      "plan.enterprise": "Enterprise",
+      "plan.trial": "Trial",
+      "plan.daysLeft": "days left",
+      "plan.products": "products",
+      "plan.unlimited": "Unlimited",
+      "plan.changePlan": "Change plan",
+      "plans.choosePlan": "Choose a plan",
+      "plans.featureLocked": "Feature locked",
+      
+      // Settings
+      "settings.title": "Settings",
+      "settings.subscription": "My subscription",
+      "settings.language": "Language & Region",
+      "settings.languageDesc": "Customize display for your country",
+      "settings.appLanguage": "App language",
+      "settings.timezone": "Timezone",
+      "settings.dateFormat": "Date format",
+      "settings.timeFormat": "Time format",
+      "settings.currency": "Currency & Units",
+      "settings.currencyDesc": "Configure your currency preferences",
+      "settings.mainCurrency": "Main currency",
+      "settings.symbolPosition": "Symbol position",
+      "settings.weightUnit": "Weight unit",
+      "settings.stock": "Stock management",
+      "settings.stockDesc": "Calculation rules and alert thresholds",
+      "settings.thresholds": "Status thresholds",
+      "settings.criticalThreshold": "Critical threshold",
+      "settings.lowThreshold": "Low threshold",
+      "settings.alerts": "Alerts",
+      "settings.lowStockAlerts": "Low stock alerts",
+      "settings.valuation": "Valuation",
+      "settings.valuationMethod": "Valuation method",
+      "settings.freezeCMP": "Freeze avg cost",
+      "settings.allowNegative": "Allow negative stock",
+      "settings.saved": "Setting saved",
+      "settings.backupDownloaded": "Backup downloaded",
+      "settings.reset": "Settings reset",
+      "settings.thisThreshold": "this threshold",
+      "settings.aboveThreshold": "Above low threshold = Green (OK)",
+      "settings.cmpFull": "Weighted Average Cost",
+      "settings.fifoFull": "First In, First Out",
+      "settings.notifications": "Notifications",
+      "settings.notificationsDesc": "Configure your alerts",
+      "settings.notificationsEnabled": "Notifications enabled",
+      "settings.lowStockAlert": "Low stock alert",
+      "settings.notificationsLocked": "Upgrade to Pro to configure notifications.",
+      "settings.advanced": "Advanced settings",
+      "settings.freebiesPerOrder": "Freebies per order",
+      "settings.freebiesEnabled": "Freebies enabled",
+      "settings.dataAndSecurity": "Data & Security",
+      "settings.readOnlyMode": "Read-only mode",
+      "settings.exportData": "Export data",
+      "settings.downloadBackup": "Download backup",
+      "settings.resetSettings": "Reset settings",
+      "action.reset": "Reset",
+      
+      // Movements
+      "movement.restock": "Restock",
+      "movement.sale": "Sale",
+      "movement.adjustment": "Adjustment",
+      "movement.transfer": "Transfer",
+      "movement.return": "Return",
+      "movement.loss": "Loss",
+      "movement.production": "Production",
+      "movement.inventory": "Inventory",
+      
+      // Time
+      "time.justNow": "Just now",
+      "time.minutesAgo": "min ago",
+      "time.hoursAgo": "h ago",
+      "time.daysAgo": "d ago",
+      "common.days": "days",
+      
+      // Categories
+      "categories.manage": "Manage categories",
+      "categories.rename": "Rename category",
+      "categories.forProduct": "Categories for",
+      
+      // Batches & Expiry
+      "batches.title": "Batches & Expiry",
+      "batches.subtitle": "Traceability and expiry management",
+      "batches.lockedDesc": "Manage batches, track expiry dates and anticipate losses with Pro.",
+      "batches.feature1": "Full traceability",
+      "batches.feature2": "Automatic expiry alerts",
+      "batches.feature3": "Automatic FIFO / FEFO",
+      "batches.addBatch": "New batch",
+      "batches.markExpired": "Mark expired",
+      "batches.totalLots": "Total batches",
+      "batches.activeLots": "Active batches",
+      "batches.expiringSoon": "Expiring in 30d",
+      "batches.expiredLots": "Expired",
+      "batches.valueAtRisk": "Value at risk",
+      "batches.allProducts": "All products",
+      "batches.allStatus": "All statuses",
+      "batches.allDates": "All dates",
+      "batches.statusActive": "Active",
+      "batches.statusDepleted": "Depleted",
+      "batches.statusExpired": "Expired",
+      "batches.statusRecalled": "Recalled",
+      "batches.expiring7": "Expiring in 7d",
+      "batches.expiring15": "Expiring in 15d",
+      "batches.expiring30": "Expiring in 30d",
+      "batches.noLots": "No batches",
+      "batches.noLotsDesc": "Create your first batch to start traceability.",
+      "batches.noLotsForProduct": "No batches for this product",
+      "batches.createFirstLot": "Create first batch",
+      "batches.lotId": "Batch",
+      "batches.product": "Product",
+      "batches.stock": "Stock",
+      "batches.dlc": "Expiry",
+      "batches.daysLeft": "Days",
+      "batches.cost": "Cost",
+      "batches.value": "Value",
+      "batches.status": "Status",
+      "batches.expired": "Expired",
+      "batches.quantity": "Quantity",
+      "batches.costPerUnit": "Unit cost",
+      "batches.expiryType": "Date type",
+      "batches.expiryDate": "Expiry date",
+      "batches.supplierRef": "Supplier ref",
+      "batches.notes": "Notes",
+      "batches.errorRequired": "Product and quantity required",
+      "batches.lotCreated": "Batch created successfully",
+      "batches.adjustBatch": "Adjust batch",
+      "batches.adjustment": "Adjustment",
+      "batches.reason": "Reason",
+      "batches.errorAdjustment": "Enter an adjustment value",
+      "batches.lotAdjusted": "Batch adjusted",
+      "batches.lotDetails": "Batch details",
+      "batches.info": "Information",
+      "batches.history": "History",
+      "batches.received": "Received",
+      "batches.initial": "Initial",
+      "batches.remaining": "Remaining",
+      "batches.used": "Used",
+      "batches.expiry": "Expiry",
+      "batches.type": "Type",
+      "batches.date": "Date",
+      "batches.totalCost": "Total cost",
+      "batches.valueRemaining": "Remaining value",
+      "batches.lotDeactivated": "Batch deactivated",
+      "batches.markedExpired": "batches marked expired",
+      "batches.addAnotherLot": "Add another batch",
+      "batches.addBatchFor": "Add batch for",
+      "batches.adjust": "Adjust",
+      "batches.deactivate": "Deactivate",
+      "batches.confirmDeactivate": "Deactivate this batch?",
+      "batches.noMovements": "No movements",
+      
+      // Suppliers
+      "suppliers.title": "Suppliers",
+      "suppliers.subtitle": "Supplier management and sourcing",
+      "suppliers.lockedDesc": "Manage suppliers, compare prices and optimize purchases.",
+      "suppliers.feature1": "Complete supplier profiles",
+      "suppliers.feature2": "Product-supplier linking",
+      "suppliers.feature3": "Purchase history",
+      "suppliers.add": "New supplier",
+      "suppliers.total": "Suppliers",
+      "suppliers.active": "Active",
+      "suppliers.withProducts": "With products",
+      "suppliers.totalPurchased": "Total purchased",
+      "suppliers.search": "Search...",
+      "suppliers.allStatus": "All statuses",
+      "suppliers.statusActive": "Active",
+      "suppliers.statusInactive": "Inactive",
+      "suppliers.statusBlocked": "Blocked",
+      "suppliers.noSuppliers": "No suppliers",
+      "suppliers.noSuppliersDesc": "Add your first supplier to get started.",
+      "suppliers.name": "Name",
+      "suppliers.type": "Type",
+      "suppliers.email": "Email",
+      "suppliers.products": "Products",
+      "suppliers.lots": "Batches",
+      "suppliers.purchased": "Purchases",
+      "suppliers.status": "Status",
+      "suppliers.code": "Code",
+      "suppliers.typeProducer": "Producer",
+      "suppliers.typeWholesaler": "Wholesaler",
+      "suppliers.typeDistributor": "Distributor",
+      "suppliers.typeImporter": "Importer",
+      "suppliers.typeOther": "Other",
+      "suppliers.generalInfo": "General information",
+      "suppliers.contact": "Contact",
+      "suppliers.contactName": "Contact name",
+      "suppliers.phone": "Phone",
+      "suppliers.website": "Website",
+      "suppliers.country": "Country",
+      "suppliers.terms": "Terms",
+      "suppliers.paymentTerms": "Payment terms",
+      "suppliers.paymentImmediate": "Immediate",
+      "suppliers.paymentNet30": "Net 30",
+      "suppliers.paymentNet60": "Net 60",
+      "suppliers.deliveryDays": "Delivery time (days)",
+      "suppliers.minOrder": "Minimum order",
+      "suppliers.moq": "MOQ",
+      "suppliers.notes": "Notes",
+      "suppliers.errorName": "Name is required",
+      "suppliers.saved": "Supplier saved",
+      "suppliers.details": "Supplier details",
+      "suppliers.tabInfo": "Info",
+      "suppliers.tabProducts": "Products",
+      "suppliers.tabLots": "Batches",
+      "suppliers.tabAnalytics": "Analytics",
+      "suppliers.noProducts": "No linked products",
+      "suppliers.linkProduct": "Link a product",
+      "suppliers.avgPrice": "Average price",
+      "suppliers.lastPurchase": "Last purchase",
+      "suppliers.totalLots": "Batches",
+      "suppliers.totalSpent": "Total spent",
+      "suppliers.noLots": "No batches",
+      "suppliers.confirmDelete": "Delete this supplier?",
+      "suppliers.deleted": "Supplier deleted",
+      
+      // Orders
+      "orders.title": "Orders",
+      "orders.subtitle": "Purchase orders and customer sales",
+      "orders.lockedDesc": "Manage purchase orders and track your sales.",
+      "orders.feature1": "Purchase orders",
+      "orders.feature2": "Shopify sales import",
+      "orders.feature3": "Margin analysis",
+      "orders.tabPurchases": "Purchases",
+      "orders.tabSales": "Sales",
+      "orders.totalPO": "Orders",
+      "orders.pending": "Pending",
+      "orders.received": "Received",
+      "orders.totalValue": "Total value",
+      "orders.allStatus": "All statuses",
+      "orders.statusDraft": "Draft",
+      "orders.statusSent": "Sent",
+      "orders.statusConfirmed": "Confirmed",
+      "orders.statusPartial": "Partial",
+      "orders.statusComplete": "Complete",
+      "orders.statusCancelled": "Cancelled",
+      "orders.noPO": "No orders",
+      "orders.noPODesc": "Create your first purchase order.",
+      "orders.newPO": "New purchase order",
+      "orders.number": "Number",
+      "orders.supplier": "Supplier",
+      "orders.items": "items",
+      "orders.total": "Total",
+      "orders.date": "Date",
+      "orders.status": "Status",
+      "orders.selectSupplier": "Select a supplier",
+      "orders.addLine": "Add line",
+      "orders.product": "Product",
+      "orders.quantity": "Quantity",
+      "orders.unitPrice": "Unit price",
+      "orders.lineTotal": "Line total",
+      "orders.shipping": "Shipping",
+      "orders.notes": "Notes",
+      "orders.errorSupplier": "Select a supplier",
+      "orders.errorLines": "Add at least one line",
+      "orders.poCreated": "Order created",
+      "orders.poDetails": "Order",
+      "orders.poSent": "Order sent",
+      "orders.poConfirmed": "Order confirmed",
+      "orders.poReceived": "Order received - stock updated",
+      "orders.poCancelled": "Order cancelled",
+      "orders.confirmCancel": "Cancel this order?",
+      "orders.send": "Send",
+      "orders.confirm": "Confirm",
+      "orders.receive": "Receive",
+      "orders.salesCount": "Orders",
+      "orders.revenue": "Revenue",
+      "orders.margin": "Margin",
+      "orders.marginPct": "Margin %",
+      "orders.avgOrder": "Avg. order",
+      "orders.period": "Period",
+      "orders.seeAnalytics": "See Analytics for revenue, margins and detailed trends",
+      "orders.last7": "Last 7 days",
+      "orders.last30": "Last 30 days",
+      "orders.last90": "Last 90 days",
+      "orders.allSources": "All sources",
+      "orders.manual": "Manual",
+      "orders.noSales": "No sales",
+      "orders.noSalesDesc": "Import your Shopify sales to see margins.",
+      "orders.importShopify": "Import Shopify",
+      "orders.importing": "Importing...",
+      "orders.imported": "orders imported",
+      "orders.source": "Source",
+      "orders.customer": "Customer",
+      
+      // Kits & Bundles
+      "kits.title": "Kits & Bundles",
+      "kits.subtitle": "Packs, bundles and recipes",
+      "kits.lockedDesc": "Create packs, bundles and recipes.",
+      "kits.newKit": "New kit",
+      "kits.created": "Kit created",
+      "kits.addComponent": "Add component",
+      "kits.componentAdded": "Component added",
+      "kits.componentRemoved": "Component removed",
+      "kits.activated": "Kit activated",
+      "kits.deleted": "Kit deleted",
+      "kits.confirmDelete": "Delete this kit?",
+      "kits.assemble": "Assemble kits",
+      
+      // Forecast
+      "forecast.title": "Forecast",
+      "forecast.subtitle": "Anticipate your stock needs",
+      "forecast.lockedDesc": "Predict stockouts and optimize your orders.",
+      "forecast.feature1": "Stockout prediction",
+      "forecast.feature2": "Order recommendations",
+      "forecast.feature3": "Multiple scenarios",
+      "forecast.healthScore": "Stock health",
+      "forecast.urgent": "Urgent",
+      "forecast.avgCoverage": "Avg. coverage",
+      "forecast.toOrder": "To order",
+      "forecast.allStatus": "All statuses",
+      "forecast.critical": "Critical (<7d)",
+      "forecast.urgentStatus": "Urgent (<14d)",
+      "forecast.watch": "Watch",
+      "forecast.outOfStock": "Out of stock",
+      "forecast.overstock": "Overstock",
+      "forecast.noData": "No data",
+      "forecast.allCategories": "All categories",
+      "forecast.product": "Product",
+      "forecast.stock": "Stock",
+      "forecast.avgSales": "Avg. sales",
+      "forecast.coverage": "Coverage",
+      "forecast.stockout": "Est. stockout",
+      "forecast.reorder": "To order",
+      "forecast.status": "Status",
+      "forecast.scenarios": "Scenarios",
+      "forecast.pessimistic": "Pessimistic",
+      "forecast.normal": "Normal",
+      "forecast.optimistic": "Optimistic",
+      "forecast.howCalculated": "How this is calculated",
+      
+      // Inventory
+      "inventory.title": "Inventory",
+      "inventory.subtitle": "Counting sessions and adjustments",
+      "inventory.lockedDesc": "Counting sessions, discrepancies and full audit.",
+      "inventory.feature1": "Counting sessions",
+      "inventory.feature2": "Theoretical vs counted discrepancies",
+      "inventory.feature3": "Full audit trail",
+      "inventory.newSession": "New inventory session",
+      "inventory.sessionCreated": "Session created",
+      "inventory.sessionStarted": "Session started",
+      "inventory.sessionValidated": "Session validated",
+      "inventory.sessionDuplicated": "Session duplicated",
+      "inventory.sessionArchived": "Session archived",
+      "inventory.clickStart": "Click Start to begin counting.",
+      "inventory.sessionFinished": "This session is finished.",
+      "inventory.noSessions": "No sessions",
+      "inventory.createFirst": "Create your first inventory session.",
+      "inventory.session": "Session",
+      "inventory.scope": "Scope",
+      "inventory.progress": "Progress",
+      "inventory.discrepancies": "Discrepancies",
+      "inventory.value": "Value",
+      "inventory.statusDraft": "Draft",
+      "inventory.statusInProgress": "In progress",
+      "inventory.statusReviewed": "Reviewed",
+      "inventory.statusApplied": "Applied",
+      "inventory.statusArchived": "Archived",
+      
+      // Enhanced Dashboard
+      "dashboard.quickActions": "Quick actions",
+      "dashboard.quickRestock": "Quick restock",
+      "dashboard.quickAdjust": "Adjustment",
+      "dashboard.scanBarcode": "Scanner",
+      "dashboard.alerts": "Alerts",
+      "dashboard.outOfStock": "product(s) out of stock",
+      "dashboard.lowStockAlert": "product(s) low stock",
+      "dashboard.lowStockProducts": "Low stock products",
+      "dashboard.outOfStockProducts": "Out of stock products",
+      "dashboard.noLowStock": "No low stock products",
+      "dashboard.noOutOfStock": "No out of stock products",
+      "dashboard.remaining": "remaining",
+      "dashboard.inventory": "Inventory",
+      
+      // Actions
+      "action.selectProduct": "Select...",
+      "action.restock": "Restock",
+      "action.confirm": "Confirm",
+      "action.search": "Search",
+      "action.create": "Create",
+      "action.back": "Back",
+      
+      // Products
+      "products.quantity": "Quantity",
+      "products.note": "Note",
+      "products.optional": "optional",
+      "products.notePlaceholder": "Ex: Supplier delivery",
+      "products.newStock": "New stock",
+      "products.reason": "Reason",
+      
+      // Adjustment reasons
+      "reason.count": "Inventory count",
+      "reason.damage": "Damaged product",
+      "reason.theft": "Theft/Loss",
+      "reason.correction": "Error correction",
+      
+      // Messages
+      "msg.selectProduct": "Select a product",
+      "msg.invalidQty": "Invalid quantity",
+      "msg.restockSuccess": "Restock completed",
+      "msg.adjustSuccess": "Adjustment completed",
+      
+      // Scanner
+      "scanner.title": "Barcode scanner",
+      "scanner.initializing": "Initializing camera...",
+      "scanner.notSupported": "Camera not supported on this browser",
+      "scanner.ready": "Camera ready - Present a barcode",
+      "scanner.manualEntry": "Or enter manually",
+      "scanner.barcodePlaceholder": "Barcode...",
+      "scanner.enterBarcode": "Enter a barcode",
+      "scanner.notFound": "Product not found",
+      "scanner.notFoundMsg": "No product found with code",
+      "scanner.notFoundHint": "Make sure the barcode is configured on the product in Shopify.",
+      "scanner.scanAgain": "Scan again",
+      "scanner.manualOnly": "Auto detection not supported - use manual entry",
+      "scanner.cameraError": "Camera error",
+      
+      // Keyboard shortcuts
+      "shortcuts.title": "Keyboard shortcuts",
+      "shortcuts.search": "Search",
+      "shortcuts.newProduct": "New product",
+      "shortcuts.quickRestock": "Quick restock",
+      "shortcuts.scanner": "Barcode scanner",
+      "shortcuts.dashboard": "Dashboard",
+      "shortcuts.products": "Products",
+      "shortcuts.closeModal": "Close window",
+      "shortcuts.help": "Show this help",
+      
+      // Tutorials
+      "tutorial.title": "Quick guide",
+      "tutorial.dontShowAgain": "Don't show again for this tab",
+      "tutorial.understood": "Got it!",
+      "tutorial.reset": "Tutorials reset",
+      "tutorial.allTutorials": "All tutorials",
+      "tutorial.resetAll": "Reset all",
+      "tutorial.seen": "Seen",
+      "tutorial.notSeen": "Not seen",
+      
+      // Dashboard Tutorial
+      "tutorial.dashboard.title": "Welcome to the Dashboard!",
+      "tutorial.dashboard.step1": "View your key statistics: number of products, total stock, and value.",
+      "tutorial.dashboard.step2": "Alerts notify you of low stock or out-of-stock products.",
+      "tutorial.dashboard.step3": "Use quick actions to restock, scan, or adjust stock.",
+      "tutorial.dashboard.step4": "Recent movements show your stock activity.",
+      "tutorial.dashboard.tip": "Tip: Press ? to see all keyboard shortcuts!",
+      
+      // Products Tutorial
+      "tutorial.products.title": "Product Management",
+      "tutorial.products.step1": "Search your products by name, SKU, or barcode.",
+      "tutorial.products.step2": "Filter by category and sort as needed.",
+      "tutorial.products.step3": "Use the scanner to find a product quickly.",
+      "tutorial.products.step4": "Click on a product to view details and adjust stock.",
+      "tutorial.products.tip": "Tip: Shortcut N to add a product, R for quick restock!",
+      
+      // Batches Tutorial
+      "tutorial.batches.title": "Batches & Expiry",
+      "tutorial.batches.step1": "Manage expiration dates of your products.",
+      "tutorial.batches.step2": "Get alerts for batches nearing expiration.",
+      "tutorial.batches.step3": "Track the traceability of each incoming batch.",
+      "tutorial.batches.tip": "Expired batches are automatically highlighted in red.",
+      
+      // Suppliers Tutorial
+      "tutorial.suppliers.title": "Supplier Management",
+      "tutorial.suppliers.step1": "Centralize your supplier information.",
+      "tutorial.suppliers.step2": "Keep their contacts and terms at hand.",
+      "tutorial.suppliers.step3": "Link products to their suppliers for optimal tracking.",
+      "tutorial.suppliers.tip": "Add delivery times to anticipate your orders.",
+      
+      // Orders Tutorial
+      "tutorial.orders.title": "Orders",
+      "tutorial.orders.step1": "Create purchase orders to your suppliers.",
+      "tutorial.orders.step2": "Track the status of your ongoing orders.",
+      "tutorial.orders.step3": "Receive orders to automatically update stock.",
+      "tutorial.orders.tip": "Import your Shopify orders for complete tracking.",
+      
+      // Forecast Tutorial
+      "tutorial.forecast.title": "Forecasts",
+      "tutorial.forecast.step1": "Analyze sales trends of your products.",
+      "tutorial.forecast.step2": "Anticipate stockouts with forecasts.",
+      "tutorial.forecast.step3": "Receive restock suggestions.",
+      "tutorial.forecast.tip": "The more history you have, the more accurate the forecasts.",
+      
+      // Kits Tutorial
+      "tutorial.kits.title": "Kits & Bundles",
+      "tutorial.kits.step1": "Create kits made up of multiple products.",
+      "tutorial.kits.step2": "Component stock is automatically deducted.",
+      "tutorial.kits.step3": "Simulate assembly before confirming.",
+      "tutorial.kits.tip": "Use kits for your gift boxes or promo packs.",
+      
+      // Analytics Tutorial
+      "tutorial.analytics.title": "Analytics",
+      "tutorial.analytics.step1": "View stock distribution by category.",
+      "tutorial.analytics.step2": "Track the evolution of your inventory value.",
+      "tutorial.analytics.step3": "Analyze movements to optimize your management.",
+      "tutorial.analytics.tip": "Export your reports to PDF or Excel.",
+      
+      // Inventory Tutorial
+      "tutorial.inventory.title": "Inventory",
+      "tutorial.inventory.step1": "Create full or partial inventory sessions.",
+      "tutorial.inventory.step2": "Use the scanner to count faster.",
+      "tutorial.inventory.step3": "Compare theoretical vs actual stock and validate discrepancies.",
+      "tutorial.inventory.tip": "Schedule regular inventories for better accuracy.",
+      
+      // Settings Tutorial
+      "tutorial.settings.title": "Settings",
+      "tutorial.settings.step1": "Configure language and measurement units.",
+      "tutorial.settings.step2": "Customize your stock alert thresholds.",
+      "tutorial.settings.step3": "Adapt the interface to your preferences.",
+      "tutorial.settings.tip": "Back up your settings to restore them easily.",
+      
+      // Settings - Help
+      "settings.helpAndSupport": "Help & Support",
+      "settings.tutorials": "Tutorials",
+      "settings.viewTutorials": "View tutorials",
+      "settings.shortcuts": "Keyboard shortcuts",
+      "settings.viewShortcuts": "View shortcuts",
+      "settings.resetTutorials": "Review tutorials",
+      "settings.resetTutorialsBtn": "Reset",
+      
+      // Profiles
+      "profiles.whoIsConnecting": "Who's connecting?",
+      "profiles.welcome": "Welcome",
+      "profiles.myProfile": "My profile",
+      "profiles.switchProfile": "Switch profile",
+      "profiles.createNew": "New profile",
+      "profiles.createProfile": "Create profile",
+      "profiles.name": "Name",
+      "profiles.namePlaceholder": "Ex: Mary, John...",
+      "profiles.nameRequired": "Name is required",
+      "profiles.role": "Role",
+      "profiles.roleUser": "User",
+      "profiles.roleManager": "Manager",
+      "profiles.roleAdmin": "Administrator",
+      "profiles.color": "Color",
+      "profiles.created": "Profile created",
+      
+      // Notifications
+      "notifications.title": "Notifications",
+      "notifications.noAlerts": "No alerts",
+      "notifications.allGood": "All good!",
+      "notifications.lockedDesc": "Alerts are available with the Pro plan.",
+    },
+    
+    // =========================================
+    // DEUTSCH (DE)
+    // =========================================
+    de: {
+      // Navigation
+      "nav.dashboard": "Dashboard",
+      "nav.products": "Produkte",
+      "nav.batches": "Chargen & MHD",
+      "nav.suppliers": "Lieferanten",
+      "nav.orders": "Bestellungen",
+      "nav.forecast": "Prognose",
+      "nav.kits": "Kits & Bundles",
+      "nav.analytics": "Analytics",
+      "nav.inventory": "Inventur",
+      "nav.settings": "Einstellungen",
+      
+      // Dashboard
+      "dashboard.title": "Dashboard",
+      "dashboard.subtitle": "Ubersicht",
+      "dashboard.products": "Produkte",
+      "dashboard.totalStock": "Gesamtbestand",
+      "dashboard.value": "Wert",
+      "dashboard.lowStock": "Niedriger Bestand",
+      "dashboard.sync": "Sync",
+      "dashboard.addProduct": "+ Produkt",
+      "dashboard.viewAll": "Alle anzeigen",
+      "dashboard.recentMovements": "Letzte Bewegungen",
+      "dashboard.noMovements": "Keine Bewegungen",
+      
+      // Products
+      "products.title": "Produkte",
+      "products.search": "Suchen...",
+      "products.allCategories": "Alle Kategorien",
+      "products.noCategory": "Ohne Kategorie",
+      "products.name": "Name",
+      "products.stock": "Bestand",
+      "products.cmp": "Durchschnittkosten",
+      "products.value": "Wert",
+      "products.status": "Status",
+      "products.add": "Produkt hinzufugen",
+      "products.added": "Produkt hinzugefugt",
+      "products.adjustStock": "Bestand anpassen",
+      "products.details": "Produktdetails",
+      "products.restock": "Nachbestellen",
+      "products.product": "Produkt",
+      
+      // Status
+      "status.ok": "OK",
+      "status.low": "Niedrig",
+      "status.critical": "Kritisch",
+      "status.outOfStock": "Ausverkauft",
+      
+      // Actions
+      "action.save": "Speichern",
+      "action.cancel": "Abbrechen",
+      "action.close": "Schliessen",
+      "action.edit": "Bearbeiten",
+      "action.delete": "Loschen",
+      "action.add": "Hinzufugen",
+      "action.sync": "Synchronisieren",
+      "action.upgrade": "Auf PRO upgraden",
+      
+      // Messages
+      "msg.loading": "Laden...",
+      "msg.error": "Fehler",
+      "msg.success": "Erfolg",
+      "msg.featureLocked": "Funktion gesperrt",
+      "msg.nameRequired": "Name erforderlich",
+      "msg.noProducts": "Keine Produkte anzuzeigen.",
+      "msg.noEvents": "Keine Ereignisse.",
+      
+      // Settings
+      "settings.title": "Einstellungen",
+      "settings.subscription": "Mein Abonnement",
+      "settings.language": "Sprache & Region",
+      "settings.appLanguage": "App-Sprache",
+      "settings.timezone": "Zeitzone",
+      "settings.currency": "Wahrung & Einheiten",
+      "settings.mainCurrency": "Hauptwahrung",
+      "settings.weightUnit": "Gewichtseinheit",
+      "settings.saved": "Einstellung gespeichert",
+      
+      // Plans
+      "plan.free": "Kostenlos",
+      "plan.starter": "Starter",
+      "plan.pro": "Pro",
+      "plan.business": "Business",
+      "plan.daysLeft": "Tage ubrig",
+      "plan.products": "Produkte",
+      "plan.unlimited": "Unbegrenzt",
+      "plans.choosePlan": "Plan wahlen",
+      "plans.featureLocked": "Funktion gesperrt",
+      
+      // Batches
+      "batches.title": "Chargen & MHD",
+      "batches.addBatch": "Neue Charge",
+      "batches.noLots": "Keine Chargen",
+      "batches.product": "Produkt",
+      "batches.stock": "Bestand",
+      "batches.status": "Status",
+      
+      // Suppliers
+      "suppliers.title": "Lieferanten",
+      "suppliers.add": "Neuer Lieferant",
+      "suppliers.noSuppliers": "Keine Lieferanten",
+      "suppliers.name": "Name",
+      
+      // Orders
+      "orders.title": "Bestellungen",
+      "orders.newPO": "Neue Bestellung",
+      "orders.noPO": "Keine Bestellungen",
+      
+      // Kits
+      "kits.title": "Kits & Bundles",
+      "kits.newKit": "Neues Kit",
+      "kits.created": "Kit erstellt",
+      
+      // Forecast
+      "forecast.title": "Prognose",
+      
+      // Inventory
+      "inventory.title": "Inventur",
+      "inventory.newSession": "Neue Inventursitzung",
+      "inventory.sessionCreated": "Sitzung erstellt",
+      
+      // Erweitertes Dashboard
+      "dashboard.quickActions": "Schnellaktionen",
+      "dashboard.quickRestock": "Schnelle Auffüllung",
+      "dashboard.quickAdjust": "Anpassung",
+      "dashboard.scanBarcode": "Scanner",
+      "dashboard.alerts": "Warnungen",
+      "dashboard.outOfStock": "Produkt(e) nicht vorrätig",
+      "dashboard.lowStockAlert": "Produkt(e) niedriger Bestand",
+      "dashboard.lowStockProducts": "Produkte mit niedrigem Bestand",
+      "dashboard.outOfStockProducts": "Nicht vorrätige Produkte",
+      "dashboard.remaining": "verbleibend",
+      "dashboard.inventory": "Inventur",
+      
+      // Aktionen
+      "action.selectProduct": "Auswählen...",
+      "action.restock": "Auffüllen",
+      "action.confirm": "Bestätigen",
+      "action.search": "Suchen",
+      
+      // Scanner
+      "scanner.title": "Barcode-Scanner",
+      "scanner.ready": "Kamera bereit - Barcode zeigen",
+      "scanner.manualEntry": "Oder manuell eingeben",
+      "scanner.notFound": "Produkt nicht gefunden",
+      "scanner.scanAgain": "Erneut scannen",
+      
+      // Tastaturkürzel
+      "shortcuts.title": "Tastaturkürzel",
+      "shortcuts.search": "Suchen",
+      "shortcuts.newProduct": "Neues Produkt",
+      
+      // Tutorials
+      "tutorial.title": "Kurzanleitung",
+      "tutorial.dontShowAgain": "Für diesen Tab nicht mehr anzeigen",
+      "tutorial.understood": "Verstanden!",
+      "tutorial.allTutorials": "Alle Tutorials",
+      
+      "tutorial.dashboard.title": "Willkommen im Dashboard!",
+      "tutorial.dashboard.step1": "Sehen Sie Ihre wichtigsten Statistiken: Produktanzahl, Gesamtbestand und Wert.",
+      "tutorial.dashboard.tip": "Tipp: Drücken Sie ? um alle Tastaturkürzel zu sehen!",
+      
+      "tutorial.products.title": "Produktverwaltung",
+      "tutorial.products.step1": "Suchen Sie Ihre Produkte nach Name, SKU oder Barcode.",
+      "tutorial.products.tip": "Tipp: Kürzel N für neues Produkt, R für schnelle Auffüllung!",
+      
+      // Einstellungen - Hilfe
+      "settings.helpAndSupport": "Hilfe & Support",
+      "settings.tutorials": "Tutorials",
+      "settings.viewTutorials": "Tutorials anzeigen",
+      "settings.shortcuts": "Tastaturkürzel",
+      
+      // Profile
+      "profiles.whoIsConnecting": "Wer meldet sich an?",
+      "profiles.welcome": "Willkommen",
+      "profiles.myProfile": "Mein Profil",
+      "profiles.createNew": "Neues Profil",
+      
+      // Benachrichtigungen
+      "notifications.title": "Benachrichtigungen",
+      "notifications.noAlerts": "Keine Warnungen",
+      "notifications.allGood": "Alles in Ordnung!",
+    },
+    
+    // =========================================
+    // ESPAÃ‘OL (ES)
+    // =========================================
+    es: {
+      // Navigation
+      "nav.dashboard": "Panel",
+      "nav.products": "Productos",
+      "nav.batches": "Lotes y Caducidad",
+      "nav.suppliers": "Proveedores",
+      "nav.orders": "Pedidos",
+      "nav.forecast": "Previsiones",
+      "nav.kits": "Kits y Paquetes",
+      "nav.analytics": "Analytics",
+      "nav.inventory": "Inventario",
+      "nav.settings": "Configuracion",
+      
+      // Dashboard
+      "dashboard.title": "Panel",
+      "dashboard.subtitle": "Vista general",
+      "dashboard.products": "Productos",
+      "dashboard.totalStock": "Stock total",
+      "dashboard.value": "Valor",
+      "dashboard.lowStock": "Stock bajo",
+      "dashboard.sync": "Sync",
+      "dashboard.addProduct": "+ Producto",
+      "dashboard.viewAll": "Ver todo",
+      "dashboard.recentMovements": "Movimientos recientes",
+      "dashboard.noMovements": "Sin movimientos",
+      
+      // Products
+      "products.title": "Productos",
+      "products.search": "Buscar...",
+      "products.allCategories": "Todas las categorias",
+      "products.noCategory": "Sin categoria",
+      "products.name": "Nombre",
+      "products.stock": "Stock",
+      "products.value": "Valor",
+      "products.status": "Estado",
+      "products.add": "Anadir producto",
+      "products.added": "Producto anadido",
+      "products.adjustStock": "Ajustar stock",
+      "products.details": "Detalles del producto",
+      "products.restock": "Reabastecer",
+      "products.product": "Producto",
+      
+      // Status
+      "status.ok": "OK",
+      "status.low": "Bajo",
+      "status.critical": "Critico",
+      "status.outOfStock": "Agotado",
+      
+      // Actions
+      "action.save": "Guardar",
+      "action.cancel": "Cancelar",
+      "action.close": "Cerrar",
+      "action.edit": "Editar",
+      "action.delete": "Eliminar",
+      "action.add": "Anadir",
+      "action.upgrade": "Actualizar a PRO",
+      
+      // Messages
+      "msg.loading": "Cargando...",
+      "msg.error": "Error",
+      "msg.success": "Exito",
+      "msg.featureLocked": "Funcion bloqueada",
+      "msg.nameRequired": "Nombre requerido",
+      "msg.noProducts": "No hay productos que mostrar.",
+      "msg.noEvents": "Sin eventos.",
+      
+      // Settings
+      "settings.title": "Configuracion",
+      "settings.subscription": "Mi suscripcion",
+      "settings.language": "Idioma y Region",
+      "settings.appLanguage": "Idioma de la app",
+      "settings.currency": "Moneda y Unidades",
+      "settings.mainCurrency": "Moneda principal",
+      "settings.weightUnit": "Unidad de peso",
+      "settings.saved": "Configuracion guardada",
+      
+      // Plans
+      "plan.free": "Gratis",
+      "plan.starter": "Starter",
+      "plan.pro": "Pro",
+      "plan.business": "Business",
+      "plan.daysLeft": "dias restantes",
+      "plan.products": "productos",
+      "plan.unlimited": "Ilimitado",
+      "plans.choosePlan": "Elegir plan",
+      "plans.featureLocked": "Funcion bloqueada",
+      
+      // Batches
+      "batches.title": "Lotes y Caducidad",
+      "batches.addBatch": "Nuevo lote",
+      "batches.noLots": "Sin lotes",
+      "batches.product": "Producto",
+      "batches.stock": "Stock",
+      "batches.status": "Estado",
+      
+      // Suppliers
+      "suppliers.title": "Proveedores",
+      "suppliers.add": "Nuevo proveedor",
+      "suppliers.noSuppliers": "Sin proveedores",
+      "suppliers.name": "Nombre",
+      
+      // Orders
+      "orders.title": "Pedidos",
+      "orders.newPO": "Nuevo pedido",
+      "orders.noPO": "Sin pedidos",
+      
+      // Kits
+      "kits.title": "Kits y Paquetes",
+      "kits.newKit": "Nuevo kit",
+      "kits.created": "Kit creado",
+      
+      // Forecast
+      "forecast.title": "Previsiones",
+      
+      // Inventory
+      "inventory.title": "Inventario",
+      "inventory.newSession": "Nueva sesion de inventario",
+      "inventory.sessionCreated": "Sesion creada",
+      
+      // Dashboard mejorado
+      "dashboard.quickActions": "Acciones rápidas",
+      "dashboard.quickRestock": "Reposición rápida",
+      "dashboard.quickAdjust": "Ajuste",
+      "dashboard.scanBarcode": "Escáner",
+      "dashboard.alerts": "Alertas",
+      "dashboard.outOfStock": "producto(s) agotado(s)",
+      "dashboard.lowStockAlert": "producto(s) stock bajo",
+      "dashboard.lowStockProducts": "Productos con stock bajo",
+      "dashboard.outOfStockProducts": "Productos agotados",
+      "dashboard.remaining": "restante",
+      "dashboard.inventory": "Inventario",
+      
+      // Acciones
+      "action.selectProduct": "Seleccionar...",
+      "action.restock": "Reponer",
+      "action.confirm": "Confirmar",
+      "action.search": "Buscar",
+      
+      // Escáner
+      "scanner.title": "Escáner de código de barras",
+      "scanner.ready": "Cámara lista - Presente un código de barras",
+      "scanner.manualEntry": "O ingresar manualmente",
+      "scanner.notFound": "Producto no encontrado",
+      "scanner.scanAgain": "Escanear de nuevo",
+      
+      // Atajos de teclado
+      "shortcuts.title": "Atajos de teclado",
+      "shortcuts.search": "Buscar",
+      "shortcuts.newProduct": "Nuevo producto",
+      
+      // Tutoriales
+      "tutorial.title": "Guía rápida",
+      "tutorial.dontShowAgain": "No mostrar de nuevo para esta pestaña",
+      "tutorial.understood": "¡Entendido!",
+      "tutorial.allTutorials": "Todos los tutoriales",
+      
+      "tutorial.dashboard.title": "¡Bienvenido al Panel!",
+      "tutorial.dashboard.step1": "Vea sus estadísticas clave: número de productos, stock total y valor.",
+      "tutorial.dashboard.tip": "Consejo: ¡Presione ? para ver todos los atajos de teclado!",
+      
+      "tutorial.products.title": "Gestión de Productos",
+      "tutorial.products.step1": "Busque sus productos por nombre, SKU o código de barras.",
+      "tutorial.products.tip": "Consejo: Atajo N para nuevo producto, R para reposición rápida!",
+      
+      // Configuración - Ayuda
+      "settings.helpAndSupport": "Ayuda y Soporte",
+      "settings.tutorials": "Tutoriales",
+      "settings.viewTutorials": "Ver tutoriales",
+      "settings.shortcuts": "Atajos de teclado",
+      
+      // Perfiles
+      "profiles.whoIsConnecting": "¿Quién se conecta?",
+      "profiles.welcome": "Bienvenido",
+      "profiles.myProfile": "Mi perfil",
+      "profiles.createNew": "Nuevo perfil",
+      
+      // Notificaciones
+      "notifications.title": "Notificaciones",
+      "notifications.noAlerts": "Sin alertas",
+      "notifications.allGood": "¡Todo bien!",
+    },
+  },
+  
+  // =========================================
+  // MÃ‰THODES
+  // =========================================
+  
+  setLanguage: function(lang) {
+    if (this.translations[lang]) {
+      this.currentLang = lang;
+      console.log("[i18n] Language set to:", lang);
+      return true;
+    }
+    console.warn("[i18n] Language not found:", lang);
     return false;
-  }
-}
-
-const INDEX_HTML = fileExists(path.join(PUBLIC_DIR, "index.html"))
-  ? path.join(PUBLIC_DIR, "index.html")
-  : path.join(ROOT_DIR, "index.html");
-
-// =====================================================
-// Helpers
-// =====================================================
-
-function resolveShopFallback() {
-  const envShopName = String(process.env.SHOP_NAME || "").trim();
-  const envShop = envShopName ? normalizeShopDomain(envShopName) : "";
-  return envShop;
-}
-
-function shopFromHostParam(hostParam) {
-  try {
-    const raw = String(hostParam || "").trim();
-    if (!raw) return "";
-    const decoded = Buffer.from(raw, "base64").toString("utf8");
-    const domain = decoded.split("/")[0].trim();
-    return domain ? normalizeShopDomain(domain) : "";
-  } catch {
-    return "";
-  }
-}
-
-function getShop(req) {
-  // aÃ…â€œÃ¢â‚¬Â¦ priorite: shop determine par middleware auth (session token)
-  const fromAuth = String(req.shopDomain || "").trim();
-  if (fromAuth) return normalizeShopDomain(fromAuth);
-
-  const q = String(req.query?.shop || "").trim();
-  if (q) return normalizeShopDomain(q);
-
-  const hostQ = String(req.query?.host || "").trim();
-  const hostShop = shopFromHostParam(hostQ);
-  if (hostShop) return hostShop;
-
-  const h = String(req.get("X-Shopify-Shop-Domain") || "").trim();
-  if (h) return normalizeShopDomain(h);
-
-  const envShop = resolveShopFallback();
-  if (envShop) return envShop;
-
-  return "";
-}
-
-function verifyShopifyWebhook(rawBodyBuffer, hmacHeader) {
-  const secret = process.env.SHOPIFY_WEBHOOK_SECRET;
-  if (!secret) return true;
-  const hash = crypto.createHmac("sha256", secret).update(rawBodyBuffer).digest("base64");
-  return hash === hmacHeader;
-}
-
-function apiError(res, code, message, extra) {
-  return res.status(code).json({ error: message, ...(extra ? { extra } : {}) });
-}
-
-// aÃ…â€œÃ¢â‚¬Â¦ OAuth helpers
-function verifyOAuthHmac(query) {
-  const { hmac, ...rest } = query || {};
-  if (!hmac || !SHOPIFY_API_SECRET) return false;
-
-  const message = Object.keys(rest)
-    .sort()
-    .map((k) => `${k}=${Array.isArray(rest[k]) ? rest[k].join(",") : rest[k]}`)
-    .join("&");
-
-  const digest = crypto.createHmac("sha256", SHOPIFY_API_SECRET).update(message).digest("hex");
-  const hmacStr = String(hmac);
-
-  if (hmacStr.length !== digest.length) return false;
-  try {
-    return crypto.timingSafeEqual(Buffer.from(digest, "utf8"), Buffer.from(hmacStr, "utf8"));
-  } catch {
-    return false;
-  }
-}
-
-function requireOAuthEnv(res) {
-  if (!SHOPIFY_API_KEY) return apiError(res, 500, "SHOPIFY_API_KEY manquant");
-  if (!SHOPIFY_API_SECRET) return apiError(res, 500, "SHOPIFY_API_SECRET manquant");
-  if (!OAUTH_SCOPES)
-    return apiError(res, 500, "SHOPIFY_SCOPES manquant (ex: read_products,write_inventory,...)");
-  if (!process.env.RENDER_PUBLIC_URL) {
-    return apiError(res, 500, "RENDER_PUBLIC_URL manquant (ex: https://stock-cbd-manager.onrender.com)");
-  }
-  return null;
-}
-
-// ===============================
-// aÃ…â€œÃ¢â‚¬Â¦ Shopify Session Token (JWT)
-// ===============================
-function base64UrlToBuffer(str) {
-  const s = String(str || "")
-    .replace(/-/g, "+")
-    .replace(/_/g, "/")
-    .padEnd(Math.ceil(String(str || "").length / 4) * 4, "=");
-  return Buffer.from(s, "base64");
-}
-
-function parseShopFromDestOrIss(payload) {
-  const dest = String(payload?.dest || "").trim(); // "https://xxx.myshopify.com"
-  if (dest) return normalizeShopDomain(dest);
-
-  const iss = String(payload?.iss || "").trim(); // "https://xxx.myshopify.com/admin"
-  if (iss) {
-    const noProto = iss.replace(/^https?:\/\//i, "");
-    const domain = noProto.split("/")[0].trim();
-    return normalizeShopDomain(domain);
-  }
-  return "";
-}
-
-function verifySessionToken(token) {
-  if (!SHOPIFY_API_SECRET) return { ok: false, error: "SHOPIFY_API_SECRET manquant (JWT verify)" };
-
-  const t = String(token || "").trim();
-  const parts = t.split(".");
-  if (parts.length !== 3) return { ok: false, error: "Session token JWT invalide" };
-
-  const [h64, p64, s64] = parts;
-
-  let header = null;
-  let payload = null;
-  try {
-    header = JSON.parse(base64UrlToBuffer(h64).toString("utf8"));
-    payload = JSON.parse(base64UrlToBuffer(p64).toString("utf8"));
-  } catch {
-    return { ok: false, error: "JWT illisible" };
-  }
-
-  if (String(header?.alg || "") !== "HS256") return { ok: false, error: "JWT alg non supporte" };
-
-  // Signature check
-  const signingInput = `${h64}.${p64}`;
-  const expected = crypto.createHmac("sha256", SHOPIFY_API_SECRET).update(signingInput).digest();
-  const got = base64UrlToBuffer(s64);
-
-  if (got.length !== expected.length) return { ok: false, error: "JWT signature invalide" };
-  try {
-    if (!crypto.timingSafeEqual(expected, got)) return { ok: false, error: "JWT signature invalide" };
-  } catch {
-    return { ok: false, error: "JWT signature invalide" };
-  }
-
-  const now = Math.floor(Date.now() / 1000);
-
-  const exp = Number(payload?.exp);
-  if (Number.isFinite(exp) && exp <= now) return { ok: false, error: "Session token expire" };
-
-  const nbf = Number(payload?.nbf);
-  if (Number.isFinite(nbf) && nbf > now) return { ok: false, error: "Session token pas encore valide" };
-
-  // aud check (should match API key)
-  if (SHOPIFY_API_KEY) {
-    const aud = payload?.aud;
-    const audOk = Array.isArray(aud) ? aud.includes(SHOPIFY_API_KEY) : String(aud || "") === SHOPIFY_API_KEY;
-    if (!audOk) return { ok: false, error: "JWT audience invalide" };
-  }
-
-  return { ok: true, payload, header };
-}
-
-function extractBearerToken(req) {
-  const auth = String(req.get("Authorization") || "").trim();
-  if (auth.toLowerCase().startsWith("bearer ")) return auth.slice(7).trim();
-
-  const x = String(req.get("X-Shopify-Session-Token") || "").trim();
-  if (x) return x;
-
-  return "";
-}
-
-function requireApiAuth(req, res, next) {
-  if (!API_AUTH_REQUIRED) return next();
-
-  // Laisse passer l'OAuth install/callback
-  if (req.path === "/auth/start" || req.path === "/auth/callback") return next();
-
-  // Ã¢Å“â€¦ config publique (front App Bridge)
-  if (req.path === "/public/config") return next();
-
-  // Ã¢Å“â€¦ returnUrl Shopify Billing (apres acceptation abonnement)
-  if (req.path === "/billing/return" || req.path === "/api/billing/return") return next();
-
-  const token = extractBearerToken(req);
-  if (!token) {
-    return res.status(401).json({
-      error: "unauthorized",
-      reason: "missing_session_token",
-      hint: "This endpoint must be called from an embedded Shopify app",
-    });
-  }
-
-  const verified = verifySessionToken(token);
-  if (!verified.ok) return apiError(res, 401, verified.error);
-
-  const shop = parseShopFromDestOrIss(verified.payload);
-  if (!shop) return apiError(res, 401, "Shop introuvable dans le session token");
-
-  req.shopDomain = shop;
-  req.sessionTokenPayload = verified.payload;
-
-  next();
-}
-
-function extractShopifyError(e) {
-  const statusCode = e?.statusCode || e?.response?.statusCode;
-  const requestId = e?.response?.headers?.["x-request-id"] || e?.response?.headers?.["x-requestid"];
-  const retryAfter = e?.response?.headers?.["retry-after"];
-  const body = e?.response?.body;
-
-  return {
-    message: e?.message,
-    statusCode,
-    requestId,
-    retryAfter,
-    body: body && typeof body === "object" ? body : undefined,
-  };
-}
-
-function safeJson(req, res, fn) {
-  const resolvedShop = normalizeShopDomain(String(req?.resolvedShop || getShop(req) || "").trim());
-
-  const handleAuthErrorIfNeeded = (info) => {
-    const status = Number(info?.statusCode || 0);
-    if (status !== 401) return false;
-
-    // Ã¢Å“â€¦ Token invalide/revoque => purge + renvoi URL de reauth
-    if (resolvedShop) {
-      try {
-        tokenStore?.removeToken?.(resolvedShop);
-      } catch {}
-
-      return res.status(401).json({
-        error: "reauth_required",
-        message: "Shopify authentication required",
-        shop: resolvedShop,
-        reauthUrl: `/api/auth/start?shop=${encodeURIComponent(resolvedShop)}`,
-      });
-    }
-
-    return res.status(401).json({
-      error: "reauth_required",
-      message: "Shopify authentication required",
-      reauthUrl: "/api/auth/start",
-    });
-  };
-
-  try {
-    const out = fn();
-    if (out && typeof out.then === "function") {
-      return out.catch((e) => {
-        const info = extractShopifyError(e);
-        logEvent("api_error", { shop: resolvedShop || undefined, ...info }, "error");
-
-        if (handleAuthErrorIfNeeded(info)) return;
-        return apiError(res, info.statusCode || 500, info.message || "Erreur serveur", info);
-      });
-    }
-    return out;
-  } catch (e) {
-    const info = extractShopifyError(e);
-    logEvent("api_error", { shop: resolvedShop || undefined, ...info }, "error");
-
-    if (handleAuthErrorIfNeeded(info)) return;
-    return apiError(res, info.statusCode || 500, info.message || "Erreur serveur", info);
-  }
-}
-
-function parseGramsFromVariant(v) {
-  const candidates = [v?.option1, v?.option2, v?.option3, v?.title, v?.sku].filter(Boolean);
-  for (const c of candidates) {
-    const m = String(c).match(/([\d.,]+)/);
-    if (!m) continue;
-    const g = parseFloat(m[1].replace(",", "."));
-    if (Number.isFinite(g) && g > 0) return g;
-  }
-  return null;
-}
-
-function shopifyFor(shop) {
-  return getShopifyClient(shop);
-}
-
-// =====================================================
-// Shopify inventory sync (Option 2B)
-// =====================================================
-const _cachedLocationIdByShop = new Map();
-
-async function getLocationIdForShop(shop) {
-  const sh = String(shop || "").trim().toLowerCase();
-  if (!sh) throw new Error("Shop introuvable (location)");
-
-  if (_cachedLocationIdByShop.has(sh)) return _cachedLocationIdByShop.get(sh);
-
-  // 1) Priorite : settings par boutique
-  const settings = (settingsStore?.loadSettings && settingsStore.loadSettings(sh)) || {};
-  if (settings.locationId) {
-    const id = Number(settings.locationId);
-    if (Number.isFinite(id) && id > 0) {
-      _cachedLocationIdByShop.set(sh, id);
-      return id;
-    }
-  }
-
-  // 2) ENV locationId (aÃ…Â¡Ã‚Â iÃ‚Â¸Ã‚Â uniquement si la boutique == SHOP_NAME)
-  const envShop = resolveShopFallback(); // SHOP_NAME normalise
-  const envLoc = process.env.SHOPIFY_LOCATION_ID || process.env.LOCATION_ID;
-
-  if (envLoc && envShop && normalizeShopDomain(envShop) === normalizeShopDomain(sh)) {
-    const id = Number(envLoc);
-    if (Number.isFinite(id) && id > 0) {
-      _cachedLocationIdByShop.set(sh, id);
-      return id;
-    }
-  }
-
-  // 3) Sinon : on prend la 1ere location de CETTE boutique (dev/prod)
-  const client = shopifyFor(sh);
-  const locations = await client.location.list({ limit: 10 });
-  const first = Array.isArray(locations) ? locations[0] : null;
-  if (!first?.id) throw new Error("Aucune location Shopify trouvee");
-
-  const id = Number(first.id);
-  _cachedLocationIdByShop.set(sh, id);
-  return id;
-}
-
-async function pushProductInventoryToShopify(shop, productView) {
-  if (!productView?.variants) return;
-
-  const client = shopifyFor(shop);
-  const locationId = await getLocationIdForShop(shop);
-
-  for (const [, v] of Object.entries(productView.variants)) {
-    const inventoryItemId = Number(v.inventoryItemId || 0);
-    const unitsAvailable = Math.max(0, Number(v.canSell || 0));
-    if (!inventoryItemId) continue;
-
-    await client.inventoryLevel.set({
-      location_id: locationId,
-      inventory_item_id: inventoryItemId,
-      available: unitsAvailable,
-    });
-  }
-}
-
-function findGramsPerUnitByInventoryItemId(productView, inventoryItemId) {
-  const invId = Number(inventoryItemId);
-  if (!productView?.variants) return null;
-
-  for (const v of Object.values(productView.variants)) {
-    if (Number(v?.inventoryItemId) === invId) {
-      const g = Number(v?.gramsPerUnit);
-      return Number.isFinite(g) && g > 0 ? g : null;
-    }
-  }
-  return null;
-}
-
-// =====================================================
-// aÃ…â€œÃ¢â‚¬Â¦ DURCISSEMENT #1 : Anti-spoof multi-shop (API)
-// =====================================================
-function getShopRequestedByClient(req) {
-  const q = String(req.query?.shop || "").trim();
-  if (q) return normalizeShopDomain(q);
-
-  const hostQ = String(req.query?.host || "").trim();
-  const hostShop = shopFromHostParam(hostQ);
-  if (hostShop) return hostShop;
-
-  const h = String(req.get("X-Shopify-Shop-Domain") || "").trim();
-  if (h) return normalizeShopDomain(h);
-
-  return "";
-}
-
-function enforceAuthShopMatch(req, res, next) {
-  const authShop = String(req.shopDomain || "").trim();
-  if (!API_AUTH_REQUIRED || !authShop) return next();
-
-  const requested = getShopRequestedByClient(req);
-  if (requested && normalizeShopDomain(requested) !== normalizeShopDomain(authShop)) {
-    logEvent(
-      "shop_spoof_blocked",
-      { authShop: normalizeShopDomain(authShop), requestedShop: normalizeShopDomain(requested), path: req.path },
-      "warn"
-    );
-    return apiError(res, 403, "Shop mismatch (anti-spoof)");
-  }
-  next();
-}
-
-// =====================================================
-// aÃ…â€œÃ¢â‚¬Â¦ DURCISSEMENT #2 : Webhooks shop + HMAC strict
-// =====================================================
-function getShopFromWebhook(req, payloadObj) {
-  const headerShop = String(req.get("X-Shopify-Shop-Domain") || "").trim();
-  const payloadShop = String(payloadObj?.myshopify_domain || payloadObj?.shop_domain || payloadObj?.domain || "").trim();
-  const shop = normalizeShopDomain(headerShop || payloadShop || "");
-  return shop || "";
-}
-
-function requireVerifiedWebhook(req, res) {
-  const secret = String(process.env.SHOPIFY_WEBHOOK_SECRET || "").trim();
-  if (!secret) return true;
-  const hmac = req.get("X-Shopify-Hmac-Sha256");
-  if (!hmac) return false;
-  return verifyShopifyWebhook(req.body, hmac);
-}
-
-// =====================================================
-// ROUTER "prefix-safe"
-// =====================================================
-const router = express.Router();
-
-// JSON (uniquement /api)
-router.use("/api", express.json({ limit: "2mb" }));
-
-// CORS (simple)
-router.use((req, res, next) => {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
-  res.setHeader(
-    "Access-Control-Allow-Headers",
-    "Content-Type, Authorization, X-Shopify-Hmac-Sha256, X-Shopify-Shop-Domain, X-Shopify-Session-Token"
-  );
-  if (req.method === "OPTIONS") return res.sendStatus(204);
-  next();
-});
-
-// CSP frame-ancestors (admin + shop)
-router.use((req, res, next) => {
-  const envShopName = String(process.env.SHOP_NAME || "").trim();
-  const shopDomain = envShopName ? `https://${normalizeShopDomain(envShopName)}` : "*";
-  res.setHeader("Content-Security-Policy", `frame-ancestors https://admin.shopify.com ${shopDomain};`);
-  next();
-});
-
-// aÃ…â€œÃ¢â‚¬Â¦ Public config (sans session token)
-router.get("/api/public/config", (req, res) => {
-  res.json({
-    apiKey: SHOPIFY_API_KEY || "",
-    apiAuthRequired: API_AUTH_REQUIRED,
-  });
-});
-
-// ✅ Rate limiting sur toutes les routes /api/*
-router.use("/api", apiLimiter);
-
-// ✅ SECURE toutes les routes /api/*
-router.use("/api", requireApiAuth);
-
-// aÃ…â€œÃ¢â‚¬Â¦ DURCISSEMENT #1 (suite) : anti-spoof APRES auth
-router.use("/api", enforceAuthShopMatch);
-
-// aÃ…â€œÃ¢â‚¬Â¦ Resout le shop une fois pour toutes (utile pour auto-reauth)
-router.use("/api", (req, _res, next) => {
-  req.resolvedShop = getShop(req);
-  next();
-});
-
-router.get("/health", (req, res) => res.status(200).send("ok"));
-
-// Static
-if (fileExists(PUBLIC_DIR)) router.use(express.static(PUBLIC_DIR));
-router.use(express.static(ROOT_DIR, { index: false }));
-
-router.get("/css/style.css", (req, res) => {
-  const p1 = path.join(PUBLIC_DIR, "css", "style.css");
-  const p2 = path.join(ROOT_DIR, "style.css");
-  const target = fileExists(p1) ? p1 : p2;
-  if (!fileExists(target)) return res.status(404).send("style.css not found");
-  res.type("text/css").sendFile(target);
-});
-
-router.get("/js/app.js", (req, res) => {
-  const p1 = path.join(PUBLIC_DIR, "js", "app.js");
-  const p2 = path.join(ROOT_DIR, "app.js");
-  const target = fileExists(p1) ? p1 : p2;
-  if (!fileExists(target)) return res.status(404).send("app.js not found");
-  res.type("application/javascript").sendFile(target);
-});
-
-// =====================================================
-// API ROUTES
-// =====================================================
-
-router.get("/api/debug/shopify", (req, res) => {
-  safeJson(req, res, async () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable. Passe ?shop=xxx.myshopify.com ou configure SHOP_NAME.");
-
-    const envShop = resolveShopFallback();
-    const client = shopifyFor(shop);
-
-    let connection = { ok: false };
-    try {
-      const s = await client.shop.get();
-      connection = { ok: true, shop: { id: Number(s.id), name: String(s.name || ""), domain: String(s.domain || "") } };
-    } catch (e) {
-      connection = { ok: false, error: extractShopifyError(e) };
-    }
-
-    let locations = [];
-    try {
-      const locs = await client.location.list({ limit: 10 });
-      locations = (locs || []).map((l) => ({ id: Number(l.id), name: String(l.name || ""), active: !!l.active }));
-    } catch (e) {
-      logEvent("debug_locations_error", extractShopifyError(e), "error");
-    }
-
-    res.json({
-      ok: true,
-      resolvedShop: shop,
-      envShop,
-      hasToken: Boolean(String(process.env.SHOPIFY_ADMIN_TOKEN || "").trim()),
-      apiVersion: process.env.SHOPIFY_API_VERSION || "2025-10",
-      connection,
-      locations,
-    });
-  });
-});
-
-// NOTE: /api/settings endpoint is in settings routes section (line ~1660)
-
-router.get("/api/shopify/locations", (req, res) => {
-  safeJson(req, res, async () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    const client = shopifyFor(shop);
-
-    const locations = await client.location.list({ limit: 50 });
-    const out = (locations || []).map((l) => ({
-      id: Number(l.id),
-      name: String(l.name || ""),
-      active: Boolean(l.active),
-      address1: l.address1 || "",
-      city: l.city || "",
-      country: l.country || "",
-    }));
-    res.json({ locations: out });
-  });
-});
-
-router.post("/api/settings/location", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-
-    const locationId = Number(req.body?.locationId);
-    if (!Number.isFinite(locationId) || locationId <= 0) return apiError(res, 400, "locationId invalide");
-
-    const saved = (settingsStore?.setLocationId && settingsStore.setLocationId(shop, locationId)) || { locationId };
-
-    _cachedLocationIdByShop.delete(String(shop).trim().toLowerCase());
-    res.json({ success: true, shop, settings: saved });
-  });
-});
-
-router.get("/api/server-info", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-
-    const snap = stock.getCatalogSnapshot ? stock.getCatalogSnapshot(shop) : { products: [], categories: [] };
-    res.json({
-      mode: process.env.NODE_ENV || "development",
-      port: PORT,
-      productCount: Array.isArray(snap.products) ? snap.products.length : 0,
-      lowStockThreshold: Number(process.env.LOW_STOCK_THRESHOLD || 10),
-      shop,
-    });
-  });
-});
-
-router.get("/api/stock", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-
-    const { sort = "alpha", category = "", q = "" } = req.query;
-
-    const snapshot = stock.getCatalogSnapshot ? stock.getCatalogSnapshot(shop) : { products: [], categories: [] };
-    const categories = catalogStore.listCategories ? catalogStore.listCategories(shop) : [];
-    let products = Array.isArray(snapshot.products) ? snapshot.products.slice() : [];
-
-    // Filtre par recherche (nom produit)
-    if (q && q.trim()) {
-      const search = q.trim().toLowerCase();
-      products = products.filter((p) => 
-        String(p.name || "").toLowerCase().includes(search)
-      );
-    }
-
-    // Filtre par categorie
-    if (category === "uncategorized") {
-      // Produits sans categorie
-      products = products.filter((p) => !Array.isArray(p.categoryIds) || p.categoryIds.length === 0);
-    } else if (category) {
-      // Produits dans une categorie specifique
-      products = products.filter((p) => Array.isArray(p.categoryIds) && p.categoryIds.includes(String(category)));
-    }
-
-    // Tri
-    if (sort === "alpha" || sort === "alpha_asc") {
-      products.sort((a, b) =>
-        String(a.name || "").localeCompare(String(b.name || ""), "fr", { sensitivity: "base" })
-      );
-    } else if (sort === "alpha_desc") {
-      products.sort((a, b) =>
-        String(b.name || "").localeCompare(String(a.name || ""), "fr", { sensitivity: "base" })
-      );
-    } else if (sort === "stock_asc") {
-      products.sort((a, b) => (a.totalGrams || 0) - (b.totalGrams || 0));
-    } else if (sort === "stock_desc") {
-      products.sort((a, b) => (b.totalGrams || 0) - (a.totalGrams || 0));
-    } else if (sort === "value_asc") {
-      products.sort((a, b) => 
-        ((a.totalGrams || 0) * (a.averageCostPerGram || 0)) - ((b.totalGrams || 0) * (b.averageCostPerGram || 0))
-      );
-    } else if (sort === "value_desc") {
-      products.sort((a, b) => 
-        ((b.totalGrams || 0) * (b.averageCostPerGram || 0)) - ((a.totalGrams || 0) * (a.averageCostPerGram || 0))
-      );
-    }
-
-    // Ajouter compteur produits par categorie
-    const categoriesWithCount = categories.map((cat) => {
-      const allProducts = snapshot.products || [];
-      const count = allProducts.filter((p) => 
-        Array.isArray(p.categoryIds) && p.categoryIds.includes(cat.id)
-      ).length;
-      return { ...cat, productCount: count };
-    });
-
-    // Compter produits sans categorie
-    const allProducts = snapshot.products || [];
-    const uncategorizedCount = allProducts.filter((p) => 
-      !Array.isArray(p.categoryIds) || p.categoryIds.length === 0
-    ).length;
-
-    res.json({ 
-      products, 
-      categories: categoriesWithCount,
-      meta: {
-        total: products.length,
-        uncategorizedCount,
-        sort,
-        category: category || "all",
-        q: q || ""
-      }
-    });
-  });
-});
-
-// aÃ…â€œÃ¢â‚¬Â¦ Valeur totale du stock - STANDARD+ ONLY
-router.get("/api/stock/value", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-
-    // aÃ…â€œÃ¢â‚¬Â¦ Verifier le plan
-    if (planManager) {
-      const check = planManager.checkLimit(shop, "view_stock_value");
-      if (!check.allowed) {
-        return res.status(403).json({
-          error: "plan_limit",
-          message: check.reason,
-          upgrade: check.upgrade,
-          feature: "stock_value",
-        });
-      }
-    }
-
-    if (typeof stock.calculateTotalStockValue !== "function") {
-      return apiError(res, 500, "calculateTotalStockValue non disponible");
-    }
-
-    const result = stock.calculateTotalStockValue(shop);
-    res.json(result);
-  });
-});
-
-// aÃ…â€œÃ¢â‚¬Â¦ Stats par categorie - STANDARD+ ONLY
-router.get("/api/stats/categories", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-
-    // aÃ…â€œÃ¢â‚¬Â¦ Verifier le plan
-    if (planManager) {
-      const check = planManager.checkLimit(shop, "view_categories");
-      if (!check.allowed) {
-        return res.status(403).json({
-          error: "plan_limit",
-          message: check.reason,
-          upgrade: check.upgrade,
-          feature: "categories",
-        });
-      }
-    }
-
-    if (typeof stock.getCategoryStats !== "function") {
-      return apiError(res, 500, "getCategoryStats non disponible");
-    }
-
-    const result = stock.getCategoryStats(shop);
-    res.json(result);
-  });
-});
-
-router.get("/api/stock.csv", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-
-    const snapshot = stock.getCatalogSnapshot ? stock.getCatalogSnapshot(shop) : { products: [], categories: [] };
-    const products = Array.isArray(snapshot.products) ? snapshot.products : [];
-
-    const header = ["productId", "name", "totalGrams", "averageCostPerGram", "categoryIds"].join(",");
-    const lines = products.map((p) => {
-      const cat = Array.isArray(p.categoryIds) ? p.categoryIds.join("|") : "";
-      const esc = (v) => {
-        const s = v === null || v === undefined ? "" : String(v);
-        return /[,"\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-      };
-      return [esc(p.productId), esc(p.name), esc(p.totalGrams), esc(p.averageCostPerGram || 0), esc(cat)].join(",");
-    });
-
-    res.setHeader("Content-Type", "text/csv; charset=utf-8");
-    res.setHeader("Content-Disposition", 'attachment; filename="stock.csv"');
-    res.send([header, ...lines].join("\n"));
-  });
-});
-
-router.get("/api/categories", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-
-    // aÃ…â€œÃ¢â‚¬Â¦ Verifier le plan (categories = Standard+)
-    if (planManager) {
-      const check = planManager.checkLimit(shop, "view_categories");
-      if (!check.allowed) {
-        // Pour la liste, on retourne un tableau vide avec un flag
-        return res.json({ 
-          categories: [], 
-          planLimited: true,
-          message: check.reason,
-          upgrade: check.upgrade,
-        });
-      }
-    }
-
-    const categories = catalogStore.listCategories ? catalogStore.listCategories(shop) : [];
-    res.json({ categories });
-  });
-});
-
-router.post("/api/categories", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-
-    // aÃ…â€œÃ¢â‚¬Â¦ Verifier le plan
-    if (planManager) {
-      const check = planManager.checkLimit(shop, "manage_categories");
-      if (!check.allowed) {
-        return res.status(403).json({
-          error: "plan_limit",
-          message: check.reason,
-          upgrade: check.upgrade,
-          feature: "categories",
-        });
-      }
-    }
-
-    const name = String(req.body?.name ?? req.body?.categoryName ?? "").trim();
-    if (!name) return apiError(res, 400, "Nom de categorie invalide");
-
-    const created = catalogStore.createCategory(shop, name);
-    if (movementStore.addMovement) {
-      movementStore.addMovement(
-        { source: "category_create", gramsDelta: 0, meta: { categoryId: created.id, name: created.name }, shop },
-        shop
-      );
-    }
-
-    res.json({ success: true, category: created });
-  });
-});
-
-router.put("/api/categories/:id", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-
-    const id = String(req.params.id);
-    const name = String(req.body?.name || "").trim();
-    if (!name) return apiError(res, 400, "Nom invalide");
-
-    const updated = catalogStore.renameCategory(shop, id, name);
-    if (movementStore.addMovement) {
-      movementStore.addMovement({ source: "category_rename", gramsDelta: 0, meta: { categoryId: id, name }, shop }, shop);
-    }
-
-    res.json({ success: true, category: updated });
-  });
-});
-
-router.delete("/api/categories/:id", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-
-    const id = String(req.params.id);
-    catalogStore.deleteCategory(shop, id);
-
-    if (movementStore.addMovement) {
-      movementStore.addMovement({ source: "category_delete", gramsDelta: 0, meta: { categoryId: id }, shop }, shop);
-    }
-
-    res.json({ success: true });
-  });
-});
-
-router.get("/api/movements", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-
-    const limit = Math.min(Number(req.query.limit || 200), 2000);
-    let days = Math.min(Math.max(Number(req.query.days || 7), 1), 365);
-
-    // aÃ…â€œÃ¢â‚¬Â¦ Appliquer la limite de jours selon le plan
-    let daysLimited = false;
-    if (planManager) {
-      const maxDays = planManager.applyMovementDaysLimit(shop, days);
-      if (maxDays < days) {
-        daysLimited = true;
-        days = maxDays;
-      }
-    }
-
-    const rows = movementStore.listMovements ? movementStore.listMovements({ shop, days, limit }) : [];
-    res.json({ 
-      count: rows.length, 
-      data: rows,
-      daysLimited,
-      maxDays: days,
-    });
-  });
-});
-
-router.get("/api/movements.csv", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-
-    // aÃ…â€œÃ¢â‚¬Â¦ Verifier le plan pour export avance
-    if (planManager) {
-      const check = planManager.checkLimit(shop, "advanced_export");
-      if (!check.allowed) {
-        return res.status(403).json({
-          error: "plan_limit",
-          message: check.reason,
-          upgrade: check.upgrade,
-          feature: "advanced_export",
-        });
-      }
-    }
-
-    const limit = Math.min(Number(req.query.limit || 2000), 10000);
-    let days = Math.min(Math.max(Number(req.query.days || 30), 1), 365);
-
-    // Appliquer la limite de jours
-    if (planManager) {
-      days = planManager.applyMovementDaysLimit(shop, days);
-    }
-
-    const rows = movementStore.listMovements ? movementStore.listMovements({ shop, days, limit }) : [];
-
-    const header = ["ts", "source", "productId", "productName", "gramsDelta", "purchasePricePerGram", "totalAfter", "shop"].join(
-      ","
-    );
-
-    const csvEscape = (v) => {
-      const s = String(v ?? "");
-      return /[,"\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-    };
-
-    const lines = (rows || []).map((m) => {
-      return [
-        csvEscape(m.ts || ""),
-        csvEscape(m.source || ""),
-        csvEscape(m.productId || ""),
-        csvEscape(m.productName || ""),
-        csvEscape(m.gramsDelta ?? ""),
-        csvEscape(m.purchasePricePerGram ?? ""),
-        csvEscape(m.totalAfter ?? ""),
-        csvEscape(m.shop || shop),
-      ].join(",");
-    });
-
-    res.setHeader("Content-Type", "text/csv; charset=utf-8");
-    res.setHeader("Content-Disposition", 'attachment; filename="stock-movements.csv"');
-    res.send([header, ...lines].join("\n"));
-  });
-});
-
-// stub suppression mouvements
-router.delete("/api/movements/:id", (req, res) => {
-  safeJson(req, res, () => {
-    return apiError(res, 501, "Suppression de mouvements non encore implementee dans movementStore.");
-  });
-});
-
-// âœ… NOUVEAU : DÃ©tail produit avec variantes et stats
-router.get("/api/products/:productId", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-
-    const productId = String(req.params.productId || "");
-    if (!productId) return apiError(res, 400, "productId manquant");
-
-    // RÃ©cupÃ©rer le snapshot du produit
-    const product = stock.getProductSnapshot ? stock.getProductSnapshot(shop, productId) : null;
-    if (!product) return apiError(res, 404, "Produit introuvable");
-
-    // RÃ©cupÃ©rer les catÃ©gories
-    const allCategories = catalogStore.listCategories ? catalogStore.listCategories(shop) : [];
-    const productCategories = allCategories.filter(c => (product.categoryIds || []).includes(c.id));
-
-    // RÃ©cupÃ©rer les variantes avec calcul des stats
-    const storeObj = stock.PRODUCT_CONFIG_BY_SHOP?.get(shop);
-    const cfg = storeObj ? storeObj[productId] : null;
-    const variants = cfg?.variants || {};
-    const totalGrams = product.totalGrams || 0;
-
-    // Calculer les stats par variante
-    const variantStats = [];
-    let totalCanSell = 0;
-
-    for (const [key, v] of Object.entries(variants)) {
-      const gramsPerUnit = Number(v?.gramsPerUnit) || 0;
-      const inventoryItemId = v?.inventoryItemId || null;
-      const canSell = gramsPerUnit > 0 ? Math.floor(totalGrams / gramsPerUnit) : 0;
-      const gramsEquivalent = canSell * gramsPerUnit;
-
-      totalCanSell += canSell;
-
-      variantStats.push({
-        key,
-        gramsPerUnit,
-        inventoryItemId,
-        canSell,
-        gramsEquivalent,
-      });
-    }
-
-    // Calcul du pourcentage (basÃ© sur les unitÃ©s vendables)
-    for (const vs of variantStats) {
-      vs.shareByUnits = totalCanSell > 0 ? Math.round((vs.canSell / totalCanSell) * 100 * 100) / 100 : 0;
-    }
-
-    // Trier par gramsPerUnit croissant
-    variantStats.sort((a, b) => a.gramsPerUnit - b.gramsPerUnit);
-
-    // DÃ©terminer le statut stock
-    let stockStatus = "good";
-    let stockLabel = "OK";
-    if (totalGrams <= 0) {
-      stockStatus = "critical";
-      stockLabel = "Rupture";
-    } else if (totalGrams < 50) {
-      stockStatus = "critical";
-      stockLabel = "Critique";
-    } else if (totalGrams < 200) {
-      stockStatus = "low";
-      stockLabel = "Bas";
-    }
-
-    // Valeur du stock
-    const stockValue = totalGrams * (product.averageCostPerGram || 0);
-
-    res.json({
-      product: {
-        productId: product.productId,
-        name: product.name,
-        totalGrams,
-        averageCostPerGram: product.averageCostPerGram || 0,
-        stockValue: Math.round(stockValue * 100) / 100,
-        stockStatus,
-        stockLabel,
-        categoryIds: product.categoryIds || [],
-        categories: productCategories,
-      },
-      variantStats,
-      summary: {
-        variantCount: variantStats.length,
-        totalCanSellUnits: totalCanSell,
-        smallestVariant: variantStats.length > 0 ? variantStats[0].gramsPerUnit : null,
-        largestVariant: variantStats.length > 0 ? variantStats[variantStats.length - 1].gramsPerUnit : null,
-      },
-    });
-  });
-});
-
-router.get("/api/products/:productId/history", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-
-    const productId = String(req.params.productId || "");
-    const limit = Math.min(Number(req.query.limit || 200), 2000);
-    if (!productId) return apiError(res, 400, "productId manquant");
-
-    const rows = movementStore.listMovements ? movementStore.listMovements({ shop, days: 365, limit: 10000 }) : [];
-    const filtered = (rows || []).filter((m) => String(m.productId || "") === productId).slice(0, limit);
-    return res.json({ data: filtered });
-  });
-});
-
-router.post("/api/products/:productId/adjust-total", (req, res) => {
-  safeJson(req, res, async () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-
-    const productId = String(req.params.productId);
-    const gramsDelta = Number(req.body?.gramsDelta);
-    const purchasePricePerGram = Number(req.body?.purchasePricePerGram || 0);
-
-    if (!Number.isFinite(gramsDelta) || gramsDelta === 0) {
-      return apiError(res, 400, "gramsDelta invalide (ex: 50 ou -50)");
-    }
-    if (typeof stock.restockProduct !== "function") {
-      return apiError(res, 500, "stock.restockProduct introuvable");
-    }
-
-    const updated = await stock.restockProduct(shop, productId, gramsDelta, purchasePricePerGram);
-    if (!updated) return apiError(res, 404, "Produit introuvable");
-
-    try {
-      await pushProductInventoryToShopify(shop, updated);
-    } catch (e) {
-      logEvent("inventory_push_error", { shop, productId, ...extractShopifyError(e) }, "error");
-    }
-
-    if (movementStore.addMovement) {
-      movementStore.addMovement(
-        {
-          source: "adjust_total",
-          productId,
-          productName: updated.name,
-          gramsDelta,
-          purchasePricePerGram: gramsDelta > 0 && purchasePricePerGram > 0 ? purchasePricePerGram : undefined,
-          totalAfter: updated.totalGrams,
-          shop,
-        },
-        shop
-      );
-    }
-
-    res.json({
-      success: true,
-      product: updated,
-      cmpUpdated: gramsDelta > 0 && purchasePricePerGram > 0,
-    });
-  });
-});
-
-router.patch("/api/products/:productId/average-cost", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-
-    const productId = String(req.params.productId);
-    const averageCostPerGram = Number(req.body?.averageCostPerGram);
-
-    if (!Number.isFinite(averageCostPerGram) || averageCostPerGram < 0) {
-      return apiError(res, 400, "averageCostPerGram invalide (ex: 4.50)");
-    }
-
-    // product config store (Map shop -> object)
-    const storeObj = stock.PRODUCT_CONFIG_BY_SHOP?.get(shop);
-    if (!storeObj) return apiError(res, 500, "Store introuvable");
-
-    const cfg = storeObj[productId];
-    if (!cfg) return apiError(res, 404, "Produit introuvable");
-
-    const oldCost = cfg.averageCostPerGram || 0;
-    cfg.averageCostPerGram = averageCostPerGram;
-
-    // persist (via stockState directly, comme tu avais)
-    const stockStateMod = require("./stockState");
-    const saveState = stockStateMod?.saveState;
-    if (saveState) {
-      const products = {};
-      for (const [pid, p] of Object.entries(storeObj)) {
-        products[pid] = {
-          name: p.name,
-          totalGrams: p.totalGrams,
-          averageCostPerGram: p.averageCostPerGram || 0,
-          categoryIds: p.categoryIds || [],
-          variants: p.variants || {},
-        };
-      }
-      saveState(shop, { version: 2, updatedAt: new Date().toISOString(), products });
-    }
-
-    if (movementStore.addMovement) {
-      movementStore.addMovement(
-        {
-          source: "average_cost_updated",
-          productId,
-          productName: cfg.name,
-          gramsDelta: 0,
-          meta: { oldAverageCost: oldCost, newAverageCost: averageCostPerGram },
-          shop,
-        },
-        shop
-      );
-    }
-
-    logEvent("average_cost_manual_update", {
-      shop,
-      productId,
-      oldCost: Number(oldCost).toFixed(2),
-      newCost: Number(averageCostPerGram).toFixed(2),
-    });
-
-    res.json({
-      success: true,
-      productId,
-      oldAverageCost: oldCost,
-      newAverageCost: averageCostPerGram,
-    });
-  });
-});
-
-router.post("/api/products/:productId/categories", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-
-    const productId = String(req.params.productId);
-    const categoryIds = Array.isArray(req.body?.categoryIds) ? req.body.categoryIds.map(String) : [];
-
-    if (typeof stock.setProductCategories !== "function") {
-      return apiError(res, 500, "stock.setProductCategories introuvable");
-    }
-
-    const ok = stock.setProductCategories(shop, productId, categoryIds);
-    if (!ok) return apiError(res, 404, "Produit introuvable (non configure)");
-
-    if (movementStore.addMovement) {
-      movementStore.addMovement(
-        { source: "product_set_categories", productId, gramsDelta: 0, meta: { categoryIds }, shop },
-        shop
-      );
-    }
-
-    res.json({ success: true, productId, categoryIds });
-  });
-});
-
-// Ã¢Å“â€¦ Creer un produit manuellement (sans import Shopify)
-router.post("/api/products", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-
-    const name = String(req.body?.name || "").trim();
-    const totalGrams = Number(req.body?.totalGrams || 0);
-    const averageCostPerGram = Number(req.body?.averageCostPerGram || 0);
-    const categoryIds = Array.isArray(req.body?.categoryIds) ? req.body.categoryIds : [];
-
-    if (!name) return apiError(res, 400, "Nom du produit requis");
-
-    // Ã¢Å“â€¦ Verifier le plan (limite de produits)
-    if (planManager) {
-      const snapshot = stock.getCatalogSnapshot ? stock.getCatalogSnapshot(shop) : { products: [] };
-      const currentCount = Array.isArray(snapshot.products) ? snapshot.products.length : 0;
-      const checkProduct = planManager.checkLimit(shop, "add_product", { currentProductCount: currentCount });
-      if (!checkProduct.allowed) {
-        return res.status(403).json({
-          error: "plan_limit",
-          message: checkProduct.reason,
-          upgrade: checkProduct.upgrade,
-          feature: "max_products",
-          limit: checkProduct.limit,
-          current: checkProduct.current,
-        });
-      }
-    }
-
-    // Generer un ID unique pour le produit manuel
-    const productId = `manual_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-
-    if (typeof stock.upsertImportedProductConfig !== "function") {
-      return apiError(res, 500, "stock.upsertImportedProductConfig introuvable");
-    }
-
-    // Creer le produit avec une variante par defaut (1g)
-    const created = stock.upsertImportedProductConfig(shop, {
-      productId,
-      name,
-      variants: {
-        "1": { gramsPerUnit: 1, inventoryItemId: null }
-      },
-      categoryIds,
-      totalGrams,
-      averageCostPerGram,
-    });
-
-    if (movementStore.addMovement) {
-      movementStore.addMovement(
-        {
-          source: "product_created_manual",
-          productId,
-          productName: name,
-          gramsDelta: totalGrams,
-          purchasePricePerGram: averageCostPerGram > 0 ? averageCostPerGram : undefined,
-          totalAfter: totalGrams,
-          shop,
-        },
-        shop
-      );
-    }
-
-    logEvent("product_created_manual", { shop, productId, name }, "info");
-
-    res.status(201).json({ success: true, product: created });
-  });
-});
-
-router.delete("/api/products/:productId", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-
-    const productId = String(req.params.productId);
-
-    if (typeof stock.removeProduct !== "function") {
-      return apiError(res, 500, "stock.removeProduct introuvable");
-    }
-
-    const ok = stock.removeProduct(shop, productId);
-    if (!ok) return apiError(res, 404, "Produit introuvable");
-
-    if (movementStore.addMovement) {
-      movementStore.addMovement({ source: "product_deleted", productId, gramsDelta: 0, shop }, shop);
-    }
-
-    res.json({ success: true });
-  });
-});
-
-router.get("/api/shopify/products", (req, res) => {
-  safeJson(req, res, async () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    const client = shopifyFor(shop);
-
-    const limit = Math.min(Number(req.query.limit || 50), 250);
-    const q = String(req.query.query || "").trim().toLowerCase();
-
-    const products = await client.product.list({ limit });
-    let out = (products || []).map((p) => ({
-      id: String(p.id),
-      title: String(p.title || ""),
-      variantsCount: Array.isArray(p.variants) ? p.variants.length : 0,
-    }));
-
-    if (q) out = out.filter((p) => p.title.toLowerCase().includes(q));
-    out.sort((a, b) => a.title.localeCompare(b.title, "fr", { sensitivity: "base" }));
-
-    res.json({ products: out });
-  });
-});
-
-router.post("/api/import/product", (req, res) => {
-  safeJson(req, res, async () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-
-    // aÃ…â€œÃ¢â‚¬Â¦ Verifier le plan (import Shopify = Standard+)
-    if (planManager) {
-      const checkImport = planManager.checkLimit(shop, "import_shopify");
-      if (!checkImport.allowed) {
-        return res.status(403).json({
-          error: "plan_limit",
-          message: checkImport.reason,
-          upgrade: checkImport.upgrade,
-          feature: "import_shopify",
-        });
-      }
-
-      // Verifier aussi la limite de produits
-      const snapshot = stock.getCatalogSnapshot ? stock.getCatalogSnapshot(shop) : { products: [] };
-      const currentCount = Array.isArray(snapshot.products) ? snapshot.products.length : 0;
-      const checkProduct = planManager.checkLimit(shop, "add_product", { currentProductCount: currentCount });
-      if (!checkProduct.allowed) {
-        return res.status(403).json({
-          error: "plan_limit",
-          message: checkProduct.reason,
-          upgrade: checkProduct.upgrade,
-          feature: "max_products",
-          limit: checkProduct.limit,
-          current: checkProduct.current,
-        });
-      }
-    }
-
-    const client = shopifyFor(shop);
-
-    const productId = req.body?.productId ?? req.body?.id;
-    const categoryIds = Array.isArray(req.body?.categoryIds) ? req.body.categoryIds : [];
-    if (!productId) return apiError(res, 400, "productId manquant");
-
-    const p = await client.product.get(Number(productId));
-    if (!p?.id) return apiError(res, 404, "Produit Shopify introuvable");
-
-    const variants = {};
-    for (const v of p.variants || []) {
-      const grams = parseGramsFromVariant(v);
-      if (!grams) continue;
-      variants[String(grams)] = { 
-        gramsPerUnit: grams, 
-        inventoryItemId: Number(v.inventory_item_id),
-        variantId: String(v.id), // NOUVEAU: stocker le variantId Shopify
-      };
-    }
-
-    if (!Object.keys(variants).length) {
-      return apiError(res, 400, "Aucune variante avec grammage detecte (option/title/sku).");
-    }
-    if (typeof stock.upsertImportedProductConfig !== "function") {
-      return apiError(res, 500, "stock.upsertImportedProductConfig introuvable");
-    }
-
-    const imported = stock.upsertImportedProductConfig(shop, {
-      productId: String(p.id),
-      name: String(p.title || p.handle || p.id),
-      variants,
-      categoryIds,
-    });
-
-    try {
-      await pushProductInventoryToShopify(shop, imported);
-    } catch (e) {
-      logEvent("inventory_push_error", { shop, productId: String(p.id), message: e?.message }, "error");
-    }
-
-    if (movementStore.addMovement) {
-      movementStore.addMovement(
-        {
-          source: "import_shopify_product",
-          productId: String(p.id),
-          productName: imported.name,
-          gramsDelta: 0,
-          meta: { categoryIds },
-          shop,
-        },
-        shop
-      );
-    }
-
-    res.json({ success: true, product: imported });
-  });
-});
-
-router.post("/api/restock", (req, res) => {
-  safeJson(req, res, async () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-
-    const productId = String(req.body?.productId || "").trim();
-    const grams = Number(req.body?.grams);
-    const purchasePricePerGram = Number(req.body?.purchasePricePerGram || 0);
-
-    if (!productId) return apiError(res, 400, "productId manquant");
-    if (!Number.isFinite(grams) || grams <= 0) return apiError(res, 400, "grams invalide (ex: 50)");
-
-    if (typeof stock.restockProduct !== "function") {
-      return apiError(res, 500, "stock.restockProduct introuvable");
-    }
-
-    const updated = await stock.restockProduct(shop, productId, grams, purchasePricePerGram);
-    if (!updated) return apiError(res, 404, "Produit introuvable");
-
-    try {
-      await pushProductInventoryToShopify(shop, updated);
-    } catch (e) {
-      logEvent("inventory_push_error", { shop, productId, ...extractShopifyError(e) }, "error");
-    }
-
-    if (movementStore.addMovement) {
-      movementStore.addMovement(
-        {
-          source: "restock",
-          productId,
-          productName: updated.name,
-          gramsDelta: Math.abs(grams),
-          purchasePricePerGram: purchasePricePerGram > 0 ? purchasePricePerGram : undefined,
-          totalAfter: updated.totalGrams,
-          shop,
-        },
-        shop
-      );
-    }
-
-    res.json({ success: true, product: updated, cmpUpdated: purchasePricePerGram > 0 });
-  });
-});
-
-router.post("/api/test-order", (req, res) => {
-  safeJson(req, res, async () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-
-    const grams = Number(req.body?.grams || 10);
-    let productId = String(req.body?.productId || "");
-
-    if (!Number.isFinite(grams) || grams <= 0) return apiError(res, 400, "grams invalide");
-
-    if (!productId) {
-      const snap = stock.getCatalogSnapshot ? stock.getCatalogSnapshot(shop) : { products: [] };
-      const first = Array.isArray(snap.products) ? snap.products[0] : null;
-      if (!first?.productId) return apiError(res, 400, "Aucun produit configure pour test");
-      productId = String(first.productId);
-    }
-
-    if (typeof stock.applyOrderToProduct !== "function") {
-      return apiError(res, 500, "stock.applyOrderToProduct introuvable");
-    }
-
-    const updated = await stock.applyOrderToProduct(shop, productId, grams);
-    if (!updated) return apiError(res, 404, "Produit introuvable");
-
-    try {
-      await pushProductInventoryToShopify(shop, updated);
-    } catch (e) {
-      logEvent("inventory_push_error", { shop, productId, message: e?.message }, "error");
-    }
-
-    if (movementStore.addMovement) {
-      movementStore.addMovement(
-        {
-          source: "test_order",
-          productId,
-          productName: updated.name,
-          gramsDelta: -Math.abs(grams),
-          totalAfter: updated.totalGrams,
-          shop,
-        },
-        shop
-      );
-    }
-
-    res.json({ success: true, tested: { productId, grams }, product: updated });
-  });
-});
-
-// =====================
-// OAuth Shopify (Partner)
-// =====================
-
-router.get("/api/auth/start", (req, res) => {
-  safeJson(req, res, () => {
-    const missing = requireOAuthEnv(res);
-    if (missing) return;
-
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable (ex: ?shop=xxx.myshopify.com)");
-
-    const state = crypto.randomBytes(16).toString("hex");
-    _oauthStateByShop.set(shop.toLowerCase(), state);
-
-    const redirectUri = `${String(process.env.RENDER_PUBLIC_URL).replace(/\/+$/, "")}/api/auth/callback`;
-
-    const authUrl =
-      `https://${shop}/admin/oauth/authorize` +
-      `?client_id=${encodeURIComponent(SHOPIFY_API_KEY)}` +
-      `&scope=${encodeURIComponent(OAUTH_SCOPES)}` +
-      `&redirect_uri=${encodeURIComponent(redirectUri)}` +
-      `&state=${encodeURIComponent(state)}`;
-
-    res.redirect(authUrl);
-  });
-});
-
-router.get("/api/auth/callback", (req, res) => {
-  safeJson(req, res, async () => {
-    const missing = requireOAuthEnv(res);
-    if (missing) return;
-
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable (callback)");
-    if (!verifyOAuthHmac(req.query)) return apiError(res, 401, "HMAC invalide");
-
-    const expected = _oauthStateByShop.get(shop.toLowerCase());
-    const got = String(req.query?.state || "");
-    if (!expected || got !== expected) return apiError(res, 401, "State invalide");
-    _oauthStateByShop.delete(shop.toLowerCase());
-
-    const code = String(req.query?.code || "");
-    if (!code) return apiError(res, 400, "Code OAuth manquant");
-
-    const doFetch = typeof fetch === "function" ? fetch : null;
-    if (!doFetch) return apiError(res, 500, "fetch non disponible (Node < 18). Installe node-fetch ou upgrade Node.");
-
-    const tokenRes = await doFetch(`https://${shop}/admin/oauth/access_token`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        client_id: SHOPIFY_API_KEY,
-        client_secret: SHOPIFY_API_SECRET,
-        code,
-      }),
-    });
-
-    const tokenJson = await tokenRes.json().catch(() => ({}));
-    if (!tokenRes.ok || !tokenJson?.access_token) {
-      return apiError(res, 500, "Echec echange token", { status: tokenRes.status, body: tokenJson });
-    }
-
-    tokenStore.saveToken(shop, tokenJson.access_token, { scope: tokenJson.scope });
-
-    res.type("html").send(`
-      <div style="font-family:system-ui;padding:24px">
-        <h2>aÃ…â€œÃ¢â‚¬Â¦ OAuth OK</h2>
-        <p>Token enregistre pour <b>${shop}</b>.</p>
-        <p>Tu peux fermer cette page et relancer l'app.</p>
-      </div>
-    `);
-  });
-});
-
-// =====================================================
-// SETTINGS ROUTES aÃ…â€œÃ¢â‚¬Â¦ NOUVEAU (Parametres avances)
-// =====================================================
-
-// Recuperer tous les parametres
-router.get("/api/settings", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!settingsManager) return apiError(res, 500, "SettingsManager non disponible");
-
-    const settings = settingsManager.loadSettings(shop);
-    const options = settingsManager.SETTING_OPTIONS;
-    res.json({ settings, options });
-  });
-});
-
-// Recuperer une section
-router.get("/api/settings/:section", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!settingsManager) return apiError(res, 500, "SettingsManager non disponible");
-
-    const section = String(req.params.section);
-    const settings = settingsManager.loadSettings(shop);
-    if (!settings[section]) return apiError(res, 404, `Section '${section}' non trouvee`);
-    res.json({ section, settings: settings[section] });
-  });
-});
-
-// Mettre ÃƒÆ’Ã‚Â  jour une section
-router.put("/api/settings/:section", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!settingsManager) return apiError(res, 500, "SettingsManager non disponible");
-
-    const currentSettings = settingsManager.loadSettings(shop);
-    const section = String(req.params.section);
+  },
+  
+  // Alias for compatibility
+  setLang: function(lang) {
+    return this.setLanguage(lang);
+  },
+  
+  t: function(key, fallback) {
+    var translation = this.translations[this.currentLang]?.[key];
+    if (translation) return translation;
     
-    // Permettre de modifier readOnlyMode même en mode lecture seule
-    const isDisablingReadOnly = section === "security" && req.body.readOnlyMode === false;
+    // Fallback to French
+    if (this.currentLang !== "fr") {
+      translation = this.translations.fr?.[key];
+      if (translation) return translation;
+    }
     
-    if (currentSettings.security?.readOnlyMode && !isDisablingReadOnly) {
-      return res.status(403).json({ error: "readonly_mode", message: "Mode lecture seule active" });
-    }
+    // Return fallback or key
+    return fallback || key;
+  },
+  
+  getAvailableLanguages: function() {
+    return Object.keys(this.translations);
+  },
+  
+  getCurrentLanguage: function() {
+    return this.currentLang;
+  }
+};
 
-    try {
-      const updated = settingsManager.updateSettings(shop, section, req.body);
-      logEvent("settings_updated", { shop, section }, "info");
-      res.json({ success: true, section, settings: updated[section] });
-    } catch (e) {
-      return apiError(res, 400, e.message);
-    }
-  });
-});
-
-// Reset parametres
-router.post("/api/settings/reset", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!settingsManager) return apiError(res, 500, "SettingsManager non disponible");
-
-    const section = req.body?.section || null;
-    try {
-      const settings = settingsManager.resetSettings(shop, section);
-      logEvent("settings_reset", { shop, section: section || "all" }, "info");
-      res.json({ success: true, settings });
-    } catch (e) {
-      return apiError(res, 400, e.message);
-    }
-  });
-});
-
-// Export config (backup)
-router.get("/api/settings/backup", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!settingsManager) return apiError(res, 500, "SettingsManager non disponible");
-
-    const config = settingsManager.exportConfig(shop);
-    res.setHeader("Content-Type", "application/json");
-    res.setHeader("Content-Disposition", `attachment; filename="config-backup.json"`);
-    res.json(config);
-  });
-});
-
-// Import config (restore)
-router.post("/api/settings/restore", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!settingsManager) return apiError(res, 500, "SettingsManager non disponible");
-
-    const config = req.body?.config;
-    const merge = req.body?.merge === true;
-    if (!config) return apiError(res, 400, "Configuration manquante");
-
-    try {
-      const settings = settingsManager.importConfig(shop, config, { merge });
-      logEvent("settings_restored", { shop, merge }, "info");
-      res.json({ success: true, settings });
-    } catch (e) {
-      return apiError(res, 400, e.message);
-    }
-  });
-});
-
-// Diagnostic
-router.get("/api/settings/diagnostic", (req, res) => {
-  safeJson(req, res, async () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-
-    let shopifyStatus = "unknown";
-    try {
-      const client = shopifyFor(shop);
-      const shopInfo = await client.shop.get();
-      shopifyStatus = shopInfo?.id ? "connected" : "error";
-    } catch (e) {
-      shopifyStatus = "error";
-    }
-
-    const snapshot = stock.getCatalogSnapshot ? stock.getCatalogSnapshot(shop) : { products: [] };
-    const productCount = Array.isArray(snapshot.products) ? snapshot.products.length : 0;
-
-    let planInfo = { planId: "free", limits: {} };
-    if (planManager) {
-      planInfo = planManager.getShopPlan(shop);
-    }
-
-    const settings = settingsManager ? settingsManager.loadSettings(shop) : {};
-
-    res.json({
-      status: "ok",
-      shop: shop,
-      shopify: { status: shopifyStatus },
-      data: { 
-        productCount,
-        settingsVersion: settings._meta?.version,
-        lastUpdated: settings._meta?.updatedAt,
-      },
-      plan: { id: planInfo.planId, limits: planInfo.limits },
-    });
-  });
-});
-
-// Support bundle
-router.get("/api/settings/support-bundle", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!settingsManager) return apiError(res, 500, "SettingsManager non disponible");
-
-    const bundle = settingsManager.generateSupportBundle(shop);
-    res.setHeader("Content-Type", "application/json");
-    res.setHeader("Content-Disposition", `attachment; filename="support-bundle.json"`);
-    res.json(bundle);
-  });
-});
-
-// =====================================================
-// USER PROFILES ROUTES
-// =====================================================
-
-let userProfileStore = null;
-try {
-  userProfileStore = require("./userProfileStore");
-  console.log("[Server] userProfileStore loaded");
-} catch (e) {
-  console.warn("[Server] userProfileStore not available");
+// Helper global function
+function t(key, fallback) {
+  return I18N.t(key, fallback);
 }
-
-const defaultProfile = { id: "admin", name: "Admin", role: "admin", color: "#6366f1", isDefault: true };
-
-router.get("/api/profiles", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!userProfileStore) return res.json({ profiles: [defaultProfile], activeProfileId: "admin", settings: {} });
-    const data = userProfileStore.loadProfiles(shop);
-    res.json({ profiles: data.profiles || [defaultProfile], activeProfileId: data.activeProfileId || "admin", settings: data.settings || {} });
-  });
-});
-
-router.post("/api/profiles", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!userProfileStore) return apiError(res, 503, "Module profils non disponible");
-    const { name, role, color } = req.body;
-    if (!name || !name.trim()) return apiError(res, 400, "Le nom est requis");
-    const profile = userProfileStore.createProfile(shop, { name: name.trim(), role, color });
-    res.json({ success: true, profile });
-  });
-});
-
-router.post("/api/profiles/:id/activate", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!userProfileStore) return res.json({ success: true, profile: defaultProfile });
-    const result = userProfileStore.setActiveProfile(shop, req.params.id);
-    if (!result.success) return apiError(res, 404, result.error || "Profil introuvable");
-    res.json({ success: true, profile: result.profile });
-  });
-});
-
-router.put("/api/profiles/:id", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!userProfileStore) return apiError(res, 503, "Module profils non disponible");
-    const profile = userProfileStore.updateProfile(shop, req.params.id, req.body);
-    if (!profile) return apiError(res, 404, "Profil introuvable");
-    res.json({ success: true, profile });
-  });
-});
-
-router.delete("/api/profiles/:id", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!userProfileStore) return apiError(res, 503, "Module profils non disponible");
-    const result = userProfileStore.deleteProfile(shop, req.params.id);
-    if (!result.success) return apiError(res, 400, result.error || "Impossible de supprimer");
-    res.json({ success: true });
-  });
-});
-
-// =====================================================
-// NOTIFICATIONS ROUTES
-// =====================================================
-
-let notificationStore = null;
-let alertChecker = null;
-try {
-  notificationStore = require("./notificationStore");
-  alertChecker = require("./alertChecker");
-  console.log("[Server] notificationStore & alertChecker loaded");
-} catch (e) {
-  console.warn("[Server] Notification modules not available");
-}
-
-router.get("/api/notifications", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!notificationStore) return res.json({ alerts: [], counts: {}, unreadCount: 0 });
-    const limit = parseInt(req.query.limit) || 50;
-    const alerts = notificationStore.getAlerts(shop, { limit });
-    const counts = notificationStore.getCountByPriority(shop);
-    res.json({ alerts, counts, unreadCount: counts.critical + counts.high + counts.normal });
-  });
-});
-
-router.get("/api/notifications/count", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!notificationStore) return res.json({ unreadCount: 0, critical: 0, high: 0, normal: 0 });
-    const counts = notificationStore.getCountByPriority(shop);
-    res.json({ unreadCount: notificationStore.getUnreadCount(shop), ...counts });
-  });
-});
-
-router.post("/api/notifications/check", async (req, res) => {
-  safeJson(req, res, async () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!alertChecker) return res.json({ success: true, newAlerts: 0 });
-    const results = await alertChecker.checkAllAlerts(shop);
-    res.json({ success: true, ...results });
-  });
-});
-
-router.post("/api/notifications/:id/read", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (notificationStore) notificationStore.markAsRead(shop, req.params.id);
-    res.json({ success: true });
-  });
-});
-
-router.post("/api/notifications/:id/dismiss", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (notificationStore) notificationStore.dismissAlert(shop, req.params.id);
-    res.json({ success: true });
-  });
-});
-
-// =====================================================
-// PLAN ROUTES – Billing Shopify (AppSubscription)
-// =====================================================
-
-// Helper: map planId -> billing config
-function getBillingConfigForPlan(planId, interval = "monthly") {
-  const pid = String(planId || "").toLowerCase();
-  if (!planManager || !planManager.PLANS || !planManager.PLANS[pid]) return null;
-
-  const p = planManager.PLANS[pid];
-
-  // Free = pas de billing
-  if (pid === "free" || Number(p.price || 0) <= 0) return null;
-
-  const isYearly = String(interval || "monthly").toLowerCase() === "yearly";
-  const price = isYearly ? Number(p.priceYearly || 0) : Number(p.price || 0);
-
-  return {
-    name: String(p.name || pid),
-    price,
-    currencyCode: String(p.currency || "EUR").toUpperCase(),
-    interval: isYearly ? "ANNUAL" : "EVERY_30_DAYS",
-  };
-}
-
-function buildBillingReturnUrl(shop, planId, interval) {
-  const base = String(process.env.RENDER_PUBLIC_URL || "").replace(/\/+$/, "");
-  if (!base) throw new Error("RENDER_PUBLIC_URL manquant pour Billing returnUrl");
-  const q = new URLSearchParams({
-    shop: normalizeShopDomain(shop),
-    planId: String(planId || "").toLowerCase(),
-    interval: String(interval || "monthly").toLowerCase(),
-  });
-  return `${base}/api/billing/return?${q.toString()}`;
-}
-
-function isBillingTestMode() {
-  // en prod => false par defaut
-  const v = String(process.env.SHOPIFY_BILLING_TEST || "").trim().toLowerCase();
-  if (v === "true" || v === "1") return true;
-  if (v === "false" || v === "0") return false;
-  return process.env.NODE_ENV !== "production";
-}
-
-// Info sur le plan actuel
-router.get("/api/plan", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    console.log(`[Plan] API /api/plan called - shop: "${shop}"`);
-
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!planManager) return apiError(res, 500, "PlanManager non disponible");
-
-    // Verifier si c'est un nouveau shop qui merite un trial Starter
-    const currentPlan = planManager.getShopPlan(shop);
-    
-    // Si pas d'abonnement, pas de trial en cours, et effectivePlan = free
-    // => Demarrer le trial Starter automatique de 7 jours
-    if (currentPlan.effectivePlanId === "free" && 
-        !currentPlan.trialPlanId && 
-        !currentPlan.trialEndsAt &&
-        (!currentPlan.subscription || currentPlan.subscription.status !== "active")) {
-      console.log(`[Trial] Starting automatic Starter trial for ${shop}`);
-      planManager.startStarterTrial(shop);
-    }
-
-    // Compter les produits actuels
-    const snapshot = stock.getCatalogSnapshot ? stock.getCatalogSnapshot(shop) : { products: [] };
-    const productCount = Array.isArray(snapshot.products) ? snapshot.products.length : 0;
-
-    const planInfo = planManager.getPlanInfoForUI(shop, productCount);
-    console.log(`[Plan] Result: effectivePlan=${planInfo.current?.planId}, trial=${planInfo.trial?.active}, daysLeft=${planInfo.trial?.daysLeft}`);
-    res.json(planInfo);
-  });
-});
-
-// Liste des plans disponibles
-router.get("/api/plans", (req, res) => {
-  safeJson(req, res, () => {
-    if (!planManager) return apiError(res, 500, "PlanManager non disponible");
-    res.json({ plans: Object.values(planManager.PLANS) });
-  });
-});
-
-// aÃ…â€œÃ¢â‚¬Â¦ Retour Billing Shopify (apres acceptation abonnement)
-// IMPORTANT: cette route passe SANS session token (bypass dans requireApiAuth)
-router.get("/api/billing/return", (req, res) => {
-  safeJson(req, res, async () => {
-    const shop = getShop(req);
-    const planId = String(req.query?.planId || "").toLowerCase();
-    const interval = String(req.query?.interval || "monthly").toLowerCase();
-
-    if (!shop) return apiError(res, 400, "Shop introuvable (billing return)");
-    if (!planManager) return apiError(res, 500, "PlanManager non disponible");
-    if (!planId || !planManager.PLANS[planId]) return apiError(res, 400, `planId invalide: ${planId}`);
-
-    // Si bypass => on fixe direct (pas besoin de billing)
-    const bypassPlan = planManager.getBypassPlan ? planManager.getBypassPlan(shop) : null;
-    if (bypassPlan) {
-      const result = planManager.setShopPlan(shop, bypassPlan, {
-        id: `bypass_${Date.now()}`,
-        status: "active",
-        startedAt: new Date().toISOString(),
-        interval: "lifetime",
-      });
-      return res.type("html").send(`
-        <div style="font-family:system-ui;padding:24px">
-          <h2>aÃ…â€œÃ¢â‚¬Â¦ Plan active (bypass)</h2>
-          <p>Boutique: <b>${shop}</b></p>
-          <p>Plan: <b>${String(bypassPlan).toUpperCase()}</b></p>
-          <p>Tu peux fermer cette page.</p>
-        </div>
-      `);
-    }
-
-    // Verifier que Shopify a bien un abonnement actif
-    const subs = await getActiveAppSubscriptions(shop);
-
-    // On prend le plus recent (souvent 1 seul)
-    const chosen = Array.isArray(subs) && subs.length ? subs[0] : null;
-
-    if (!chosen?.id) {
-      // Le marchand a peut-etre ferme avant de confirmer
-      return res.type("html").send(`
-        <div style="font-family:system-ui;padding:24px">
-          <h2>aÃ…Â¡Ã‚Â iÃ‚Â¸Ã‚Â Abonnement non detecte</h2>
-          <p>Boutique: <b>${shop}</b></p>
-          <p>Aucun abonnement actif trouve cote Shopify.</p>
-          <p>Retourne dans laEURÃ¢â€žÂ¢app et relance laEURÃ¢â€žÂ¢upgrade.</p>
-        </div>
-      `);
-    }
-
-    // Stocker localement (source de verite app = plan.json)
-    const result = planManager.setShopPlan(shop, planId, {
-      id: chosen.id,
-      status: String(chosen.status || "ACTIVE").toLowerCase(), // "active" / "trialing" etc (best effort)
-      startedAt: chosen.createdAt || new Date().toISOString(),
-      expiresAt: null,
-      interval: interval === "yearly" ? "annual" : "monthly",
-    });
-
-    logEvent("billing_confirmed", { shop, planId, subId: chosen.id, status: chosen.status }, "info");
-
-    return res.type("html").send(`
-      <div style="font-family:system-ui;padding:24px">
-        <h2>aÃ…â€œÃ¢â‚¬Â¦ Abonnement active</h2>
-        <p>Boutique: <b>${shop}</b></p>
-        <p>Plan: <b>${planId.toUpperCase()}</b></p>
-        <p>Statut: <b>${String(chosen.status || "")}</b></p>
-        <p>Tu peux fermer cette page et retourner dans laEURÃ¢â€žÂ¢app.</p>
-      </div>
-    `);
-  });
-});
-
-// aÃ…â€œÃ¢â‚¬Â¦ Upgrade: cree un abonnement Shopify et renvoie confirmationUrl
-router.post("/api/plan/upgrade", (req, res) => {
-  safeJson(req, res, async () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!planManager) return apiError(res, 500, "PlanManager non disponible");
-
-    const planId = String(req.body?.planId || "").toLowerCase();
-    const interval = String(req.body?.interval || "monthly").toLowerCase(); // "monthly" | "yearly"
-
-    if (!planManager.PLANS[planId]) return apiError(res, 400, `Plan inconnu: ${planId}`);
-    if (planId === "free") {
-      // Si laEURÃ¢â€žÂ¢utilisateur downgrade vers free => passe par cancel
-      return apiError(res, 400, "Pour revenir en Free, utilise /api/plan/cancel");
-    }
-
-    // aÃ…â€œÃ¢â‚¬Â¦ Bypass billing => on fixe direct sans Shopify
-    const bypassPlan = planManager.getBypassPlan ? planManager.getBypassPlan(shop) : null;
-    if (bypassPlan) {
-      const result = planManager.setShopPlan(shop, bypassPlan, {
-        id: `bypass_${Date.now()}`,
-        status: "active",
-        startedAt: new Date().toISOString(),
-        interval: "lifetime",
-      });
-      logEvent("plan_upgraded_bypass", { shop, planId: bypassPlan }, "info");
-      return res.json({ success: true, bypass: true, ...result });
-    }
-
-    // aÃ…â€œÃ¢â‚¬Â¦ Si dejÃƒÆ’Ã‚Â  un abonnement actif Shopify => on evite doublon
-    const existingSubs = await getActiveAppSubscriptions(shop);
-    if (Array.isArray(existingSubs) && existingSubs.length) {
-      return res.status(409).json({
-        error: "billing_already_active",
-        message: "Un abonnement Shopify est dejÃƒÆ’Ã‚Â  actif pour cette boutique. Annule avant de recreer.",
-        subscriptions: existingSubs.map((s) => ({ id: s.id, name: s.name, status: s.status })),
-      });
-    }
-
-    const billingCfg = getBillingConfigForPlan(planId, interval);
-    if (!billingCfg) return apiError(res, 400, "Plan non billable (config)");
-
-    const returnUrl = buildBillingReturnUrl(shop, planId, interval);
-
-    // Trial: 14 jours par defaut (desactivable)
-    const skipTrial = req.body?.skipTrial === true;
-    const trialDays = skipTrial ? 0 : 14;
-
-    const created = await createAppSubscription(shop, {
-      name: billingCfg.name,
-      returnUrl,
-      price: billingCfg.price,
-      currencyCode: billingCfg.currencyCode,
-      interval: billingCfg.interval,
-      trialDays,
-      test: isBillingTestMode(),
-    });
-
-    if (created.userErrors && created.userErrors.length) {
-      return res.status(400).json({
-        error: "billing_user_errors",
-        message: "Shopify a refuse la creation daEURÃ¢â€žÂ¢abonnement",
-        userErrors: created.userErrors,
-      });
-    }
-
-    if (!created.confirmationUrl) {
-      return res.status(500).json({
-        error: "billing_no_confirmation_url",
-        message: "Aucune confirmationUrl retournee par Shopify",
-      });
-    }
-
-    logEvent("billing_subscription_created", { shop, planId, interval, trialDays }, "info");
-
-    // IMPORTANT: le front doit ouvrir confirmationUrl (top level)
-    return res.json({
-      success: true,
-      planId,
-      interval,
-      trialDays,
-      confirmationUrl: created.confirmationUrl,
-      returnUrl,
-    });
-  });
-});
-
-// aÃ…â€œÃ¢â‚¬Â¦ Cancel: annule laEURÃ¢â€žÂ¢abonnement Shopify + downgrade local en Free
-router.post("/api/plan/cancel", (req, res) => {
-  safeJson(req, res, async () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!planManager) return apiError(res, 500, "PlanManager non disponible");
-
-    // Bypass => on ne cancel pas Shopify (il naEURÃ¢â€žÂ¢y a rien), et ca restera bypass
-    const bypassPlan = planManager.getBypassPlan ? planManager.getBypassPlan(shop) : null;
-    if (bypassPlan) {
-      const current = planManager.getShopPlan(shop);
-      return res.json({
-        success: true,
-        bypass: true,
-        message: "Boutique en bypass billing: annulation Shopify non applicable.",
-        current,
-      });
-    }
-
-    const subs = await getActiveAppSubscriptions(shop);
-    const sub = Array.isArray(subs) && subs.length ? subs[0] : null;
-
-    // SaEURÃ¢â€žÂ¢il naEURÃ¢â€žÂ¢y a rien cote Shopify, on downgrade quand meme localement
-    if (!sub?.id) {
-      const result = planManager.cancelSubscription(shop);
-      logEvent("plan_cancelled_no_shopify_sub", { shop }, "warn");
-      return res.json({ success: true, shopifyCancelled: false, ...result });
-    }
-
-    const cancelled = await cancelAppSubscription(shop, sub.id, { prorate: true, reason: "OTHER" });
-
-    if (cancelled.userErrors && cancelled.userErrors.length) {
-      return res.status(400).json({
-        error: "billing_cancel_user_errors",
-        message: "Shopify a refuse laEURÃ¢â€žÂ¢annulation",
-        userErrors: cancelled.userErrors,
-      });
-    }
-
-    const result = planManager.cancelSubscription(shop);
-
-    logEvent("plan_cancelled", { shop, subId: sub.id }, "info");
-    return res.json({
-      success: true,
-      shopifyCancelled: true,
-      cancelled: { id: cancelled.cancelledId, status: cancelled.status },
-      ...result,
-    });
-  });
-});
-
-// Verifier une limite specifique
-router.get("/api/plan/check/:action", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!planManager) return apiError(res, 500, "PlanManager non disponible");
-
-    const action = String(req.params.action);
-
-    // Context pour certaines verifications
-    const context = {};
-    if (action === "add_product") {
-      const snapshot = stock.getCatalogSnapshot ? stock.getCatalogSnapshot(shop) : { products: [] };
-      context.currentProductCount = Array.isArray(snapshot.products) ? snapshot.products.length : 0;
-    }
-    if (action === "view_movements") {
-      context.days = Number(req.query.days || 7);
-    }
-
-    const result = planManager.checkLimit(shop, action, context);
-    res.json(result);
-  });
-});
-
-// =====================================================
-// ANALYTICS ROUTES aÃ…â€œÃ¢â‚¬Â¦ NOUVEAU
-// =====================================================
-
-// Summary (KPIs globaux) - aÃ…â€œÃ¢â‚¬Â¦ PREMIUM ONLY
-router.get("/api/analytics/summary", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!analyticsManager) return apiError(res, 500, "Analytics non disponible");
-
-    // aÃ…â€œÃ¢â‚¬Â¦ Verifier le plan
-    if (planManager) {
-      const check = planManager.checkLimit(shop, "view_analytics");
-      if (!check.allowed) {
-        return res.status(403).json({
-          error: "plan_limit",
-          message: check.reason,
-          upgrade: check.upgrade,
-          feature: "analytics",
-        });
-      }
-    }
-
-    const from = req.query.from || null;
-    const to = req.query.to || null;
-
-    const summary = analyticsManager.calculateSummary(shop, from, to);
-    res.json(summary);
-  });
-});
-
-// Timeseries (donnees graphiques) - aÃ…â€œÃ¢â‚¬Â¦ PREMIUM ONLY
-router.get("/api/analytics/timeseries", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!analyticsManager) return apiError(res, 500, "Analytics non disponible");
-
-    // aÃ…â€œÃ¢â‚¬Â¦ Verifier le plan
-    if (planManager) {
-      const check = planManager.checkLimit(shop, "view_analytics");
-      if (!check.allowed) {
-        return res.status(403).json({
-          error: "plan_limit",
-          message: check.reason,
-          upgrade: check.upgrade,
-        });
-      }
-    }
-
-    const from = req.query.from || null;
-    const to = req.query.to || null;
-    const bucket = String(req.query.bucket || "day");
-
-    const data = analyticsManager.calculateTimeseries(shop, from, to, bucket);
-    res.json(data);
-  });
-});
-
-// Liste des commandes recentes - aÃ…â€œÃ¢â‚¬Â¦ PREMIUM ONLY
-router.get("/api/analytics/orders", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!analyticsManager) return apiError(res, 500, "Analytics non disponible");
-
-    // aÃ…â€œÃ¢â‚¬Â¦ Verifier le plan
-    if (planManager) {
-      const check = planManager.checkLimit(shop, "view_analytics");
-      if (!check.allowed) {
-        return res.status(403).json({
-          error: "plan_limit",
-          message: check.reason,
-          upgrade: check.upgrade,
-        });
-      }
-    }
-
-    const from = req.query.from || null;
-    const to = req.query.to || null;
-    const limit = Math.min(Number(req.query.limit || 50), 500);
-
-    const data = analyticsManager.listRecentOrders(shop, from, to, limit);
-    res.json(data);
-  });
-});
-
-// Top produits - aÃ…â€œÃ¢â‚¬Â¦ PREMIUM ONLY
-router.get("/api/analytics/products/top", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!analyticsManager) return apiError(res, 500, "Analytics non disponible");
-
-    // aÃ…â€œÃ¢â‚¬Â¦ Verifier le plan
-    if (planManager) {
-      const check = planManager.checkLimit(shop, "view_analytics");
-      if (!check.allowed) {
-        return res.status(403).json({
-          error: "plan_limit",
-          message: check.reason,
-          upgrade: check.upgrade,
-        });
-      }
-    }
-
-    const from = req.query.from || null;
-    const to = req.query.to || null;
-    const by = String(req.query.by || "revenue");
-    const limit = Math.min(Number(req.query.limit || 10), 100);
-
-    const data = analyticsManager.getTopProducts(shop, from, to, { by, limit });
-    res.json(data);
-  });
-});
-
-// Stats d'un produit specifique
-router.get("/api/analytics/products/:productId", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!analyticsManager) return apiError(res, 500, "Analytics non disponible");
-
-    const productId = String(req.params.productId);
-    const from = req.query.from || null;
-    const to = req.query.to || null;
-
-    const data = analyticsManager.calculateProductStats(shop, productId, from, to);
-    res.json(data);
-  });
-});
-
-// Stats par categorie
-router.get("/api/analytics/categories", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!analyticsManager) return apiError(res, 500, "Analytics non disponible");
-
-    const from = req.query.from || null;
-    const to = req.query.to || null;
-
-    const data = analyticsManager.getCategoryAnalytics(shop, from, to);
-    res.json(data);
-  });
-});
-
-// Export CSV
-router.get("/api/analytics/export.csv", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!analyticsStore) return apiError(res, 500, "Analytics non disponible");
-
-    const from = req.query.from || null;
-    const to = req.query.to || null;
-    const limit = Math.min(Number(req.query.limit || 10000), 50000);
-
-    const sales = analyticsStore.listSales({ shop, from, to, limit });
-    const csv = analyticsStore.toCSV(sales);
-
-    res.setHeader("Content-Type", "text/csv; charset=utf-8");
-    res.setHeader("Content-Disposition", `attachment; filename="analytics-${from || "all"}-${to || "now"}.csv"`);
-    res.send(csv);
-  });
-});
-
-// Export JSON
-router.get("/api/analytics/export.json", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!analyticsStore) return apiError(res, 500, "Analytics non disponible");
-
-    const from = req.query.from || null;
-    const to = req.query.to || null;
-    const limit = Math.min(Number(req.query.limit || 10000), 50000);
-
-    const sales = analyticsStore.listSales({ shop, from, to, limit });
-
-    res.setHeader("Content-Type", "application/json; charset=utf-8");
-    res.setHeader("Content-Disposition", `attachment; filename="analytics-${from || "all"}-${to || "now"}.json"`);
-    res.json({ sales, count: sales.length, period: { from, to } });
-  });
-});
-
-// ============================================
-// ANALYTICS DASHBOARD PRO - Endpoint complet
-// ============================================
-router.get("/api/analytics/dashboard", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-
-    // Verifier le plan PRO
-    if (planManager) {
-      const check = planManager.checkLimit(shop, "view_analytics");
-      if (!check.allowed) {
-        return res.status(403).json({
-          error: "plan_limit",
-          message: check.reason,
-          upgrade: check.upgrade,
-          feature: "analytics",
-        });
-      }
-    }
-
-    const period = req.query.period || "30"; // jours
-    const now = new Date();
-    const daysAgo = parseInt(period, 10) || 30;
-    const from = new Date(now.getTime() - daysAgo * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-    const to = now.toISOString().slice(0, 10);
-
-    // 1. Recuperer le snapshot stock
-    const snapshot = stock.getCatalogSnapshot ? stock.getCatalogSnapshot(shop) : { products: [] };
-    const products = Array.isArray(snapshot.products) ? snapshot.products : [];
-    const categories = catalogStore.listCategories ? catalogStore.listCategories(shop) : [];
-
-    // 2. Calculer les KPIs stock
-    let totalStockValue = 0;
-    let totalStockGrams = 0;
-    const alertsRupture = [];
-    const alertsLow = [];
-    const alertsDormant = [];
-
-    // Seuils configurables
-    const SEUIL_RUPTURE = 0;
-    const SEUIL_CRITIQUE = 50; // grammes
-    const SEUIL_BAS = 200; // grammes
-    const SEUIL_ROTATION_LENT = 30; // jours
-    const SEUIL_ROTATION_DORMANT = 60; // jours
-
-    // Analyser chaque produit
-    const productsAnalysis = products.map(p => {
-      const grams = p.totalGrams || 0;
-      const cmp = p.averageCostPerGram || 0;
-      const value = grams * cmp;
-      totalStockValue += value;
-      totalStockGrams += grams;
-
-      // Calculer rotation estimee (basee sur les ventes si dispo)
-      let rotationDays = null;
-      let velocityPerDay = 0;
-      let lastSaleDate = null;
-      let totalSoldGrams = 0;
-
-      if (analyticsStore) {
-        const sales = analyticsStore.getSalesByProduct ? 
-          analyticsStore.getSalesByProduct(shop, p.productId, from, to) : [];
-        if (sales.length > 0) {
-          totalSoldGrams = sales.reduce((sum, s) => sum + (s.totalGrams || 0), 0);
-          velocityPerDay = totalSoldGrams / daysAgo;
-          rotationDays = velocityPerDay > 0 ? Math.round(grams / velocityPerDay) : null;
-          lastSaleDate = sales[0]?.orderDate || null;
-        }
-      }
-
-      // Determiner le statut
-      let status = "good";
-      let statusLabel = "OK";
-      if (grams <= SEUIL_RUPTURE) {
-        status = "rupture";
-        statusLabel = "Rupture";
-      } else if (grams < SEUIL_CRITIQUE) {
-        status = "critical";
-        statusLabel = "Critique";
-      } else if (grams < SEUIL_BAS) {
-        status = "low";
-        statusLabel = "Bas";
-      }
-
-      // Determiner sante rotation
-      let rotationStatus = "unknown";
-      if (rotationDays !== null) {
-        if (rotationDays <= SEUIL_ROTATION_LENT) rotationStatus = "fast";
-        else if (rotationDays <= SEUIL_ROTATION_DORMANT) rotationStatus = "slow";
-        else rotationStatus = "dormant";
-      } else if (grams > 0 && totalSoldGrams === 0) {
-        rotationStatus = "dormant"; // Aucune vente sur la periode
-      }
-
-      // Alertes
-      if (status === "rupture") {
-        alertsRupture.push({ productId: p.productId, name: p.name, grams, value });
-      } else if (status === "critical" || status === "low") {
-        if (rotationDays !== null && rotationDays < 7) {
-          alertsLow.push({ productId: p.productId, name: p.name, grams, daysLeft: rotationDays, value });
-        }
-      }
-      if (rotationStatus === "dormant" && grams > 0) {
-        alertsDormant.push({ productId: p.productId, name: p.name, grams, value, daysSinceLastSale: rotationDays || 999 });
-      }
-
-      return {
-        productId: p.productId,
-        name: p.name,
-        grams,
-        cmp,
-        value,
-        status,
-        statusLabel,
-        rotationDays,
-        rotationStatus,
-        velocityPerDay: Math.round(velocityPerDay * 100) / 100,
-        totalSoldGrams,
-        categoryIds: p.categoryIds || [],
-      };
-    });
-
-    // 3. Calculer la sante globale du stock
-    let stockVendable = 0;
-    let stockLent = 0;
-    let stockDormant = 0;
-
-    productsAnalysis.forEach(p => {
-      if (p.rotationStatus === "fast") stockVendable += p.value;
-      else if (p.rotationStatus === "slow") stockLent += p.value;
-      else if (p.rotationStatus === "dormant") stockDormant += p.value;
-      else stockVendable += p.value; // Par defaut si pas de donnees
-    });
-
-    const healthScore = totalStockValue > 0 
-      ? Math.round(((stockVendable / totalStockValue) * 100) - ((stockDormant / totalStockValue) * 30))
-      : 100;
-
-    // 4. Top produits
-    const topVendus = [...productsAnalysis]
-      .filter(p => p.totalSoldGrams > 0)
-      .sort((a, b) => b.totalSoldGrams - a.totalSoldGrams)
-      .slice(0, 5);
-
-    const topValeur = [...productsAnalysis]
-      .filter(p => p.value > 0)
-      .sort((a, b) => b.value - a.value)
-      .slice(0, 5);
-
-    const topLents = [...productsAnalysis]
-      .filter(p => p.rotationStatus === "dormant" || p.rotationStatus === "slow")
-      .sort((a, b) => (b.rotationDays || 999) - (a.rotationDays || 999))
-      .slice(0, 5);
-
-    // 5. Analyse par categorie
-    const categoryAnalysis = categories.map(cat => {
-      const catProducts = productsAnalysis.filter(p => 
-        Array.isArray(p.categoryIds) && p.categoryIds.includes(cat.id)
-      );
-      const catValue = catProducts.reduce((sum, p) => sum + p.value, 0);
-      const catGrams = catProducts.reduce((sum, p) => sum + p.grams, 0);
-      const catSold = catProducts.reduce((sum, p) => sum + p.totalSoldGrams, 0);
-      const avgRotation = catProducts.length > 0
-        ? catProducts.reduce((sum, p) => sum + (p.rotationDays || 0), 0) / catProducts.length
-        : null;
-
-      let health = "good";
-      if (avgRotation !== null) {
-        if (avgRotation > SEUIL_ROTATION_DORMANT) health = "dormant";
-        else if (avgRotation > SEUIL_ROTATION_LENT) health = "slow";
-      }
-
-      return {
-        id: cat.id,
-        name: cat.name,
-        productCount: catProducts.length,
-        stockGrams: Math.round(catGrams),
-        stockValue: Math.round(catValue * 100) / 100,
-        soldGrams: Math.round(catSold),
-        avgRotationDays: avgRotation ? Math.round(avgRotation) : null,
-        health,
-      };
-    });
-
-    // Produits sans categorie
-    const uncategorized = productsAnalysis.filter(p => 
-      !Array.isArray(p.categoryIds) || p.categoryIds.length === 0
-    );
-    if (uncategorized.length > 0) {
-      const uncatValue = uncategorized.reduce((sum, p) => sum + p.value, 0);
-      const uncatGrams = uncategorized.reduce((sum, p) => sum + p.grams, 0);
-      const uncatSold = uncategorized.reduce((sum, p) => sum + p.totalSoldGrams, 0);
-      categoryAnalysis.push({
-        id: "uncategorized",
-        name: "Sans categorie",
-        productCount: uncategorized.length,
-        stockGrams: Math.round(uncatGrams),
-        stockValue: Math.round(uncatValue * 100) / 100,
-        soldGrams: Math.round(uncatSold),
-        avgRotationDays: null,
-        health: "unknown",
-      });
-    }
-
-    // 6. Analyse par format (gramsPerUnit des variantes)
-    const formatBuckets = { small: { label: "1-5g", min: 0, max: 5 }, medium: { label: "10-25g", min: 6, max: 25 }, large: { label: "50g+", min: 26, max: 9999 } };
-    const formatAnalysis = [];
-
-    products.forEach(p => {
-      if (!Array.isArray(p.variants)) return;
-      p.variants.forEach(v => {
-        const gpu = v.gramsPerUnit || 0;
-        let bucket = null;
-        if (gpu > 0 && gpu <= 5) bucket = "small";
-        else if (gpu > 5 && gpu <= 25) bucket = "medium";
-        else if (gpu > 25) bucket = "large";
-        if (bucket) {
-          if (!formatAnalysis[bucket]) {
-            formatAnalysis[bucket] = { ...formatBuckets[bucket], stockValue: 0, soldGrams: 0, productCount: 0 };
-          }
-          // Calculer la part de stock de cette variante
-          const productData = productsAnalysis.find(pa => pa.productId === p.productId);
-          if (productData) {
-            formatAnalysis[bucket].stockValue += productData.value / (p.variants.length || 1);
-            formatAnalysis[bucket].soldGrams += productData.totalSoldGrams / (p.variants.length || 1);
-            formatAnalysis[bucket].productCount++;
-          }
-        }
-      });
-    });
-
-    const formatAnalysisArray = Object.values(formatAnalysis).map(f => ({
-      ...f,
-      stockValue: Math.round(f.stockValue * 100) / 100,
-      soldGrams: Math.round(f.soldGrams),
-      percentStock: totalStockValue > 0 ? Math.round((f.stockValue / totalStockValue) * 100) : 0,
-    }));
-
-    // 7. Recuperer les ventes analytics si disponibles
-    let salesSummary = null;
-    if (analyticsManager && typeof analyticsManager.calculateSummary === "function") {
-      salesSummary = analyticsManager.calculateSummary(shop, from, to);
-    }
-
-    // 8. Calculer la rotation moyenne globale
-    const productsWithRotation = productsAnalysis.filter(p => p.rotationDays !== null && p.rotationDays > 0);
-    const avgRotation = productsWithRotation.length > 0
-      ? Math.round(productsWithRotation.reduce((sum, p) => sum + p.rotationDays, 0) / productsWithRotation.length)
-      : null;
-
-    // Reponse finale
-    res.json({
-      period: { from, to, days: daysAgo },
-      
-      // KPIs principaux
-      kpis: {
-        totalStockValue: Math.round(totalStockValue * 100) / 100,
-        totalStockGrams: Math.round(totalStockGrams),
-        totalProducts: products.length,
-        alertsCount: alertsRupture.length + alertsLow.length,
-        avgRotationDays: avgRotation,
-        healthScore: Math.max(0, Math.min(100, healthScore)),
-      },
-
-      // Sante du stock
-      stockHealth: {
-        vendable: { value: Math.round(stockVendable * 100) / 100, percent: totalStockValue > 0 ? Math.round((stockVendable / totalStockValue) * 100) : 0 },
-        lent: { value: Math.round(stockLent * 100) / 100, percent: totalStockValue > 0 ? Math.round((stockLent / totalStockValue) * 100) : 0 },
-        dormant: { value: Math.round(stockDormant * 100) / 100, percent: totalStockValue > 0 ? Math.round((stockDormant / totalStockValue) * 100) : 0 },
-      },
-
-      // Alertes
-      alerts: {
-        rupture: alertsRupture.slice(0, 10),
-        lowStock: alertsLow.sort((a, b) => a.daysLeft - b.daysLeft).slice(0, 10),
-        dormant: alertsDormant.sort((a, b) => b.value - a.value).slice(0, 10),
-      },
-
-      // Tops
-      topProducts: {
-        vendus: topVendus,
-        valeur: topValeur,
-        lents: topLents,
-      },
-
-      // Par categorie
-      categories: categoryAnalysis.sort((a, b) => b.stockValue - a.stockValue),
-
-      // Par format
-      formats: formatAnalysisArray,
-
-      // Ventes (si disponibles)
-      sales: salesSummary,
-
-      // Seuils utilises
-      thresholds: {
-        rupture: SEUIL_RUPTURE,
-        critique: SEUIL_CRITIQUE,
-        bas: SEUIL_BAS,
-        rotationLent: SEUIL_ROTATION_LENT,
-        rotationDormant: SEUIL_ROTATION_DORMANT,
-      },
-    });
-  });
-});
-
-// ============================================
-// ANALYTICS PRO - Ventes Shopify & Marges
-// ============================================
-
-router.get("/api/analytics/sales", async (req, res) => {
-  try {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-
-    // Verifier le plan PRO
-    if (planManager) {
-      const check = planManager.checkLimit(shop, "view_analytics");
-      if (!check.allowed) {
-        return res.status(403).json({ error: "plan_limit", message: check.reason });
-      }
-    }
-
-    const period = parseInt(req.query.period, 10) || 30;
-    const now = new Date();
-    const fromDate = new Date(now.getTime() - period * 24 * 60 * 60 * 1000);
-
-    // Recuperer les commandes Shopify
-    const client = shopifyFor(shop);
-    if (!client) return apiError(res, 500, "Client Shopify non disponible");
-
-    const orders = await client.order.list({
-      status: "any",
-      created_at_min: fromDate.toISOString(),
-      limit: 250,
-    });
-
-    // Recuperer les produits avec leur CMP
-    const snapshot = stock.getCatalogSnapshot ? stock.getCatalogSnapshot(shop) : { products: [] };
-    const products = Array.isArray(snapshot.products) ? snapshot.products : [];
-    const productMap = {};
-    products.forEach(p => {
-      productMap[p.productId] = {
-        name: p.name,
-        cmp: p.averageCostPerGram || 0,
-        totalGrams: p.totalGrams || 0,
-      };
-    });
-
-    // Analyser les ventes
-    let totalRevenue = 0;
-    let totalCost = 0;
-    let totalQuantitySold = 0;
-    let totalGramsSold = 0;
-    const productSales = {};
-    const dailySales = {};
-
-    (orders || []).forEach(order => {
-      if (order.financial_status === "refunded" || order.cancelled_at) return;
-
-      const orderDate = order.created_at.slice(0, 10);
-      if (!dailySales[orderDate]) {
-        dailySales[orderDate] = { date: orderDate, revenue: 0, cost: 0, margin: 0, orders: 0 };
-      }
-      dailySales[orderDate].orders++;
-
-      (order.line_items || []).forEach(item => {
-        const productId = String(item.product_id);
-        const variantId = String(item.variant_id);
-        const quantity = item.quantity || 0;
-        const price = parseFloat(item.price) || 0;
-        const lineTotal = price * quantity;
-
-        totalRevenue += lineTotal;
-        totalQuantitySold += quantity;
-        dailySales[orderDate].revenue += lineTotal;
-
-        // Trouver le produit pour calculer le cout
-        const product = productMap[productId];
-        let gramsPerUnit = 0;
-        let lineCost = 0;
-
-        if (product) {
-          // Chercher la variante pour les gramsPerUnit
-          const fullProduct = products.find(p => p.productId === productId);
-          if (fullProduct && Array.isArray(fullProduct.variants)) {
-            const variant = fullProduct.variants.find(v => String(v.variantId) === variantId);
-            gramsPerUnit = variant?.gramsPerUnit || 1;
-          } else {
-            gramsPerUnit = 1; // Fallback
-          }
-          
-          const gramsSold = gramsPerUnit * quantity;
-          lineCost = gramsSold * product.cmp;
-          totalCost += lineCost;
-          totalGramsSold += gramsSold;
-          dailySales[orderDate].cost += lineCost;
-
-          // Agreger par produit
-          if (!productSales[productId]) {
-            productSales[productId] = {
-              productId,
-              name: product.name || item.title,
-              quantitySold: 0,
-              gramsSold: 0,
-              revenue: 0,
-              cost: 0,
-              margin: 0,
-              marginPercent: 0,
-              cmp: product.cmp,
-            };
-          }
-          productSales[productId].quantitySold += quantity;
-          productSales[productId].gramsSold += gramsSold;
-          productSales[productId].revenue += lineTotal;
-          productSales[productId].cost += lineCost;
-        }
-      });
-    });
-
-    // Calculer les marges par produit
-    Object.values(productSales).forEach(p => {
-      p.margin = p.revenue - p.cost;
-      p.marginPercent = p.revenue > 0 ? Math.round((p.margin / p.revenue) * 100) : 0;
-    });
-
-    // Calculer les marges journalieres
-    Object.values(dailySales).forEach(d => {
-      d.margin = d.revenue - d.cost;
-      d.marginPercent = d.revenue > 0 ? Math.round((d.margin / d.revenue) * 100) : 0;
-    });
-
-    // Trier et preparer les tops
-    const productList = Object.values(productSales);
-    const topByRevenue = [...productList].sort((a, b) => b.revenue - a.revenue).slice(0, 5);
-    const topByMargin = [...productList].sort((a, b) => b.margin - a.margin).slice(0, 5);
-    const topByMarginPercent = [...productList].filter(p => p.revenue > 10).sort((a, b) => b.marginPercent - a.marginPercent).slice(0, 5);
-    const topByVolume = [...productList].sort((a, b) => b.gramsSold - a.gramsSold).slice(0, 5);
-    const worstByMargin = [...productList].filter(p => p.revenue > 10).sort((a, b) => a.marginPercent - b.marginPercent).slice(0, 5);
-
-    // Calculer totaux
-    const totalMargin = totalRevenue - totalCost;
-    const marginPercent = totalRevenue > 0 ? Math.round((totalMargin / totalRevenue) * 100) : 0;
-    const avgOrderValue = orders.length > 0 ? totalRevenue / orders.length : 0;
-    const avgCMP = totalGramsSold > 0 ? totalCost / totalGramsSold : 0;
-    const avgSellingPrice = totalGramsSold > 0 ? totalRevenue / totalGramsSold : 0;
-
-    // Timeline pour graphique
-    const timeline = Object.values(dailySales).sort((a, b) => a.date.localeCompare(b.date));
-
-    res.json({
-      period: { days: period, from: fromDate.toISOString().slice(0, 10), to: now.toISOString().slice(0, 10) },
-      
-      // KPIs Ventes
-      kpis: {
-        totalRevenue: Math.round(totalRevenue * 100) / 100,
-        totalCost: Math.round(totalCost * 100) / 100,
-        totalMargin: Math.round(totalMargin * 100) / 100,
-        marginPercent,
-        totalOrders: orders.length,
-        totalQuantitySold,
-        totalGramsSold: Math.round(totalGramsSold),
-        avgOrderValue: Math.round(avgOrderValue * 100) / 100,
-        avgCMP: Math.round(avgCMP * 100) / 100,
-        avgSellingPrice: Math.round(avgSellingPrice * 100) / 100,
-      },
-
-      // Top produits
-      topProducts: {
-        byRevenue: topByRevenue,
-        byMargin: topByMargin,
-        byMarginPercent: topByMarginPercent,
-        byVolume: topByVolume,
-        worstMargin: worstByMargin,
-      },
-
-      // Timeline pour graphiques
-      timeline,
-
-      // Tous les produits vendus
-      products: productList.sort((a, b) => b.revenue - a.revenue),
-    });
-
-  } catch (e) {
-    logEvent("analytics_sales_error", { error: e.message }, "error");
-    return apiError(res, 500, "Erreur: " + e.message);
-  }
-});
-
-// ============================================
-// FOURNISSEURS API (Plan PRO)
-// ============================================
-
-// Liste des fournisseurs
-router.get("/api/suppliers", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-
-    // Verifier le plan (hasSuppliers)
-    if (planManager) {
-      const check = planManager.checkLimit(shop, "view_suppliers");
-      if (!check.allowed) {
-        return res.status(403).json({ error: "plan_limit", message: check.reason, upgrade: check.upgrade });
-      }
-    }
-
-    if (!supplierStore) return apiError(res, 500, "Module fournisseurs non disponible");
-
-    const { status, search, tag } = req.query;
-    const suppliers = supplierStore.listSuppliers(shop, { status, search, tag });
-    const stats = supplierStore.getSupplierStats(shop);
-
-    // Enrichir avec les stats de commandes si disponible
-    const enriched = suppliers.map(s => {
-      // Compter les lots lies
-      let lotsCount = 0;
-      let totalPurchased = 0;
-      if (batchStore) {
-        const snapshot = stock.getCatalogSnapshot ? stock.getCatalogSnapshot(shop) : { products: [] };
-        (snapshot.products || []).forEach(p => {
-          const batches = batchStore.loadBatches(shop, p.productId);
-          batches.forEach(b => {
-            if (b.supplierId === s.id) {
-              lotsCount++;
-              totalPurchased += b.initialGrams || 0;
-            }
-          });
-        });
-      }
-
-      return {
-        ...s,
-        lotsCount,
-        totalPurchased,
-        productsCount: (s.products || []).length,
-      };
-    });
-
-    res.json({ suppliers: enriched, stats });
-  });
-});
-
-// Detail d'un fournisseur
-router.get("/api/suppliers/:id", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!supplierStore) return apiError(res, 500, "Module fournisseurs non disponible");
-
-    const supplier = supplierStore.getSupplier(shop, req.params.id);
-    if (!supplier) return apiError(res, 404, "Fournisseur non trouve");
-
-    // Enrichir avec les produits details
-    const snapshot = stock.getCatalogSnapshot ? stock.getCatalogSnapshot(shop) : { products: [] };
-    const productMap = {};
-    (snapshot.products || []).forEach(p => { productMap[p.productId] = p; });
-
-    const productsEnriched = (supplier.products || []).map(sp => {
-      const product = productMap[sp.productId];
-      return {
-        ...sp,
-        productName: product ? product.name : "Produit inconnu",
-        currentStock: product ? product.totalGrams : 0,
-      };
-    });
-
-    // Recuperer les lots de ce fournisseur
-    let lots = [];
-    if (batchStore) {
-      (snapshot.products || []).forEach(p => {
-        const batches = batchStore.loadBatches(shop, p.productId);
-        batches.forEach(b => {
-          if (b.supplierId === supplier.id) {
-            lots.push({
-              ...b,
-              productName: p.name,
-            });
-          }
-        });
-      });
-    }
-    lots.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-
-    // Calculer les analytics
-    const analytics = {
-      totalLots: lots.length,
-      totalPurchased: lots.reduce((s, l) => s + (l.initialGrams || 0), 0),
-      totalSpent: lots.reduce((s, l) => s + ((l.initialGrams || 0) * (l.purchasePricePerGram || 0)), 0),
-      avgPricePerGram: 0,
-      lastPurchase: lots.length > 0 ? lots[0].createdAt : null,
-    };
-    if (analytics.totalPurchased > 0) {
-      analytics.avgPricePerGram = analytics.totalSpent / analytics.totalPurchased;
-    }
-
-    res.json({ 
-      supplier: { ...supplier, products: productsEnriched }, 
-      lots: lots.slice(0, 20),
-      analytics 
-    });
-  });
-});
-
-// Creer un fournisseur
-router.post("/api/suppliers", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-
-    if (!supplierStore) return apiError(res, 500, "Module fournisseurs non disponible");
-
-    // Compter les fournisseurs actuels
-    const currentSuppliers = supplierStore.loadSuppliers(shop);
-    const currentCount = currentSuppliers.length;
-
-    // Verifier limite du plan avec le comptage
-    if (planManager) {
-      const check = planManager.checkLimit(shop, "create_supplier", { currentSupplierCount: currentCount });
-      if (!check.allowed) {
-        return res.status(403).json({ 
-          error: "plan_limit", 
-          message: check.reason,
-          upgrade: check.upgrade,
-          limit: check.limit,
-          current: check.current
-        });
-      }
-    }
-
-    try {
-      const supplier = supplierStore.createSupplier(shop, {
-        name: req.body.name,
-        code: req.body.code,
-        type: req.body.type,
-        contact: req.body.contact,
-        address: req.body.address,
-        terms: req.body.terms,
-        notes: req.body.notes,
-        tags: req.body.tags,
-      });
-      res.json({ success: true, supplier });
-    } catch (e) {
-      return apiError(res, 400, e.message);
-    }
-  });
-});
-
-// Modifier un fournisseur
-router.put("/api/suppliers/:id", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!supplierStore) return apiError(res, 500, "Module fournisseurs non disponible");
-
-    try {
-      const supplier = supplierStore.updateSupplier(shop, req.params.id, req.body);
-      res.json({ success: true, supplier });
-    } catch (e) {
-      return apiError(res, 404, e.message);
-    }
-  });
-});
-
-// Supprimer un fournisseur
-router.delete("/api/suppliers/:id", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!supplierStore) return apiError(res, 500, "Module fournisseurs non disponible");
-
-    const hard = req.query.hard === "true";
-    try {
-      const result = supplierStore.deleteSupplier(shop, req.params.id, hard);
-      res.json({ success: true, result });
-    } catch (e) {
-      return apiError(res, 404, e.message);
-    }
-  });
-});
-
-// Lier un produit a un fournisseur
-router.post("/api/suppliers/:id/products", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!supplierStore) return apiError(res, 500, "Module fournisseurs non disponible");
-
-    const { productId, pricePerGram, minQuantity, notes } = req.body;
-    if (!productId) return apiError(res, 400, "productId requis");
-
-    try {
-      const result = supplierStore.setProductPrice(shop, req.params.id, productId, pricePerGram || 0, { minQuantity, notes });
-      res.json({ success: true, product: result });
-    } catch (e) {
-      return apiError(res, 400, e.message);
-    }
-  });
-});
-
-// Retirer un produit d'un fournisseur
-router.delete("/api/suppliers/:id/products/:productId", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!supplierStore) return apiError(res, 500, "Module fournisseurs non disponible");
-
-    const result = supplierStore.removeProductPrice(shop, req.params.id, req.params.productId);
-    res.json({ success: true, removed: result });
-  });
-});
-
-// Fournisseurs pour un produit (comparaison prix)
-router.get("/api/products/:productId/suppliers", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!supplierStore) return apiError(res, 500, "Module fournisseurs non disponible");
-
-    const quantity = parseInt(req.query.quantity) || 100;
-    const suppliers = supplierStore.comparePrices(shop, req.params.productId, quantity);
-    res.json({ suppliers });
-  });
-});
-
-// ============================================
-// COMMANDES D'ACHAT (Purchase Orders) - Business
-// ============================================
-
-// Liste des PO
-router.get("/api/purchase-orders", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-
-    if (planManager) {
-      const check = planManager.checkLimit(shop, "view_purchase_orders");
-      if (!check.allowed) {
-        return res.status(403).json({ error: "plan_limit", message: check.reason, upgrade: check.upgrade });
-      }
-    }
-
-    if (!purchaseOrderStore) return apiError(res, 500, "Module commandes non disponible");
-
-    const { year, status, supplierId, limit } = req.query;
-    const orders = purchaseOrderStore.listPurchaseOrders(shop, {
-      year: year ? parseInt(year) : null,
-      status,
-      supplierId,
-      limit: limit ? parseInt(limit) : 100,
-    });
-
-    const stats = purchaseOrderStore.getPOStats(shop);
-    res.json({ orders, stats });
-  });
-});
-
-// Detail PO
-router.get("/api/purchase-orders/:id", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!purchaseOrderStore) return apiError(res, 500, "Module commandes non disponible");
-
-    const po = purchaseOrderStore.getPurchaseOrder(shop, req.params.id);
-    if (!po) return apiError(res, 404, "Commande non trouvee");
-
-    // Enrichir avec les noms de produits
-    const snapshot = stock.getCatalogSnapshot ? stock.getCatalogSnapshot(shop) : { products: [] };
-    const productMap = {};
-    (snapshot.products || []).forEach(p => { productMap[p.productId] = p; });
-
-    po.lines = po.lines.map(line => ({
-      ...line,
-      productName: line.productName || (productMap[line.productId]?.name) || "Produit inconnu",
-    }));
-
-    res.json({ order: po });
-  });
-});
-
-// Creer PO
-router.post("/api/purchase-orders", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-
-    if (planManager) {
-      const check = planManager.checkLimit(shop, "create_purchase_order");
-      if (!check.allowed) {
-        return res.status(403).json({ error: "plan_limit", message: check.reason });
-      }
-    }
-
-    if (!purchaseOrderStore) return apiError(res, 500, "Module commandes non disponible");
-
-    try {
-      const po = purchaseOrderStore.createPurchaseOrder(shop, req.body);
-      res.json({ success: true, order: po });
-    } catch (e) {
-      return apiError(res, 400, e.message);
-    }
-  });
-});
-
-// Update PO
-router.put("/api/purchase-orders/:id", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!purchaseOrderStore) return apiError(res, 500, "Module commandes non disponible");
-
-    try {
-      const po = purchaseOrderStore.updatePurchaseOrder(shop, req.params.id, req.body);
-      res.json({ success: true, order: po });
-    } catch (e) {
-      return apiError(res, 400, e.message);
-    }
-  });
-});
-
-// Envoyer PO
-router.post("/api/purchase-orders/:id/send", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!purchaseOrderStore) return apiError(res, 500, "Module commandes non disponible");
-
-    try {
-      const po = purchaseOrderStore.sendPurchaseOrder(shop, req.params.id);
-      res.json({ success: true, order: po });
-    } catch (e) {
-      return apiError(res, 400, e.message);
-    }
-  });
-});
-
-// Confirmer PO
-router.post("/api/purchase-orders/:id/confirm", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!purchaseOrderStore) return apiError(res, 500, "Module commandes non disponible");
-
-    try {
-      const po = purchaseOrderStore.confirmPurchaseOrder(shop, req.params.id, req.body.expectedDeliveryAt);
-      res.json({ success: true, order: po });
-    } catch (e) {
-      return apiError(res, 400, e.message);
-    }
-  });
-});
-
-// Recevoir items PO
-router.post("/api/purchase-orders/:id/receive", async (req, res) => {
-  safeJson(req, res, async () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!purchaseOrderStore) return apiError(res, 500, "Module commandes non disponible");
-
-    try {
-      const result = purchaseOrderStore.receiveItems(shop, req.params.id, req.body.lines, {
-        notes: req.body.notes,
-        createBatches: req.body.createBatches !== false,
-      });
-
-      // Creer les lots et mettre a jour le stock
-      if (batchStore && result.batchesToCreate.length > 0) {
-        for (const batchData of result.batchesToCreate) {
-          try {
-            batchStore.createBatch(shop, batchData.productId, {
-              grams: batchData.grams,
-              purchasePricePerGram: batchData.pricePerGram,
-              supplierId: batchData.supplierId,
-              purchaseOrderId: batchData.purchaseOrderId,
-              expiryDate: batchData.expiryDate,
-              expiryType: batchData.expiryType,
-            });
-
-            // Mettre a jour le stock
-            if (stock.addStock) {
-              stock.addStock(shop, batchData.productId, batchData.grams, batchData.pricePerGram);
-            }
-          } catch (e) {
-            console.warn("Erreur creation lot:", e.message);
-          }
-        }
-      }
-
-      res.json({ success: true, ...result });
-    } catch (e) {
-      return apiError(res, 400, e.message);
-    }
-  });
-});
-
-// Annuler PO
-router.post("/api/purchase-orders/:id/cancel", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!purchaseOrderStore) return apiError(res, 500, "Module commandes non disponible");
-
-    try {
-      const po = purchaseOrderStore.cancelPurchaseOrder(shop, req.params.id, req.body.reason);
-      res.json({ success: true, order: po });
-    } catch (e) {
-      return apiError(res, 400, e.message);
-    }
-  });
-});
-
-// Supprimer PO (brouillon seulement)
-router.delete("/api/purchase-orders/:id", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!purchaseOrderStore) return apiError(res, 500, "Module commandes non disponible");
-
-    try {
-      purchaseOrderStore.deletePurchaseOrder(shop, req.params.id);
-      res.json({ success: true });
-    } catch (e) {
-      return apiError(res, 400, e.message);
-    }
-  });
-});
-
-// ============================================
-// COMMANDES DE VENTE (Sales Orders) - PRO
-// ============================================
-
-// Liste des SO
-router.get("/api/sales-orders", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-
-    if (planManager) {
-      const check = planManager.checkLimit(shop, "view_sales_orders");
-      if (!check.allowed) {
-        return res.status(403).json({ error: "plan_limit", message: check.reason, upgrade: check.upgrade });
-      }
-    }
-
-    if (!salesOrderStore) return apiError(res, 500, "Module ventes non disponible");
-
-    const { from, to, status, source, search, limit } = req.query;
-    const orders = salesOrderStore.listSalesOrders(shop, {
-      from, to, status, source, search,
-      limit: limit ? parseInt(limit) : 100,
-    });
-
-    const stats = salesOrderStore.getSalesStats(shop, { from, to });
-    res.json({ orders, stats });
-  });
-});
-
-// Detail SO
-router.get("/api/sales-orders/:id", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!salesOrderStore) return apiError(res, 500, "Module ventes non disponible");
-
-    const so = salesOrderStore.getSalesOrder(shop, req.params.id);
-    if (!so) return apiError(res, 404, "Commande non trouvee");
-
-    res.json({ order: so });
-  });
-});
-
-// Creer SO manuellement
-router.post("/api/sales-orders", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!salesOrderStore) return apiError(res, 500, "Module ventes non disponible");
-
-    // Recuperer les CMP des produits
-    const snapshot = stock.getCatalogSnapshot ? stock.getCatalogSnapshot(shop) : { products: [] };
-    const productMap = {};
-    (snapshot.products || []).forEach(p => { 
-      productMap[p.productId] = { 
-        name: p.name, 
-        cmp: p.averageCostPerGram || 0 
-      }; 
-    });
-
-    // Ajouter les couts aux lignes
-    const lines = (req.body.lines || []).map(line => ({
-      ...line,
-      productName: line.productName || productMap[line.productId]?.name || "Produit",
-      costPrice: line.costPrice || productMap[line.productId]?.cmp || 0,
-    }));
-
-    try {
-      const result = salesOrderStore.createSalesOrder(shop, { ...req.body, lines, source: "manual" });
-      res.json({ success: true, ...result });
-    } catch (e) {
-      return apiError(res, 400, e.message);
-    }
-  });
-});
-
-// Import Shopify
-router.post("/api/sales-orders/import-shopify", async (req, res) => {
-  safeJson(req, res, async () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!salesOrderStore) return apiError(res, 500, "Module ventes non disponible");
-
-    // Recuperer les CMP des produits pour calculer les marges
-    const snapshot = stock.getCatalogSnapshot ? stock.getCatalogSnapshot(shop) : { products: [] };
-    const productCostMap = {};
-    const variantGramsMap = {};
-    
-    (snapshot.products || []).forEach(p => { 
-      productCostMap[p.productId] = p.averageCostPerGram || 0;
-      
-      // Construire le mapping des grammes par variante
-      if (Array.isArray(p.variants)) {
-        p.variants.forEach(v => {
-          if (v.inventoryItemId && v.grams) {
-            variantGramsMap[v.variantId] = v.grams;
-          }
-        });
-      }
-    });
-
-    try {
-      // Recuperer les commandes Shopify via l'API
-      const client = shopifyFor(shop);
-      if (!client) return apiError(res, 500, "Client Shopify non disponible");
-
-      const days = parseInt(req.query.days) || 30;
-      const fromDate = new Date();
-      fromDate.setDate(fromDate.getDate() - days);
-
-      const shopifyOrders = await client.order.list({
-        status: "any",
-        created_at_min: fromDate.toISOString(),
-        limit: 250,
-      });
-
-      const result = salesOrderStore.importFromShopify(shop, shopifyOrders || [], productCostMap, variantGramsMap);
-      res.json({ success: true, ...result });
-    } catch (e) {
-      return apiError(res, 500, "Erreur import: " + e.message);
-    }
-  });
-});
-
-// Stats ventes
-router.get("/api/sales-orders/stats", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!salesOrderStore) return apiError(res, 500, "Module ventes non disponible");
-
-    const { from, to } = req.query;
-    const stats = salesOrderStore.getSalesStats(shop, { from, to });
-    res.json(stats);
-  });
-});
-
-// ============================================
-// LOTS & DLC API (Plan PRO)
-// ============================================
-
-// Liste tous les lots (tous produits)
-router.get("/api/lots", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-
-    // Verifier le plan PRO
-    if (planManager) {
-      const check = planManager.checkLimit(shop, "view_batches");
-      if (!check.allowed) {
-        return res.status(403).json({ error: "plan_limit", message: check.reason, upgrade: check.upgrade });
-      }
-    }
-
-    if (!batchStore) return apiError(res, 500, "Module lots non disponible");
-
-    const { status, productId, expiringDays, supplierId } = req.query;
-    
-    // Recuperer tous les produits
-    const snapshot = stock.getCatalogSnapshot ? stock.getCatalogSnapshot(shop) : { products: [] };
-    const products = Array.isArray(snapshot.products) ? snapshot.products : [];
-    
-    const allLots = [];
-    const now = new Date();
-
-    products.forEach(product => {
-      if (productId && product.productId !== productId) return;
-      
-      const batches = batchStore.loadBatches(shop, product.productId);
-      
-      batches.forEach(batch => {
-        // Filtres
-        if (status && batch.status !== status) return;
-        if (supplierId && batch.supplierId !== supplierId) return;
-        
-        // Calculer jours restants
-        let daysLeft = null;
-        let expiryStatus = "ok";
-        if (batch.expiryDate) {
-          const expiry = new Date(batch.expiryDate);
-          daysLeft = Math.ceil((expiry - now) / (1000 * 60 * 60 * 24));
-          
-          if (daysLeft <= 0) expiryStatus = "expired";
-          else if (daysLeft <= 7) expiryStatus = "critical";
-          else if (daysLeft <= 15) expiryStatus = "warning";
-          else if (daysLeft <= 30) expiryStatus = "watch";
-        }
-        
-        // Filtre expiring
-        if (expiringDays && daysLeft !== null && daysLeft > parseInt(expiringDays)) return;
-        
-        allLots.push({
-          ...batch,
-          productName: product.name,
-          productId: product.productId,
-          daysLeft,
-          expiryStatus,
-          valueRemaining: (batch.currentGrams || 0) * (batch.purchasePricePerGram || 0),
-        });
-      });
-    });
-
-    // Trier par urgence DLC puis par date de reception
-    allLots.sort((a, b) => {
-      if (a.daysLeft !== null && b.daysLeft !== null) {
-        return a.daysLeft - b.daysLeft;
-      }
-      if (a.daysLeft !== null) return -1;
-      if (b.daysLeft !== null) return 1;
-      return new Date(b.receivedAt) - new Date(a.receivedAt);
-    });
-
-    // KPIs
-    const kpis = {
-      totalLots: allLots.length,
-      activeLots: allLots.filter(l => l.status === "active").length,
-      expiringWithin30: allLots.filter(l => l.daysLeft !== null && l.daysLeft > 0 && l.daysLeft <= 30).length,
-      expiredLots: allLots.filter(l => l.expiryStatus === "expired").length,
-      criticalLots: allLots.filter(l => l.expiryStatus === "critical").length,
-      totalValueAtRisk: allLots.filter(l => l.daysLeft !== null && l.daysLeft <= 30).reduce((s, l) => s + l.valueRemaining, 0),
-      totalValue: allLots.filter(l => l.status === "active").reduce((s, l) => s + l.valueRemaining, 0),
-    };
-
-    res.json({ lots: allLots, kpis });
-  });
-});
-
-// Detail d'un lot
-router.get("/api/lots/:productId/:lotId", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!batchStore) return apiError(res, 500, "Module lots non disponible");
-
-    const { productId, lotId } = req.params;
-    const batch = batchStore.getBatch(shop, productId, lotId);
-    
-    if (!batch) return apiError(res, 404, "Lot non trouve");
-
-    // Recuperer les mouvements lies a ce lot
-    let movements = [];
-    if (movementStore && movementStore.loadMovements) {
-      const allMovements = movementStore.loadMovements(shop);
-      movements = allMovements.filter(m => m.batchId === lotId || m.lotId === lotId).slice(0, 50);
-    }
-
-    // Calculer jours restants
-    let daysLeft = null;
-    if (batch.expiryDate) {
-      const expiry = new Date(batch.expiryDate);
-      daysLeft = Math.ceil((expiry - new Date()) / (1000 * 60 * 60 * 24));
-    }
-
-    res.json({ 
-      lot: { 
-        ...batch, 
-        daysLeft,
-        valueRemaining: (batch.currentGrams || 0) * (batch.purchasePricePerGram || 0),
-      }, 
-      movements 
-    });
-  });
-});
-
-// Creer un lot
-router.post("/api/lots/:productId", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    
-    if (planManager) {
-      const check = planManager.checkLimit(shop, "create_batch");
-      if (!check.allowed) {
-        return res.status(403).json({ error: "plan_limit", message: check.reason });
-      }
-    }
-
-    if (!batchStore) return apiError(res, 500, "Module lots non disponible");
-
-    const { productId } = req.params;
-    const batchData = req.body;
-
-    const batch = batchStore.createBatch(shop, productId, {
-      grams: batchData.grams || batchData.quantity,
-      purchasePricePerGram: batchData.costPerGram || batchData.purchasePricePerGram,
-      expiryType: batchData.expiryType || "dlc",
-      expiryDate: batchData.expiryDate,
-      supplierId: batchData.supplierId,
-      supplierBatchRef: batchData.supplierRef || batchData.supplierBatchRef,
-      notes: batchData.notes,
-      receivedAt: batchData.receivedAt,
-    });
-
-    // Enregistrer le mouvement
-    if (movementStore && movementStore.addMovement) {
-      movementStore.addMovement(shop, {
-        type: "restock",
-        productId,
-        delta: batch.initialGrams,
-        batchId: batch.id,
-        reason: "Nouveau lot: " + batch.id,
-      });
-    }
-
-    res.json({ success: true, lot: batch });
-  });
-});
-
-// Modifier un lot
-router.put("/api/lots/:productId/:lotId", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!batchStore) return apiError(res, 500, "Module lots non disponible");
-
-    const { productId, lotId } = req.params;
-    const updates = req.body;
-
-    try {
-      const batch = batchStore.updateBatch(shop, productId, lotId, {
-        expiryDate: updates.expiryDate,
-        expiryType: updates.expiryType,
-        notes: updates.notes,
-        status: updates.status,
-        supplierId: updates.supplierId,
-        supplierBatchRef: updates.supplierBatchRef,
-      });
-      res.json({ success: true, lot: batch });
-    } catch (e) {
-      return apiError(res, 404, e.message);
-    }
-  });
-});
-
-// Ajuster la quantite d'un lot
-router.post("/api/lots/:productId/:lotId/adjust", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!batchStore) return apiError(res, 500, "Module lots non disponible");
-
-    const { productId, lotId } = req.params;
-    const { delta, reason } = req.body;
-
-    const batches = batchStore.loadBatches(shop, productId);
-    const idx = batches.findIndex(b => b.id === lotId);
-    if (idx === -1) return apiError(res, 404, "Lot non trouve");
-
-    const batch = batches[idx];
-    const oldGrams = batch.currentGrams;
-    batch.currentGrams = Math.max(0, batch.currentGrams + Number(delta));
-    batch.usedGrams = batch.initialGrams - batch.currentGrams;
-    batch.updatedAt = new Date().toISOString();
-
-    if (batch.currentGrams <= 0 && batch.status === "active") {
-      batch.status = "depleted";
-    }
-
-    batches[idx] = batch;
-    batchStore.saveBatches ? null : null; // saveBatches n'est pas exporte, on refait
-    
-    // Sauvegarder manuellement
-    const fs = require("fs");
-    const path = require("path");
-    const DATA_DIR = process.env.DATA_DIR || "/var/data";
-    const shopDir = path.join(DATA_DIR, shop.replace(/[^a-z0-9._-]/g, "_"));
-    const batchDir = path.join(shopDir, "batches");
-    if (!fs.existsSync(batchDir)) fs.mkdirSync(batchDir, { recursive: true });
-    const file = path.join(batchDir, productId + ".json");
-    fs.writeFileSync(file, JSON.stringify({ productId, batches, updatedAt: new Date().toISOString() }, null, 2));
-
-    // Enregistrer le mouvement
-    if (movementStore && movementStore.addMovement) {
-      movementStore.addMovement(shop, {
-        type: "adjustment",
-        productId,
-        delta: Number(delta),
-        batchId: lotId,
-        reason: reason || "Ajustement lot",
-      });
-    }
-
-    res.json({ success: true, lot: batch, oldGrams, newGrams: batch.currentGrams });
-  });
-});
-
-// Supprimer / Desactiver un lot
-router.delete("/api/lots/:productId/:lotId", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!batchStore) return apiError(res, 500, "Module lots non disponible");
-
-    const { productId, lotId } = req.params;
-    const { hard } = req.query;
-
-    try {
-      const result = batchStore.deleteBatch(shop, productId, lotId, hard === "true");
-      res.json({ success: true, result });
-    } catch (e) {
-      return apiError(res, 404, e.message);
-    }
-  });
-});
-
-// Marquer les lots expires automatiquement
-router.post("/api/lots/mark-expired", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!batchStore) return apiError(res, 500, "Module lots non disponible");
-
-    const result = batchStore.markExpiredBatches(shop);
-    res.json({ success: true, ...result });
-  });
-});
-
-// Lots proches de l'expiration (alertes)
-router.get("/api/lots/expiring", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!batchStore) return apiError(res, 500, "Module lots non disponible");
-
-    const days = parseInt(req.query.days) || 30;
-    const lots = batchStore.getExpiringBatches(shop, { daysThreshold: days });
-
-    // Enrichir avec les noms de produits
-    const snapshot = stock.getCatalogSnapshot ? stock.getCatalogSnapshot(shop) : { products: [] };
-    const productMap = {};
-    (snapshot.products || []).forEach(p => { productMap[p.productId] = p.name; });
-
-    const enriched = lots.map(l => ({
-      ...l,
-      productName: productMap[l.productId] || "Produit inconnu",
-      valueAtRisk: (l.currentGrams || 0) * (l.purchasePricePerGram || 0),
-    }));
-
-    res.json({ lots: enriched, count: enriched.length });
-  });
-});
-
-// ============================================
-// KITS & BUNDLES API (Plan Business)
-// ============================================
-
-// Liste des kits
-router.get("/api/kits", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-
-    // VÃ©rifier le plan
-    if (planManager) {
-      const check = planManager.checkLimit(shop, "view_kits");
-      if (!check.allowed) {
-        return res.status(403).json({ error: "plan_limit", message: check.reason, upgrade: check.upgrade });
-      }
-    }
-
-    if (!kitStore) return apiError(res, 500, "Module kits non disponible");
-
-    const { status, type, categoryId, search, includeArchived } = req.query;
-    const kits = kitStore.listKits(shop, { 
-      status, type, categoryId, search, 
-      includeArchived: includeArchived === "true" 
-    });
-
-    // Enrichir avec calcul coÃ»t/marge
-    const snapshot = stock.getCatalogSnapshot ? stock.getCatalogSnapshot(shop) : { products: [] };
-    const productCosts = {};
-    (snapshot.products || []).forEach(p => {
-      productCosts[p.productId] = { 
-        cmp: p.averageCostPerGram || 0, 
-        stock: p.totalGrams || 0,
-        name: p.name 
-      };
-    });
-
-    const enriched = kits.map(kit => {
-      const costData = kitStore.calculateKitCostAndMargin(kit, productCosts);
-      return {
-        ...kit,
-        calculatedCost: costData.totalCost,
-        calculatedMargin: costData.margin,
-        calculatedMarginPercent: costData.marginPercent,
-        hasIssues: costData.hasIssues,
-        alerts: costData.alerts,
-        itemCount: kit.items.length,
-        maxProducible: kitStore.calculateMaxProducible(kit, productCosts),
-      };
-    });
-
-    const stats = kitStore.getKitStats(shop);
-    res.json({ kits: enriched, stats });
-  });
-});
-
-// DÃ©tail d'un kit
-router.get("/api/kits/:id", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!kitStore) return apiError(res, 500, "Module kits non disponible");
-
-    const kit = kitStore.getKit(shop, req.params.id);
-    if (!kit) return apiError(res, 404, "Kit non trouvÃ©");
-
-    // Enrichir avec calcul coÃ»t/marge
-    const snapshot = stock.getCatalogSnapshot ? stock.getCatalogSnapshot(shop) : { products: [] };
-    const productCosts = {};
-    (snapshot.products || []).forEach(p => {
-      productCosts[p.productId] = { 
-        cmp: p.averageCostPerGram || 0, 
-        stock: p.totalGrams || 0,
-        name: p.name 
-      };
-    });
-
-    const costData = kitStore.calculateKitCostAndMargin(kit, productCosts);
-    const events = kitStore.getKitEvents(shop, kit.id, { limit: 20 });
-
-    res.json({ 
-      kit, 
-      costData,
-      events,
-      maxProducible: kitStore.calculateMaxProducible(kit, productCosts),
-    });
-  });
-});
-
-// CrÃ©er un kit
-router.post("/api/kits", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-
-    // VÃ©rifier le plan
-    if (planManager) {
-      const check = planManager.checkLimit(shop, "manage_kits");
-      if (!check.allowed) {
-        return res.status(403).json({ error: "plan_limit", message: check.reason, upgrade: check.upgrade });
-      }
-    }
-
-    if (!kitStore) return apiError(res, 500, "Module kits non disponible");
-
-    try {
-      const kit = kitStore.createKit(shop, req.body);
-      res.json({ success: true, kit });
-    } catch (e) {
-      return apiError(res, 400, e.message);
-    }
-  });
-});
-
-// Modifier un kit
-router.put("/api/kits/:id", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!kitStore) return apiError(res, 500, "Module kits non disponible");
-
-    try {
-      const kit = kitStore.updateKit(shop, req.params.id, req.body);
-      res.json({ success: true, kit });
-    } catch (e) {
-      return apiError(res, 400, e.message);
-    }
-  });
-});
-
-// Archiver un kit
-router.delete("/api/kits/:id", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!kitStore) return apiError(res, 500, "Module kits non disponible");
-
-    try {
-      if (req.query.permanent === "true") {
-        const result = kitStore.deleteKit(shop, req.params.id);
-        res.json({ success: true, deleted: true });
-      } else {
-        const kit = kitStore.archiveKit(shop, req.params.id);
-        res.json({ success: true, kit, archived: true });
-      }
-    } catch (e) {
-      return apiError(res, 400, e.message);
-    }
-  });
-});
-
-// Ajouter un composant
-router.post("/api/kits/:id/items", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!kitStore) return apiError(res, 500, "Module kits non disponible");
-
-    try {
-      const result = kitStore.addKitItem(shop, req.params.id, req.body);
-      res.json({ success: true, kit: result.kit, item: result.item });
-    } catch (e) {
-      return apiError(res, 400, e.message);
-    }
-  });
-});
-
-// Modifier un composant
-router.put("/api/kits/:id/items/:itemId", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!kitStore) return apiError(res, 500, "Module kits non disponible");
-
-    try {
-      const result = kitStore.updateKitItem(shop, req.params.id, req.params.itemId, req.body);
-      res.json({ success: true, kit: result.kit, item: result.item });
-    } catch (e) {
-      return apiError(res, 400, e.message);
-    }
-  });
-});
-
-// Supprimer un composant
-router.delete("/api/kits/:id/items/:itemId", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!kitStore) return apiError(res, 500, "Module kits non disponible");
-
-    try {
-      const result = kitStore.removeKitItem(shop, req.params.id, req.params.itemId);
-      res.json({ success: true, kit: result.kit, removed: result.removed });
-    } catch (e) {
-      return apiError(res, 400, e.message);
-    }
-  });
-});
-
-// Mapper un kit Ã  Shopify
-router.post("/api/kits/:id/map-shopify", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!kitStore) return apiError(res, 500, "Module kits non disponible");
-
-    try {
-      const { shopifyProductId, shopifyVariantId } = req.body;
-      const kit = kitStore.mapKitToShopify(shop, req.params.id, shopifyProductId, shopifyVariantId);
-      res.json({ success: true, kit });
-    } catch (e) {
-      return apiError(res, 400, e.message);
-    }
-  });
-});
-
-// Assembler des kits
-router.post("/api/kits/:id/assemble", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!kitStore) return apiError(res, 500, "Module kits non disponible");
-
-    try {
-      const { quantity, allowNegative, notes } = req.body;
-      const result = kitStore.assembleKits(shop, req.params.id, quantity || 1, {
-        stockManager: stock,
-        batchStore,
-        allowNegative: allowNegative === true,
-        notes,
-      });
-      res.json(result);
-    } catch (e) {
-      return apiError(res, 400, e.message);
-    }
-  });
-});
-
-// Simuler des ventes
-router.post("/api/kits/:id/simulate", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!kitStore) return apiError(res, 500, "Module kits non disponible");
-
-    try {
-      // RÃ©cupÃ©rer les coÃ»ts produits
-      const snapshot = stock.getCatalogSnapshot ? stock.getCatalogSnapshot(shop) : { products: [] };
-      const productCosts = {};
-      (snapshot.products || []).forEach(p => {
-        productCosts[p.productId] = { 
-          cmp: p.averageCostPerGram || 0, 
-          stock: p.totalGrams || 0,
-          name: p.name 
-        };
-      });
-
-      const { quantity } = req.body;
-      const result = kitStore.simulateKitSales(shop, req.params.id, quantity || 1, productCosts);
-      res.json(result);
-    } catch (e) {
-      return apiError(res, 400, e.message);
-    }
-  });
-});
-
-// Stats kits
-router.get("/api/kits-stats", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!kitStore) return apiError(res, 500, "Module kits non disponible");
-
-    const { from, to } = req.query;
-    const stats = kitStore.getKitStats(shop, { from, to });
-    res.json(stats);
-  });
-});
-
-// ============================================
-// FORECAST / PREVISIONS API (Business)
-// ============================================
-
-// Liste des prÃ©visions
-router.get("/api/forecast", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-
-    // VÃ©rifier le plan
-    if (planManager) {
-      const check = planManager.checkLimit(shop, "view_forecast");
-      if (!check.allowed) {
-        return res.status(403).json({ error: "plan_limit", message: check.reason, upgrade: check.upgrade });
-      }
-    }
-
-    if (!forecastManager) return apiError(res, 500, "Module forecast non disponible");
-
-    const windowDays = parseInt(req.query.windowDays) || 30;
-    const categoryId = req.query.categoryId || null;
-
-    // RÃ©cupÃ©rer les produits
-    const snapshot = stock.getCatalogSnapshot ? stock.getCatalogSnapshot(shop) : { products: [] };
-    let products = snapshot.products || [];
-
-    // Filtrer par catÃ©gorie
-    if (categoryId) {
-      products = products.filter(p => p.categoryIds && p.categoryIds.includes(categoryId));
-    }
-
-    // RÃ©cupÃ©rer les donnÃ©es de ventes (depuis analyticsStore si disponible)
-    let salesData = [];
-    if (analyticsStore && typeof analyticsStore.listSales === "function") {
-      const fromDate = new Date();
-      fromDate.setDate(fromDate.getDate() - windowDays);
-      salesData = analyticsStore.listSales({ 
-        shop, 
-        from: fromDate.toISOString(), 
-        limit: 50000 
-      }).map(s => ({
-        date: s.orderDate,
-        productId: s.productId,
-        qty: s.totalGrams || 0,
-      }));
-    }
-
-    const forecasts = forecastManager.generateForecast(shop, products, salesData, { windowDays });
-    const stats = forecastManager.getForecastStats(forecasts);
-    const settings = forecastManager.loadForecastSettings(shop);
-
-    res.json({ forecasts, stats, settings });
-  });
-});
-
-// DÃ©tail prÃ©vision d'un produit
-router.get("/api/forecast/:productId", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!forecastManager) return apiError(res, 500, "Module forecast non disponible");
-
-    const windowDays = parseInt(req.query.windowDays) || 30;
-
-    // RÃ©cupÃ©rer le produit
-    const snapshot = stock.getCatalogSnapshot ? stock.getCatalogSnapshot(shop) : { products: [] };
-    const product = (snapshot.products || []).find(p => p.productId === req.params.productId);
-    
-    if (!product) return apiError(res, 404, "Produit non trouvÃ©");
-
-    // RÃ©cupÃ©rer les ventes
-    let salesData = [];
-    if (analyticsStore && typeof analyticsStore.listSales === "function") {
-      const fromDate = new Date();
-      fromDate.setDate(fromDate.getDate() - 90); // 90 jours d'historique
-      salesData = analyticsStore.listSales({ 
-        shop, 
-        from: fromDate.toISOString(),
-        productId: req.params.productId,
-        limit: 10000 
-      }).map(s => ({
-        date: s.orderDate,
-        productId: s.productId,
-        qty: s.totalGrams || 0,
-      }));
-    }
-
-    const forecast = forecastManager.generateProductForecast(shop, product, salesData, { windowDays });
-    res.json(forecast);
-  });
-});
-
-// Recommandations d'achat
-router.get("/api/forecast/recommendations", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!forecastManager) return apiError(res, 500, "Module forecast non disponible");
-
-    const windowDays = parseInt(req.query.windowDays) || 30;
-
-    // RÃ©cupÃ©rer les produits
-    const snapshot = stock.getCatalogSnapshot ? stock.getCatalogSnapshot(shop) : { products: [] };
-    const products = snapshot.products || [];
-
-    // RÃ©cupÃ©rer les ventes
-    let salesData = [];
-    if (analyticsStore && typeof analyticsStore.listSales === "function") {
-      const fromDate = new Date();
-      fromDate.setDate(fromDate.getDate() - windowDays);
-      salesData = analyticsStore.listSales({ shop, from: fromDate.toISOString(), limit: 50000 })
-        .map(s => ({ date: s.orderDate, productId: s.productId, qty: s.totalGrams || 0 }));
-    }
-
-    // RÃ©cupÃ©rer les fournisseurs
-    let suppliersData = [];
-    if (supplierStore && typeof supplierStore.loadSuppliers === "function") {
-      suppliersData = supplierStore.loadSuppliers(shop);
-    }
-
-    const forecasts = forecastManager.generateForecast(shop, products, salesData, { windowDays });
-    const settings = forecastManager.loadForecastSettings(shop);
-    const recommendations = forecastManager.generatePurchaseRecommendations(forecasts, {
-      ...settings,
-      suppliersData,
-    });
-
-    res.json(recommendations);
-  });
-});
-
-// Settings forecast
-router.get("/api/forecast/settings", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!forecastManager) return apiError(res, 500, "Module forecast non disponible");
-
-    const settings = forecastManager.loadForecastSettings(shop);
-    res.json({ settings });
-  });
-});
-
-router.post("/api/forecast/settings", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!forecastManager) return apiError(res, 500, "Module forecast non disponible");
-
-    const settings = forecastManager.saveForecastSettings(shop, req.body);
-    res.json({ success: true, settings });
-  });
-});
-
-// ============================================
-// INVENTAIRE API (Sessions, Comptage, Audit)
-// ============================================
-
-// Liste des sessions d'inventaire
-router.get("/api/inventory/sessions", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-
-    // VÃ©rifier le plan
-    if (planManager) {
-      const check = planManager.checkLimit(shop, "view_inventory");
-      if (!check.allowed) {
-        return res.status(403).json({ error: "plan_limit", message: check.reason, upgrade: check.upgrade });
-      }
-    }
-
-    if (!inventoryCountStore) return apiError(res, 500, "Module inventaire non disponible");
-
-    const { status, includeArchived } = req.query;
-    const sessions = inventoryCountStore.listSessions(shop, { 
-      status, 
-      includeArchived: includeArchived === "true" 
-    });
-
-    res.json({ sessions });
-  });
-});
-
-// CrÃ©er une session
-router.post("/api/inventory/sessions", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-
-    if (planManager) {
-      const check = planManager.checkLimit(shop, "manage_inventory");
-      if (!check.allowed) {
-        return res.status(403).json({ error: "plan_limit", message: check.reason, upgrade: check.upgrade });
-      }
-    }
-
-    if (!inventoryCountStore) return apiError(res, 500, "Module inventaire non disponible");
-
-    try {
-      const session = inventoryCountStore.createSession(shop, req.body);
-      res.json({ success: true, session });
-    } catch (e) {
-      return apiError(res, 400, e.message);
-    }
-  });
-});
-
-// DÃ©tail d'une session
-router.get("/api/inventory/sessions/:id", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!inventoryCountStore) return apiError(res, 500, "Module inventaire non disponible");
-
-    const session = inventoryCountStore.getSession(shop, req.params.id);
-    if (!session) return apiError(res, 404, "Session non trouvÃ©e");
-
-    const items = inventoryCountStore.getSessionItems(shop, session.id);
-    res.json({ session, items });
-  });
-});
-
-// Modifier une session
-router.put("/api/inventory/sessions/:id", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!inventoryCountStore) return apiError(res, 500, "Module inventaire non disponible");
-
-    try {
-      const session = inventoryCountStore.updateSession(shop, req.params.id, req.body);
-      res.json({ success: true, session });
-    } catch (e) {
-      return apiError(res, 400, e.message);
-    }
-  });
-});
-
-// DÃ©marrer une session (crÃ©er les items)
-router.post("/api/inventory/sessions/:id/start", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!inventoryCountStore) return apiError(res, 500, "Module inventaire non disponible");
-
-    try {
-      // RÃ©cupÃ©rer les produits du catalogue
-      const snapshot = stock.getCatalogSnapshot ? stock.getCatalogSnapshot(shop) : { products: [] };
-      const products = snapshot.products || [];
-
-      const result = inventoryCountStore.startSession(shop, req.params.id, products);
-      res.json({ success: true, ...result });
-    } catch (e) {
-      return apiError(res, 400, e.message);
-    }
-  });
-});
-
-// Items d'une session
-router.get("/api/inventory/sessions/:id/items", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!inventoryCountStore) return apiError(res, 500, "Module inventaire non disponible");
-
-    const { status, search, onlyDiffs, onlyFlagged } = req.query;
-    const items = inventoryCountStore.getSessionItems(shop, req.params.id, {
-      status,
-      search,
-      onlyDiffs: onlyDiffs === "true",
-      onlyFlagged: onlyFlagged === "true",
-    });
-
-    res.json({ items });
-  });
-});
-
-// Mettre Ã  jour un item
-router.put("/api/inventory/sessions/:id/items/:itemId", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!inventoryCountStore) return apiError(res, 500, "Module inventaire non disponible");
-
-    try {
-      const item = inventoryCountStore.updateItem(shop, req.params.id, req.params.itemId, req.body);
-      res.json({ success: true, item });
-    } catch (e) {
-      return apiError(res, 400, e.message);
-    }
-  });
-});
-
-// Mise Ã  jour en masse (autosave)
-router.post("/api/inventory/sessions/:id/items/bulk-upsert", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!inventoryCountStore) return apiError(res, 500, "Module inventaire non disponible");
-
-    try {
-      const items = req.body.items || [];
-      const results = inventoryCountStore.bulkUpsertItems(shop, req.params.id, items);
-      res.json({ success: true, updated: results.length });
-    } catch (e) {
-      return apiError(res, 400, e.message);
-    }
-  });
-});
-
-// Valider une session (review)
-router.post("/api/inventory/sessions/:id/review", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!inventoryCountStore) return apiError(res, 500, "Module inventaire non disponible");
-
-    try {
-      const session = inventoryCountStore.reviewSession(shop, req.params.id);
-      res.json({ success: true, session });
-    } catch (e) {
-      return apiError(res, 400, e.message);
-    }
-  });
-});
-
-// Appliquer les ajustements
-router.post("/api/inventory/sessions/:id/apply", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!inventoryCountStore) return apiError(res, 500, "Module inventaire non disponible");
-
-    try {
-      const result = inventoryCountStore.applySession(shop, req.params.id, {
-        stockManager: stock,
-        allowNegative: req.body.allowNegative === true,
-      });
-      res.json({ success: true, ...result });
-    } catch (e) {
-      return apiError(res, 400, e.message);
-    }
-  });
-});
-
-// Archiver une session
-router.delete("/api/inventory/sessions/:id", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!inventoryCountStore) return apiError(res, 500, "Module inventaire non disponible");
-
-    try {
-      const session = inventoryCountStore.archiveSession(shop, req.params.id);
-      res.json({ success: true, session });
-    } catch (e) {
-      return apiError(res, 400, e.message);
-    }
-  });
-});
-
-// Dupliquer une session
-router.post("/api/inventory/sessions/:id/duplicate", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!inventoryCountStore) return apiError(res, 500, "Module inventaire non disponible");
-
-    try {
-      const session = inventoryCountStore.duplicateSession(shop, req.params.id);
-      res.json({ success: true, session });
-    } catch (e) {
-      return apiError(res, 400, e.message);
-    }
-  });
-});
-
-// Ã‰vÃ©nements d'audit
-router.get("/api/inventory/events", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!inventoryCountStore) return apiError(res, 500, "Module inventaire non disponible");
-
-    const { sessionId, productId, source, from, to, limit } = req.query;
-    const events = inventoryCountStore.listEvents(shop, {
-      sessionId,
-      productId,
-      source,
-      from,
-      to,
-      limit: parseInt(limit) || 100,
-    });
-
-    res.json({ events });
-  });
-});
-
-// Stats inventaire
-router.get("/api/inventory/stats", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!inventoryCountStore) return apiError(res, 500, "Module inventaire non disponible");
-
-    const { from, to } = req.query;
-    const stats = inventoryCountStore.getInventoryStats(shop, { from, to });
-    res.json(stats);
-  });
-});
-
-// ============================================
-// ROUTES PRO (Batches, Suppliers, PO, Forecast, Kits, Inventory)
-// ============================================
-try {
-  require("./server-pro-routes")(router, { getShop, apiError, safeJson });
-} catch (e) {
-  console.warn("Routes PRO non chargees:", e.message);
-}
-
-router.use("/api", (req, res) => apiError(res, 404, "Route API non trouvee"));
-
-router.use((err, req, res, next) => {
-  if (req.path.startsWith("/api")) {
-    logEvent("api_uncaught_error", extractShopifyError(err), "error");
-    return apiError(res, 500, "Erreur serveur API");
-  }
-  next(err);
-});
-
-// Front SPA
-router.get("/", (req, res) => res.sendFile(INDEX_HTML));
-router.get(/^\/(?!api\/|webhooks\/|health|css\/|js\/).*/, (req, res) => res.sendFile(INDEX_HTML));
-
-// =====================================================
-// WEBHOOKS
-// =====================================================
-
-// aÃ…â€œÃ¢â‚¬Â¦ DURCISSEMENT #3 : purge complete + cache (et hooks optionnels stock/catalog)
-async function purgeShopData(shop) {
-  const s = normalizeShopDomain(String(shop || "").trim());
-  if (!s) return;
-
-  try {
-    // tokens
-    if (tokenStore?.removeToken) await tokenStore.removeToken(s);
-
-    // mouvements
-    if (movementStore?.clearShopMovements) await movementStore.clearShopMovements(s);
-
-    // settings
-    if (settingsStore?.removeSettings) await settingsStore.removeSettings(s);
-
-    // cache locationId
-    _cachedLocationIdByShop.delete(String(s).trim().toLowerCase());
-
-    // stock/catalog (optionnels selon tes modules)
-    if (typeof stock.removeShop === "function") {
-      await stock.removeShop(s);
-    } else if (typeof stock.clearShop === "function") {
-      await stock.clearShop(s);
-    }
-
-    if (typeof catalogStore.removeShop === "function") {
-      await catalogStore.removeShop(s);
-    } else if (typeof catalogStore.clearShop === "function") {
-      await catalogStore.clearShop(s);
-    }
-
-    logEvent("shop_data_purged", { shop: s }, "info");
-  } catch (err) {
-    logEvent("purge_shop_data_error", { error: err.message, shop: s }, "error");
-    throw new Error("Erreur lors de la purge des donnees");
-  }
-}
-
-// Webhook pour la desinstallation de l'application
-app.post("/webhooks/app/uninstalled", express.raw({ type: "application/json" }), async (req, res) => {
-  try {
-    if (!requireVerifiedWebhook(req, res)) return res.sendStatus(401);
-
-    const payload = JSON.parse(req.body.toString("utf8") || "{}");
-    const shop = getShopFromWebhook(req, payload);
-    if (!shop) return res.sendStatus(200);
-
-    await purgeShopData(shop);
-
-    res.sendStatus(200);
-  } catch (err) {
-    logEvent("webhook_app_uninstalled_error", { error: err.message }, "error");
-    res.sendStatus(500);
-  }
-});
-
-// Webhook pour la demande de donnees clients
-app.post("/webhooks/customers/data_request", express.raw({ type: "application/json" }), async (req, res) => {
-  try {
-    if (!requireVerifiedWebhook(req, res)) return res.sendStatus(401);
-
-    const payload = JSON.parse(req.body.toString("utf8") || "{}");
-    const shop = getShopFromWebhook(req, payload);
-    if (!shop) return res.sendStatus(200);
-
-    res.sendStatus(200);
-  } catch (err) {
-    logEvent("webhook_data_request_error", { error: err.message }, "error");
-    res.sendStatus(500);
-  }
-});
-
-// Webhook pour la demande de suppression des donnees clients
-app.post("/webhooks/customers/redact", express.raw({ type: "application/json" }), async (req, res) => {
-  try {
-    if (!requireVerifiedWebhook(req, res)) return res.sendStatus(401);
-
-    const payload = JSON.parse(req.body.toString("utf8") || "{}");
-    const shop = getShopFromWebhook(req, payload);
-    if (!shop) return res.sendStatus(200);
-
-    res.sendStatus(200);
-  } catch (err) {
-    logEvent("webhook_redact_error", { error: err.message }, "error");
-    res.sendStatus(500);
-  }
-});
-
-// Webhook pour la suppression des donnees du shop
-app.post("/webhooks/shop/redact", express.raw({ type: "application/json" }), async (req, res) => {
-  try {
-    if (!requireVerifiedWebhook(req, res)) return res.sendStatus(401);
-
-    const payload = JSON.parse(req.body.toString("utf8") || "{}");
-    const shop = getShopFromWebhook(req, payload);
-    if (!shop) return res.sendStatus(200);
-
-    await purgeShopData(shop);
-
-    res.sendStatus(200);
-  } catch (err) {
-    logEvent("webhook_shop_redact_error", { error: err.message }, "error");
-    res.sendStatus(500);
-  }
-});
-
-// Ã¢Å“â€¦ Webhook pour les mises ÃƒÂ  jour d'abonnement (Shopify Billing)
-app.post("/webhooks/app_subscriptions/update", express.raw({ type: "application/json" }), async (req, res) => {
-  try {
-    if (!requireVerifiedWebhook(req, res)) return res.sendStatus(401);
-
-    const headerShop = String(req.get("X-Shopify-Shop-Domain") || "").trim();
-    const payload = JSON.parse(req.body.toString("utf8") || "{}");
-    const shop = normalizeShopDomain(headerShop || "");
-    
-    if (!shop) {
-      logEvent("webhook_subscription_no_shop", { headerShop }, "warn");
-      return res.sendStatus(200);
-    }
-
-    const subscriptionId = payload?.app_subscription?.admin_graphql_api_id || payload?.id;
-    const status = String(payload?.app_subscription?.status || payload?.status || "").toLowerCase();
-
-    logEvent("webhook_subscription_update", { shop, subscriptionId, status }, "info");
-
-    // Si l'abonnement est annule/expire, downgrade vers Free
-    if (status === "cancelled" || status === "expired" || status === "frozen") {
-      if (planManager) {
-        planManager.cancelSubscription(shop);
-        logEvent("subscription_auto_cancelled", { shop, status }, "info");
-      }
-    }
-
-    // Si l'abonnement est actif (apres trial ou renouvellement)
-    if (status === "active") {
-      // On pourrait mettre ÃƒÂ  jour le statut local si necessaire
-      logEvent("subscription_confirmed_active", { shop }, "info");
-    }
-
-    res.sendStatus(200);
-  } catch (err) {
-    logEvent("webhook_subscription_error", { error: err.message }, "error");
-    res.sendStatus(500);
-  }
-});
-
-app.post("/webhooks/orders/create", express.raw({ type: "application/json" }), async (req, res) => {
-  try {
-    if (!requireVerifiedWebhook(req, res)) return res.sendStatus(401);
-
-    const headerShop = String(req.get("X-Shopify-Shop-Domain") || "").trim();
-    const payload = JSON.parse(req.body.toString("utf8") || "{}");
-    const payloadShop = String(payload?.myshopify_domain || payload?.domain || payload?.shop_domain || "").trim();
-
-    const shop = normalizeShopDomain(headerShop || payloadShop || "");
-    if (!shop) {
-      logEvent("webhook_no_shop", { headerShop, payloadShop }, "error");
-      return res.sendStatus(200);
-    }
-
-    const lineItems = Array.isArray(payload?.line_items) ? payload.line_items : [];
-    if (!lineItems.length) return res.sendStatus(200);
-
-    const client = shopifyFor(shop);
-
-    for (const li of lineItems) {
-      const productId = String(li?.product_id || "");
-      const variantId = Number(li?.variant_id || 0);
-      const qty = Number(li?.quantity || 0);
-      if (!productId || !variantId || qty <= 0) continue;
-
-      const currentSnap = stock.getStockSnapshot ? stock.getStockSnapshot(shop)?.[productId] : null;
-      if (!currentSnap) continue;
-
-      const variant = await client.productVariant.get(variantId);
-      const inventoryItemId = Number(variant?.inventory_item_id || 0);
-      if (!inventoryItemId) continue;
-
-      const gramsPerUnit = findGramsPerUnitByInventoryItemId(currentSnap, inventoryItemId);
-      if (!gramsPerUnit) continue;
-
-      const gramsToSubtract = gramsPerUnit * qty;
-
-      const updated = await stock.applyOrderToProduct(shop, productId, gramsToSubtract);
-      if (updated) {
-        try {
-          await pushProductInventoryToShopify(shop, updated);
-        } catch (e) {
-          logEvent("inventory_push_error", { shop, productId, message: e?.message }, "error");
-        }
-
-        if (movementStore.addMovement) {
-          movementStore.addMovement(
-            {
-              source: "order_webhook",
-              productId,
-              productName: updated.name,
-              gramsDelta: -Math.abs(gramsToSubtract),
-              totalAfter: updated.totalGrams,
-              shop,
-            },
-            shop
-          );
-        }
-      }
-    }
-
-    // aÃ…â€œÃ¢â‚¬Â¦ ANALYTICS : Enregistrer la vente complete
-    try {
-      if (analyticsManager && typeof analyticsManager.recordSaleFromOrder === "function") {
-        await analyticsManager.recordSaleFromOrder(shop, payload);
-        logEvent("analytics_sale_recorded", { shop, orderId: payload?.id }, "info");
-      }
-    } catch (e) {
-      logEvent("analytics_record_error", { shop, orderId: payload?.id, error: e.message }, "error");
-    }
-
-    return res.sendStatus(200);
-  } catch (e) {
-    logEvent("webhook_error", extractShopifyError(e), "error");
-    return res.sendStatus(500);
-  }
-});
-
-// Mount router en "prefix-safe"
-app.use("/", router);
-app.use("/apps/:appSlug", router);
-
-
-app.listen(PORT, "0.0.0.0", () => {
-  logEvent("server_started", { port: PORT, indexHtml: INDEX_HTML, apiAuthRequired: API_AUTH_REQUIRED });
-  console.log("aÃ…â€œÃ¢â‚¬Â¦ Server running on port", PORT);
-});
