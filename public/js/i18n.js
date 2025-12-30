@@ -389,6 +389,15 @@ var I18N = {
       "kits.deleted": "Kit supprime",
       "kits.confirmDelete": "Supprimer ce kit ?",
       "kits.assemble": "Assembler des kits",
+      "kits.totalKits": "Total kits",
+      "kits.active": "Actifs",
+      "kits.sold": "Vendus",
+      "kits.assembled": "Assembles",
+      "kits.allStatuses": "Tous statuts",
+      "kits.allTypes": "Tous types",
+      "kits.statusActive": "Actif",
+      "kits.statusDraft": "Brouillon",
+      "kits.recipe": "Recette",
       
       // Previsions / Forecast
       "forecast.title": "Previsions",
@@ -489,6 +498,9 @@ var I18N = {
       "inventory.statusReviewed": "Valide",
       "inventory.statusApplied": "Applique",
       "inventory.statusArchived": "Archive",
+      "inventory.scopeAll": "Tous",
+      "inventory.scopeCategory": "Categorie",
+      "inventory.scopeSelection": "Selection",
       
       // Dashboard amélioré
       "dashboard.quickActions": "Actions rapides",
@@ -1069,6 +1081,15 @@ var I18N = {
       "kits.deleted": "Kit deleted",
       "kits.confirmDelete": "Delete this kit?",
       "kits.assemble": "Assemble kits",
+      "kits.totalKits": "Total kits",
+      "kits.active": "Active",
+      "kits.sold": "Sold",
+      "kits.assembled": "Assembled",
+      "kits.allStatuses": "All statuses",
+      "kits.allTypes": "All types",
+      "kits.statusActive": "Active",
+      "kits.statusDraft": "Draft",
+      "kits.recipe": "Recipe",
       
       // Forecast
       "forecast.title": "Forecast",
@@ -1169,6 +1190,9 @@ var I18N = {
       "inventory.statusReviewed": "Reviewed",
       "inventory.statusApplied": "Applied",
       "inventory.statusArchived": "Archived",
+      "inventory.scopeAll": "All",
+      "inventory.scopeCategory": "Category",
+      "inventory.scopeSelection": "Selection",
       
       // Enhanced Dashboard
       "dashboard.quickActions": "Quick actions",

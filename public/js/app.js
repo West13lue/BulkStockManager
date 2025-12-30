@@ -3377,10 +3377,10 @@
     if (!container) return;
     container.innerHTML =
       '<div class="stats-grid stats-grid-4">' +
-      '<div class="stat-card"><div class="stat-icon"><i data-lucide="package"></i></div><div class="stat-value">' + (stats.totalKits || 0) + '</div><div class="stat-label">Total kits</div></div>' +
-      '<div class="stat-card stat-success"><div class="stat-icon"><i data-lucide="check-circle"></i></div><div class="stat-value">' + (stats.activeKits || 0) + '</div><div class="stat-label">Actifs</div></div>' +
-      '<div class="stat-card"><div class="stat-icon"><i data-lucide="shopping-cart"></i></div><div class="stat-value">' + (stats.periodSales || 0) + '</div><div class="stat-label">Vendus</div></div>' +
-      '<div class="stat-card"><div class="stat-icon"><i data-lucide="hammer"></i></div><div class="stat-value">' + (stats.periodAssemblies || 0) + '</div><div class="stat-label">Assembles</div></div>' +
+      '<div class="stat-card"><div class="stat-icon"><i data-lucide="package"></i></div><div class="stat-value">' + (stats.totalKits || 0) + '</div><div class="stat-label">' + t("kits.totalKits", "Total kits") + '</div></div>' +
+      '<div class="stat-card stat-success"><div class="stat-icon"><i data-lucide="check-circle"></i></div><div class="stat-value">' + (stats.activeKits || 0) + '</div><div class="stat-label">' + t("kits.active", "Actifs") + '</div></div>' +
+      '<div class="stat-card"><div class="stat-icon"><i data-lucide="shopping-cart"></i></div><div class="stat-value">' + (stats.periodSales || 0) + '</div><div class="stat-label">' + t("kits.sold", "Vendus") + '</div></div>' +
+      '<div class="stat-card"><div class="stat-icon"><i data-lucide="hammer"></i></div><div class="stat-value">' + (stats.periodAssemblies || 0) + '</div><div class="stat-label">' + t("kits.assembled", "Assembles") + '</div></div>' +
       '</div>';
     if (typeof lucide !== "undefined") lucide.createIcons();
   }
@@ -3391,17 +3391,17 @@
     container.innerHTML =
       '<div class="filters-bar">' +
       '<select class="form-select filter-select" onchange="app.onKitFilterChange(\'status\', this.value)">' +
-      '<option value="">Tous statuts</option>' +
-      '<option value="active"' + (kitsFilters.status === "active" ? " selected" : "") + '>Actif</option>' +
-      '<option value="draft"' + (kitsFilters.status === "draft" ? " selected" : "") + '>Brouillon</option>' +
+      '<option value="">' + t("kits.allStatuses", "Tous statuts") + '</option>' +
+      '<option value="active"' + (kitsFilters.status === "active" ? " selected" : "") + '>' + t("kits.statusActive", "Actif") + '</option>' +
+      '<option value="draft"' + (kitsFilters.status === "draft" ? " selected" : "") + '>' + t("kits.statusDraft", "Brouillon") + '</option>' +
       '</select>' +
       '<select class="form-select filter-select" onchange="app.onKitFilterChange(\'type\', this.value)">' +
-      '<option value="">Tous types</option>' +
+      '<option value="">' + t("kits.allTypes", "Tous types") + '</option>' +
       '<option value="kit"' + (kitsFilters.type === "kit" ? " selected" : "") + '>Kit</option>' +
       '<option value="bundle"' + (kitsFilters.type === "bundle" ? " selected" : "") + '>Bundle</option>' +
-      '<option value="recipe"' + (kitsFilters.type === "recipe" ? " selected" : "") + '>Recette</option>' +
+      '<option value="recipe"' + (kitsFilters.type === "recipe" ? " selected" : "") + '>' + t("kits.recipe", "Recette") + '</option>' +
       '</select>' +
-      '<input type="text" class="form-input" placeholder="Rechercher..." value="' + (kitsFilters.search || "") + '" onkeyup="app.onKitSearchChange(this.value)">' +
+      '<input type="text" class="form-input" placeholder="' + t("action.search", "Rechercher...") + '" value="' + (kitsFilters.search || "") + '" onkeyup="app.onKitSearchChange(this.value)">' +
       '</div>';
   }
 
@@ -3685,10 +3685,10 @@
     }
 
     c.innerHTML =
-      '<div class="page-header"><div><h1 class="page-title"><i data-lucide="clipboard-check"></i> Inventaire</h1>' +
-      '<p class="page-subtitle">Sessions de comptage et ajustements</p></div>' +
+      '<div class="page-header"><div><h1 class="page-title"><i data-lucide="clipboard-check"></i> ' + t("inventory.title", "Inventaire") + '</h1>' +
+      '<p class="page-subtitle">' + t("inventory.subtitle", "Sessions de comptage et ajustements") + '</p></div>' +
       '<div class="page-actions">' +
-      '<button class="btn btn-primary" onclick="app.showCreateInventorySessionModal()"><i data-lucide="plus"></i> Nouvelle session</button>' +
+      '<button class="btn btn-primary" onclick="app.showCreateInventorySessionModal()"><i data-lucide="plus"></i> ' + t("inventory.newSession", "Nouvelle session") + '</button>' +
       '</div></div>' +
       '<div id="inventoryContent"><div class="text-center py-lg"><div class="spinner"></div></div></div>';
 
@@ -3707,7 +3707,7 @@
       inventorySessions = data.sessions || [];
       renderInventorySessions();
     } catch (e) {
-      document.getElementById("inventoryContent").innerHTML = '<div class="card"><p class="text-danger text-center py-lg">" + t("msg.error", "Erreur") + ": ' + e.message + '</p></div>';
+      document.getElementById("inventoryContent").innerHTML = '<div class="card"><p class="text-danger text-center py-lg">' + t("msg.error", "Erreur") + ': ' + e.message + '</p></div>';
     }
   }
 
@@ -3719,9 +3719,9 @@
       container.innerHTML =
         '<div class="card"><div class="text-center py-xl">' +
         '<div class="empty-icon"><i data-lucide="clipboard-list"></i></div>' +
-        '<h3>Aucune session</h3>' +
-        '<p class="text-secondary">Creez votre premiere session d\'inventaire.</p>' +
-        '<button class="btn btn-primary mt-md" onclick="app.showCreateInventorySessionModal()">Nouvelle session</button>' +
+        '<h3>' + t("inventory.noSessions", "Aucune session") + '</h3>' +
+        '<p class="text-secondary">' + t("inventory.createFirst", "Creez votre premiere session d\'inventaire.") + '</p>' +
+        '<button class="btn btn-primary mt-md" onclick="app.showCreateInventorySessionModal()">' + t("inventory.newSession", "Nouvelle session") + '</button>' +
         '</div></div>';
       if (typeof lucide !== "undefined") lucide.createIcons();
       return;
@@ -3730,7 +3730,7 @@
     var rows = inventorySessions.map(function(s) {
       var statusBadge = getInventoryStatusBadge(s.status);
       var progress = s.totals.itemsTotal > 0 ? Math.round((s.totals.itemsCounted / s.totals.itemsTotal) * 100) : 0;
-      var scopeLabel = s.scopeType === "all" ? "Tous" : (s.scopeType === "category" ? "Categorie" : "Selection");
+      var scopeLabel = s.scopeType === "all" ? t("inventory.scopeAll", "Tous") : (s.scopeType === "category" ? t("inventory.scopeCategory", "Categorie") : t("inventory.scopeSelection", "Selection"));
       
       return '<tr onclick="app.openInventorySession(\'' + s.id + '\')">' +
         '<td><strong>' + esc(s.name) + '</strong><br><span class="text-secondary text-sm">' + formatDate(s.createdAt) + '</span></td>' +
@@ -5264,14 +5264,17 @@
         if (profilesData.length === 0) {
           container.innerHTML = '<div class="empty-state-small"><p>' + t("profiles.noProfiles", "Aucun profil") + '</p></div>';
         } else {
-          var html = '<div class="profiles-list">';
+          var html = '<div class="profiles-list" style="display:flex;flex-direction:column;gap:12px">';
           profilesData.forEach(function(p) {
             var isActive = activeProfile && p.id === activeProfile.id;
-            html += '<div class="profile-item ' + (isActive ? 'active' : '') + '" onclick="app.switchProfile(\'' + p.id + '\')">' +
-              '<div class="profile-avatar" style="background:' + (p.color || '#6366f1') + '">' + getInitials(p.name) + '</div>' +
-              '<div class="profile-info"><div class="profile-name">' + esc(p.name) + '</div><div class="profile-role">' + esc(p.role || 'user') + '</div></div>' +
-              (isActive ? '<span class="badge badge-success">' + t("profiles.active", "Actif") + '</span>' : '') +
-              '<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();app.deleteProfile(\'' + p.id + '\')"><i data-lucide="trash-2"></i></button>' +
+            html += '<div class="profile-item" style="display:flex;align-items:center;gap:12px;padding:12px;border-radius:8px;background:var(--bg-tertiary);cursor:pointer;' + (isActive ? 'border:2px solid var(--primary)' : '') + '" onclick="app.switchProfile(\'' + p.id + '\')">' +
+              '<div class="profile-avatar" style="width:48px;height:48px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:white;font-weight:600;font-size:16px;background:' + (p.color || '#6366f1') + '">' + getInitials(p.name) + '</div>' +
+              '<div class="profile-info" style="flex:1;min-width:0">' +
+              '<div class="profile-name" style="font-weight:600;color:var(--text-primary)">' + esc(p.name) + '</div>' +
+              '<div class="profile-role" style="font-size:12px;color:var(--text-secondary)">' + esc(p.role || 'user') + '</div>' +
+              '</div>' +
+              (isActive ? '<span class="badge badge-success" style="margin-right:8px">' + t("profiles.active", "Actif") + '</span>' : '') +
+              '<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();app.deleteProfile(\'' + p.id + '\')" style="flex-shrink:0"><i data-lucide="trash-2"></i></button>' +
               '</div>';
           });
           html += '</div>';
