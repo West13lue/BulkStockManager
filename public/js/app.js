@@ -2,6 +2,14 @@
 (function () {
   "use strict";
 
+  // Fonction de traduction locale (utilise I18N si disponible)
+  function t(key, fallback) {
+    if (typeof I18N !== "undefined" && I18N.t) {
+      return I18N.t(key, fallback);
+    }
+    return fallback || key;
+  }
+
   var API_BASE = "/api";
   var appBridgeApp = null;
   var sessionToken = null;
