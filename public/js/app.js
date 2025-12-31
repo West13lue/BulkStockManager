@@ -431,6 +431,9 @@
   }
 
   function setupNavigation() {
+    // Traduire les labels de navigation
+    translateNavigationLabels();
+    
     document.querySelectorAll(".nav-item[data-tab]").forEach(function (el) {
       el.addEventListener("click", function (e) {
         e.preventDefault();
@@ -443,6 +446,46 @@
         navigateTo(tab);
       });
     });
+  }
+
+  function translateNavigationLabels() {
+    var navLabels = {
+      "dashboard": t("nav.dashboard", "Tableau de bord"),
+      "products": t("nav.products", "Produits"),
+      "batches": t("nav.batches", "Lots et DLC"),
+      "suppliers": t("nav.suppliers", "Fournisseurs"),
+      "orders": t("nav.orders", "Commandes"),
+      "forecast": t("nav.forecast", "Previsions"),
+      "kits": t("nav.kits", "Kits et Bundles"),
+      "analytics": t("nav.analytics", "Analytics"),
+      "inventory": t("nav.inventory", "Inventaire"),
+      "settings": t("nav.settings", "Parametres")
+    };
+    
+    document.querySelectorAll(".nav-item[data-tab]").forEach(function(el) {
+      var tab = el.dataset.tab;
+      if (navLabels[tab]) {
+        var label = el.querySelector(".nav-label");
+        if (label) {
+          label.textContent = navLabels[tab];
+        }
+      }
+    });
+    
+    // Traduire aussi le placeholder de recherche
+    var searchInput = document.getElementById("globalSearch");
+    if (searchInput) {
+      searchInput.placeholder = t("nav.searchPlaceholder", "Rechercher un produit, lot, fournisseur...");
+    }
+    
+    // Traduire le widget plan
+    var planWidget = document.getElementById("planWidget");
+    if (planWidget) {
+      var upgradeBtn = planWidget.querySelector(".btn-upgrade");
+      if (upgradeBtn) {
+        upgradeBtn.textContent = t("plan.upgrade", "Upgrade");
+      }
+    }
   }
 
   function navigateTo(tab) {
