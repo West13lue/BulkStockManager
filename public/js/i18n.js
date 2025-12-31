@@ -412,11 +412,13 @@ var I18N = {
       "forecast.toOrder": "A commander",
       "forecast.allStatus": "Tous statuts",
       "forecast.critical": "Critique (<7j)",
-      "forecast.urgentStatus": "Urgent (<14j)",
+      "forecast.criticalStatus": "Critique",
+      "forecast.urgentStatus": "Urgent",
       "forecast.watch": "A surveiller",
       "forecast.outOfStock": "Rupture",
       "forecast.overstock": "Surstock",
       "forecast.noData": "Sans donnees",
+      "forecast.noProducts": "Aucun produit a afficher.",
       "forecast.allCategories": "Toutes categories",
       "forecast.product": "Produit",
       "forecast.stock": "Stock",
@@ -516,6 +518,25 @@ var I18N = {
       "dashboard.noOutOfStock": "Aucun produit en rupture",
       "dashboard.remaining": "restant",
       "dashboard.inventory": "Inventaire",
+      "dashboard.activityLog": "Activite recente",
+      "dashboard.fullActivityLog": "Journal d'activite",
+      "dashboard.noActivity": "Aucune activite",
+      "dashboard.unknownUser": "Utilisateur",
+      
+      // Verbes d'activité
+      "activity.restocked": "a reapprovisionne",
+      "activity.sold": "a vendu",
+      "activity.adjusted": "a ajuste",
+      "activity.transferred": "a transfere",
+      "activity.returned": "a retourne",
+      "activity.lost": "a enregistre une perte sur",
+      "activity.produced": "a produit",
+      "activity.counted": "a compte",
+      "activity.modified": "a modifie",
+      
+      // Temps
+      "time.today": "Aujourd'hui",
+      "time.yesterday": "Hier",
       
       // Actions
       "action.selectProduct": "Sélectionner...",
@@ -1104,11 +1125,13 @@ var I18N = {
       "forecast.toOrder": "To order",
       "forecast.allStatus": "All statuses",
       "forecast.critical": "Critical (<7d)",
-      "forecast.urgentStatus": "Urgent (<14d)",
+      "forecast.criticalStatus": "Critical",
+      "forecast.urgentStatus": "Urgent",
       "forecast.watch": "Watch",
       "forecast.outOfStock": "Out of stock",
       "forecast.overstock": "Overstock",
       "forecast.noData": "No data",
+      "forecast.noProducts": "No products to display.",
       "forecast.allCategories": "All categories",
       "forecast.product": "Product",
       "forecast.stock": "Stock",
@@ -1208,6 +1231,25 @@ var I18N = {
       "dashboard.noOutOfStock": "No out of stock products",
       "dashboard.remaining": "remaining",
       "dashboard.inventory": "Inventory",
+      "dashboard.activityLog": "Recent activity",
+      "dashboard.fullActivityLog": "Activity log",
+      "dashboard.noActivity": "No activity",
+      "dashboard.unknownUser": "User",
+      
+      // Activity verbs
+      "activity.restocked": "restocked",
+      "activity.sold": "sold",
+      "activity.adjusted": "adjusted",
+      "activity.transferred": "transferred",
+      "activity.returned": "returned",
+      "activity.lost": "recorded a loss on",
+      "activity.produced": "produced",
+      "activity.counted": "counted",
+      "activity.modified": "modified",
+      
+      // Time
+      "time.today": "Today",
+      "time.yesterday": "Yesterday",
       
       // Actions
       "action.selectProduct": "Select...",

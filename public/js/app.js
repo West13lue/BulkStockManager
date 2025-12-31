@@ -42,7 +42,8 @@
     'showKeyboardShortcutsHelp', 'closeTutorial', 'showAllTutorials', 'showSpecificTutorial', 'resetAllTutorials',
     'loadNotifications', 'showNotificationsModal', 'markNotificationRead', 'dismissNotification', 'checkAlerts',
     'loadProfiles', 'showProfilesModal', 'showCreateProfileModal', 'selectProfileColor', 'createProfile', 'switchProfile', 'deleteProfile',
-    'openSODetails', 'showReceivePOModal', 'receivePO', 'showLinkProductModal', 'linkProduct'
+    'openSODetails', 'showReceivePOModal', 'receivePO', 'showLinkProductModal', 'linkProduct',
+    'showFullActivityLog'
   ];
   
   // Créer window.app avec des proxies pour toutes les fonctions
@@ -842,6 +843,12 @@
         (lowStockProducts.length > 0 ? '<div class="alert-item alert-warning" onclick="app.showLowStockModal()"><span class="alert-icon"><i data-lucide="alert-triangle"></i></span><span class="alert-text">' + lowStockProducts.length + ' ' + t("dashboard.lowStockAlert", "produit(s) stock bas") + '</span><span class="alert-action"><i data-lucide="chevron-right"></i></span></div>' : '') +
         '</div></div>' : '') +
       
+      // Activité récente (nouveau!)
+      '<div class="card card-activity">' +
+      '<div class="card-header"><h3 class="card-title"><i data-lucide="history"></i> ' + t("dashboard.activityLog", "Activite recente") + '</h3>' +
+      '<button class="btn btn-ghost btn-sm" onclick="app.showFullActivityLog()">' + t("dashboard.viewAll", "Voir tout") + '</button></div>' +
+      '<div class="card-body" id="dashboardActivity"><div class="text-center py-lg"><div class="spinner"></div></div></div></div>' +
+      
       // Produits
       '<div class="card"><div class="card-header"><h3 class="card-title"><i data-lucide="boxes"></i> ' + t("dashboard.products", "Produits") + '</h3>' +
       '<button class="btn btn-ghost btn-sm" onclick="app.navigateTo(\'products\')">' + t("dashboard.viewAll", "Voir tout") + '</button></div>' +
@@ -856,6 +863,7 @@
       
       '</div>';
     
+    loadDashboardActivity();
     loadDashboardMovements();
     if (typeof lucide !== "undefined") lucide.createIcons();
   }
@@ -1172,6 +1180,180 @@
         container.innerHTML = '<p class="text-secondary text-center">' + t("msg.error", "Erreur") + '</p>';
       }
     }
+  }
+
+  // Activité récente avec profils
+  async function loadDashboardActivity() {
+    try {
+      var res = await authFetch(apiUrl("/movements?limit=15"));
+      var container = document.getElementById("dashboardActivity");
+      if (!container) return;
+      
+      if (!res.ok) {
+        container.innerHTML = '<p class="text-secondary text-center">' + t("msg.error", "Erreur") + '</p>';
+        return;
+      }
+      
+      var data = await res.json();
+      var movements = data.movements || [];
+      
+      if (movements.length === 0) {
+        container.innerHTML = '<div class="empty-state-small"><div class="empty-icon"><i data-lucide="history"></i></div><p class="text-secondary">' + t("dashboard.noActivity", "Aucune activite") + '</p></div>';
+        if (typeof lucide !== "undefined") lucide.createIcons();
+        return;
+      }
+      
+      var html = '<div class="activity-list">';
+      movements.forEach(function(m) {
+        var typeIcon = getMovementIcon(m.type);
+        var typeClass = getMovementClass(m.type);
+        var typeLabel = getMovementLabel(m.type);
+        var delta = m.delta || 0;
+        var deltaStr = delta >= 0 ? '+' + formatWeight(delta) : formatWeight(delta);
+        var dateStr = formatRelativeDate(m.createdAt || m.date);
+        var profileName = m.profileName || m.userName || t("dashboard.unknownUser", "Utilisateur");
+        var profileColor = m.profileColor || '#6366f1';
+        var profileInitials = getInitials(profileName);
+        
+        html += '<div class="activity-item" style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border-color)">' +
+          '<div class="activity-avatar" style="width:32px;height:32px;border-radius:50%;background:' + profileColor + ';display:flex;align-items:center;justify-content:center;color:white;font-size:11px;font-weight:600;flex-shrink:0">' + profileInitials + '</div>' +
+          '<div class="activity-content" style="flex:1;min-width:0">' +
+          '<div class="activity-action" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">' +
+          '<span style="font-weight:500;color:var(--text-primary)">' + esc(profileName) + '</span>' +
+          '<span style="color:var(--text-secondary)">' + getActivityVerb(m.type) + '</span>' +
+          '<span style="font-weight:500;color:var(--text-primary)">' + esc(m.productName || m.product || 'Produit') + '</span>' +
+          '</div>' +
+          '<div class="activity-details" style="display:flex;align-items:center;gap:8px;margin-top:2px">' +
+          '<span class="badge badge-' + typeClass + '" style="font-size:10px">' + typeLabel + '</span>' +
+          '<span style="font-weight:600;color:var(--' + (delta >= 0 ? 'success' : 'danger') + ')">' + deltaStr + '</span>' +
+          '<span style="color:var(--text-tertiary);font-size:12px">' + dateStr + '</span>' +
+          '</div>' +
+          '</div>' +
+          '</div>';
+      });
+      html += '</div>';
+      
+      container.innerHTML = html;
+      if (typeof lucide !== "undefined") lucide.createIcons();
+      
+    } catch (e) {
+      var container = document.getElementById("dashboardActivity");
+      if (container) {
+        container.innerHTML = '<p class="text-secondary text-center">' + t("msg.error", "Erreur") + '</p>';
+      }
+    }
+  }
+
+  function getActivityVerb(type) {
+    var verbs = {
+      'restock': t("activity.restocked", "a reapprovisionne"),
+      'sale': t("activity.sold", "a vendu"),
+      'adjustment': t("activity.adjusted", "a ajuste"),
+      'transfer': t("activity.transferred", "a transfere"),
+      'return': t("activity.returned", "a retourne"),
+      'loss': t("activity.lost", "a enregistre une perte sur"),
+      'production': t("activity.produced", "a produit"),
+      'inventory': t("activity.counted", "a compte")
+    };
+    return verbs[type] || t("activity.modified", "a modifie");
+  }
+
+  function showFullActivityLog() {
+    showModal({
+      title: '<i data-lucide="history"></i> ' + t("dashboard.fullActivityLog", "Journal d\'activite"),
+      size: "lg",
+      content: '<div id="fullActivityContent"><div class="text-center py-lg"><div class="spinner"></div></div></div>',
+      footer: '<button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.close", "Fermer") + '</button>'
+    });
+    if (typeof lucide !== "undefined") lucide.createIcons();
+    loadFullActivityLog();
+  }
+
+  async function loadFullActivityLog() {
+    try {
+      var res = await authFetch(apiUrl("/movements?limit=50"));
+      var container = document.getElementById("fullActivityContent");
+      if (!container) return;
+      
+      if (!res.ok) {
+        container.innerHTML = '<p class="text-danger text-center">' + t("msg.error", "Erreur") + '</p>';
+        return;
+      }
+      
+      var data = await res.json();
+      var movements = data.movements || [];
+      
+      if (movements.length === 0) {
+        container.innerHTML = '<div class="empty-state-small"><p class="text-secondary">' + t("dashboard.noActivity", "Aucune activite") + '</p></div>';
+        return;
+      }
+
+      // Grouper par date
+      var groupedByDate = {};
+      movements.forEach(function(m) {
+        var dateKey = (m.createdAt || m.date || '').slice(0, 10);
+        if (!groupedByDate[dateKey]) groupedByDate[dateKey] = [];
+        groupedByDate[dateKey].push(m);
+      });
+
+      var html = '';
+      Object.keys(groupedByDate).sort().reverse().forEach(function(dateKey) {
+        var dateLabel = formatDateLabel(dateKey);
+        html += '<div class="activity-date-group" style="margin-bottom:20px">' +
+          '<div class="activity-date-header" style="font-weight:600;color:var(--text-secondary);padding:8px 0;border-bottom:1px solid var(--border-color);margin-bottom:8px">' + dateLabel + '</div>';
+        
+        groupedByDate[dateKey].forEach(function(m) {
+          var typeClass = getMovementClass(m.type);
+          var typeLabel = getMovementLabel(m.type);
+          var delta = m.delta || 0;
+          var deltaStr = delta >= 0 ? '+' + formatWeight(delta) : formatWeight(delta);
+          var timeStr = (m.createdAt || m.date || '').slice(11, 16);
+          var profileName = m.profileName || m.userName || t("dashboard.unknownUser", "Utilisateur");
+          var profileColor = m.profileColor || '#6366f1';
+          var profileInitials = getInitials(profileName);
+          
+          html += '<div class="activity-log-item" style="display:flex;align-items:center;gap:12px;padding:8px 0">' +
+            '<div style="width:50px;color:var(--text-tertiary);font-size:12px">' + timeStr + '</div>' +
+            '<div style="width:28px;height:28px;border-radius:50%;background:' + profileColor + ';display:flex;align-items:center;justify-content:center;color:white;font-size:10px;font-weight:600">' + profileInitials + '</div>' +
+            '<div style="flex:1">' +
+            '<span style="font-weight:500">' + esc(profileName) + '</span> ' +
+            '<span style="color:var(--text-secondary)">' + getActivityVerb(m.type) + '</span> ' +
+            '<span style="font-weight:500">' + esc(m.productName || m.product || '') + '</span>' +
+            '</div>' +
+            '<span class="badge badge-' + typeClass + '" style="font-size:10px">' + typeLabel + '</span>' +
+            '<span style="font-weight:600;color:var(--' + (delta >= 0 ? 'success' : 'danger') + ');min-width:70px;text-align:right">' + deltaStr + '</span>' +
+            '</div>';
+        });
+        
+        html += '</div>';
+      });
+      
+      container.innerHTML = '<div style="max-height:60vh;overflow-y:auto">' + html + '</div>';
+      
+    } catch (e) {
+      var container = document.getElementById("fullActivityContent");
+      if (container) {
+        container.innerHTML = '<p class="text-danger text-center">' + t("msg.error", "Erreur") + ': ' + e.message + '</p>';
+      }
+    }
+  }
+
+  function formatDateLabel(dateStr) {
+    if (!dateStr) return '';
+    var date = new Date(dateStr);
+    var today = new Date();
+    var yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    
+    if (dateStr === today.toISOString().slice(0, 10)) {
+      return t("time.today", "Aujourd\'hui");
+    }
+    if (dateStr === yesterday.toISOString().slice(0, 10)) {
+      return t("time.yesterday", "Hier");
+    }
+    
+    var options = { weekday: 'long', day: 'numeric', month: 'long' };
+    return date.toLocaleDateString(undefined, options);
   }
 
   function getMovementIcon(type) {
@@ -3141,13 +3323,13 @@
     container.innerHTML =
       '<div class="stats-grid stats-grid-4">' +
       '<div class="stat-card ' + healthClass + '"><div class="stat-icon"><i data-lucide="heart-pulse"></i></div>' +
-      '<div class="stat-value">' + (forecastStats.healthScore || 0) + '%</div><div class="stat-label">Sante stock</div></div>' +
+      '<div class="stat-value">' + (forecastStats.healthScore || 0) + '%</div><div class="stat-label">' + t("forecast.healthScore", "Sante stock") + '</div></div>' +
       '<div class="stat-card stat-danger"><div class="stat-icon"><i data-lucide="alert-triangle"></i></div>' +
-      '<div class="stat-value">' + (forecastStats.urgentCount || 0) + '</div><div class="stat-label">Urgents</div></div>' +
+      '<div class="stat-value">' + (forecastStats.urgentCount || 0) + '</div><div class="stat-label">' + t("forecast.urgent", "Urgents") + '</div></div>' +
       '<div class="stat-card"><div class="stat-icon"><i data-lucide="calendar"></i></div>' +
-      '<div class="stat-value">' + (forecastStats.avgDaysOfStock || 0) + 'j</div><div class="stat-label">Couverture moy.</div></div>' +
+      '<div class="stat-value">' + (forecastStats.avgDaysOfStock || 0) + 'j</div><div class="stat-label">' + t("forecast.avgCoverage", "Couverture moy.") + '</div></div>' +
       '<div class="stat-card"><div class="stat-icon"><i data-lucide="shopping-cart"></i></div>' +
-      '<div class="stat-value">' + formatCurrency(forecastStats.totalReorderValue || 0) + '</div><div class="stat-label">A commander</div></div>' +
+      '<div class="stat-value">' + formatCurrency(forecastStats.totalReorderValue || 0) + '</div><div class="stat-label">' + t("forecast.toOrder", "A commander") + '</div></div>' +
       '</div>';
     if (typeof lucide !== "undefined") lucide.createIcons();
   }
@@ -3163,16 +3345,16 @@
     container.innerHTML =
       '<div class="filters-bar">' +
       '<select class="form-select filter-select" onchange="app.onForecastStatusChange(this.value)">' +
-      '<option value="">Tous statuts</option>' +
-      '<option value="critical"' + (forecastFilters.status === "critical" ? " selected" : "") + '>Critique (&lt;7j)</option>' +
-      '<option value="urgent"' + (forecastFilters.status === "urgent" ? " selected" : "") + '>Urgent (&lt;14j)</option>' +
-      '<option value="watch"' + (forecastFilters.status === "watch" ? " selected" : "") + '>A surveiller</option>' +
-      '<option value="out"' + (forecastFilters.status === "out" ? " selected" : "") + '>Rupture</option>' +
-      '<option value="overstock"' + (forecastFilters.status === "overstock" ? " selected" : "") + '>Surstock</option>' +
-      '<option value="nodata"' + (forecastFilters.status === "nodata" ? " selected" : "") + '>Sans donnees</option>' +
+      '<option value="">' + t("forecast.allStatus", "Tous statuts") + '</option>' +
+      '<option value="critical"' + (forecastFilters.status === "critical" ? " selected" : "") + '>' + t("forecast.critical", "Critique (&lt;7j)") + '</option>' +
+      '<option value="urgent"' + (forecastFilters.status === "urgent" ? " selected" : "") + '>' + t("forecast.urgentStatus", "Urgent (&lt;14j)") + '</option>' +
+      '<option value="watch"' + (forecastFilters.status === "watch" ? " selected" : "") + '>' + t("forecast.watch", "A surveiller") + '</option>' +
+      '<option value="out"' + (forecastFilters.status === "out" ? " selected" : "") + '>' + t("forecast.outOfStock", "Rupture") + '</option>' +
+      '<option value="overstock"' + (forecastFilters.status === "overstock" ? " selected" : "") + '>' + t("forecast.overstock", "Surstock") + '</option>' +
+      '<option value="nodata"' + (forecastFilters.status === "nodata" ? " selected" : "") + '>' + t("forecast.noData", "Sans donnees") + '</option>' +
       '</select>' +
       '<select class="form-select filter-select" onchange="app.onForecastCategoryChange(this.value)">' +
-      '<option value="">Toutes categories</option>' + categoryOptions +
+      '<option value="">' + t("forecast.allCategories", "Toutes categories") + '</option>' + categoryOptions +
       '</select>' +
       '</div>';
   }
@@ -3187,13 +3369,13 @@
     }
 
     if (filtered.length === 0) {
-      container.innerHTML = '<div class="card"><p class="text-secondary text-center py-lg">Aucun produit a afficher.</p></div>';
+      container.innerHTML = '<div class="card"><p class="text-secondary text-center py-lg">' + t("forecast.noProducts", "Aucun produit a afficher.") + '</p></div>';
       return;
     }
 
     var rows = filtered.map(function(f) {
       var statusBadge = getForecastStatusBadge(f.status);
-      var daysDisplay = f.daysOfStock === Infinity ? "âˆž" : (f.daysOfStock !== null ? f.daysOfStock.toFixed(0) + "j" : "-");
+      var daysDisplay = f.daysOfStock === Infinity ? "∞" : (f.daysOfStock !== null ? f.daysOfStock.toFixed(0) + "j" : "-");
       var stockoutDisplay = f.stockoutDate || "-";
       var reorderDisplay = f.reorderQty > 0 ? formatWeight(f.reorderQty) : "-";
 
@@ -3210,7 +3392,7 @@
 
     container.innerHTML =
       '<div class="card"><div class="table-container"><table class="data-table">' +
-      '<thead><tr><th>Produit</th><th>Stock</th><th>Ventes moy.</th><th>Couverture</th><th>Rupture est.</th><th>A commander</th><th>Statut</th></tr></thead>' +
+      '<thead><tr><th>' + t("forecast.product", "Produit") + '</th><th>' + t("forecast.stock", "Stock") + '</th><th>' + t("forecast.avgSales", "Ventes moy.") + '</th><th>' + t("forecast.coverage", "Couverture") + '</th><th>' + t("forecast.stockout", "Rupture est.") + '</th><th>' + t("forecast.reorder", "A commander") + '</th><th>' + t("forecast.status", "Statut") + '</th></tr></thead>' +
       '<tbody>' + rows + '</tbody></table></div></div>';
     if (typeof lucide !== "undefined") lucide.createIcons();
   }
@@ -3218,12 +3400,12 @@
   function getForecastStatusBadge(status) {
     var badges = {
       ok: '<span class="status-badge status-success">OK</span>',
-      watch: '<span class="status-badge status-info">A surveiller</span>',
-      urgent: '<span class="status-badge status-warning">Urgent</span>',
-      critical: '<span class="status-badge status-danger">Critique</span>',
-      out: '<span class="status-badge status-danger">Rupture</span>',
-      nodata: '<span class="status-badge status-secondary">Sans donnees</span>',
-      overstock: '<span class="status-badge">Surstock</span>',
+      watch: '<span class="status-badge status-info">' + t("forecast.watch", "A surveiller") + '</span>',
+      urgent: '<span class="status-badge status-warning">' + t("forecast.urgentStatus", "Urgent") + '</span>',
+      critical: '<span class="status-badge status-danger">' + t("forecast.criticalStatus", "Critique") + '</span>',
+      out: '<span class="status-badge status-danger">' + t("forecast.outOfStock", "Rupture") + '</span>',
+      nodata: '<span class="status-badge status-secondary">' + t("forecast.noData", "Sans donnees") + '</span>',
+      overstock: '<span class="status-badge">' + t("forecast.overstock", "Surstock") + '</span>',
     };
     return badges[status] || '<span class="status-badge">' + status + '</span>';
   }
@@ -6463,6 +6645,8 @@
     receivePO: receivePO,
     showLinkProductModal: showLinkProductModal,
     linkProduct: linkProduct,
+    // Activity log
+    showFullActivityLog: showFullActivityLog,
   };
   
   // Stocker les vraies fonctions
