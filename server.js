@@ -602,11 +602,6 @@ router.use((req, res, next) => {
   const envShopName = String(process.env.SHOP_NAME || "").trim();
   const shopDomain = envShopName ? `https://${normalizeShopDomain(envShopName)}` : "*";
   res.setHeader("Content-Security-Policy", `frame-ancestors https://admin.shopify.com ${shopDomain};`);
-  
-  // Permissions-Policy pour autoriser la caméra dans l'iframe
-  // Ceci permet au navigateur de demander l'accès caméra même dans une iframe
-  res.setHeader("Permissions-Policy", "camera=*, microphone=*, clipboard-write=*, clipboard-read=*");
-  
   next();
 });
 
@@ -4458,9 +4453,23 @@ router.use((err, req, res, next) => {
   next(err);
 });
 
+// Pages légales (accessibles sans auth)
+router.get("/privacy", (req, res) => {
+  res.sendFile(path.join(ROOT_DIR, "privacy-policy.html"));
+});
+router.get("/privacy-policy", (req, res) => {
+  res.sendFile(path.join(ROOT_DIR, "privacy-policy.html"));
+});
+router.get("/terms", (req, res) => {
+  res.sendFile(path.join(ROOT_DIR, "terms-of-service.html"));
+});
+router.get("/terms-of-service", (req, res) => {
+  res.sendFile(path.join(ROOT_DIR, "terms-of-service.html"));
+});
+
 // Front SPA
 router.get("/", (req, res) => res.sendFile(INDEX_HTML));
-router.get(/^\/(?!api\/|webhooks\/|health|css\/|js\/).*/, (req, res) => res.sendFile(INDEX_HTML));
+router.get(/^\/(?!api\/|webhooks\/|health|css\/|js\/|privacy|terms).*/, (req, res) => res.sendFile(INDEX_HTML));
 
 // =====================================================
 // WEBHOOKS
