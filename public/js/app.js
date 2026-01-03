@@ -5009,7 +5009,8 @@
         feats: [
           t("plans.feat.categories", "Categories"),
           t("plans.feat.importShopify", "Import Shopify"),
-          t("plans.feat.stockValue", "Valeur stock")
+          t("plans.feat.stockValue", "Valeur stock"),
+          t("plans.feat.unlimitedSuppliers", "Fournisseurs illimites")
         ] 
       },
       { 
@@ -5020,9 +5021,9 @@
         badge: t("plans.popular", "POPULAIRE"), 
         feats: [
           t("plans.feat.batches", "Lots & DLC"),
-          t("plans.feat.suppliers", "Fournisseurs"),
           t("plans.feat.analytics", "Analytics"),
-          t("plans.feat.inventory", "Inventaire")
+          t("plans.feat.inventory", "Inventaire"),
+          t("plans.feat.notifications", "Notifications")
         ] 
       },
       { 
@@ -5030,11 +5031,11 @@
         name: "Business", 
         price: 79.99, 
         prods: t("plans.unlimited", "Illimite"), 
-        badge: "BEST", 
+        badge: t("plans.bestValue", "BEST VALUE"), 
         feats: [
           t("plans.feat.forecast", "Previsions IA"),
           t("plans.feat.kits", "Kits & Bundles"),
-          t("plans.feat.orders", "Commandes"),
+          t("plans.feat.orders", "Commandes (PO)"),
           t("plans.feat.multiUsers", "Multi-utilisateurs")
         ] 
       },

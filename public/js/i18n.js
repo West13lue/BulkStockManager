@@ -123,8 +123,11 @@ var I18N = {
       "plans.feat.inventory": "Inventaire",
       "plans.feat.forecast": "Previsions IA",
       "plans.feat.kits": "Kits & Bundles",
-      "plans.feat.orders": "Commandes",
+      "plans.feat.orders": "Commandes (PO)",
       "plans.feat.multiUsers": "Multi-utilisateurs",
+      "plans.feat.unlimitedSuppliers": "Fournisseurs illimites",
+      "plans.feat.notifications": "Notifications",
+      "plans.bestValue": "MEILLEUR CHOIX",
       
       // Trial
       "trial.freeTrialStarter": "Essai Starter gratuit",
@@ -886,8 +889,11 @@ var I18N = {
       "plans.feat.inventory": "Inventory",
       "plans.feat.forecast": "AI Forecast",
       "plans.feat.kits": "Kits & Bundles",
-      "plans.feat.orders": "Orders",
+      "plans.feat.orders": "Orders (PO)",
       "plans.feat.multiUsers": "Multi-users",
+      "plans.feat.unlimitedSuppliers": "Unlimited suppliers",
+      "plans.feat.notifications": "Notifications",
+      "plans.bestValue": "BEST VALUE",
       
       // Trial
       "trial.freeTrialStarter": "Free Starter trial",
@@ -1701,8 +1707,11 @@ var I18N = {
       "plans.feat.inventory": "Inventur",
       "plans.feat.forecast": "KI Prognose",
       "plans.feat.kits": "Kits & Bundles",
-      "plans.feat.orders": "Bestellungen",
+      "plans.feat.orders": "Bestellungen (PO)",
       "plans.feat.multiUsers": "Mehrere Benutzer",
+      "plans.feat.unlimitedSuppliers": "Unbegrenzte Lieferanten",
+      "plans.feat.notifications": "Benachrichtigungen",
+      "plans.bestValue": "BESTER WERT",
       
       // Trial
       "trial.freeTrialStarter": "Kostenlose Starter-Testversion",
@@ -2017,8 +2026,11 @@ var I18N = {
       "plans.feat.inventory": "Inventario",
       "plans.feat.forecast": "Prevision IA",
       "plans.feat.kits": "Kits y Paquetes",
-      "plans.feat.orders": "Pedidos",
+      "plans.feat.orders": "Pedidos (PO)",
       "plans.feat.multiUsers": "Multi-usuarios",
+      "plans.feat.unlimitedSuppliers": "Proveedores ilimitados",
+      "plans.feat.notifications": "Notificaciones",
+      "plans.bestValue": "MEJOR VALOR",
       
       // Trial
       "trial.freeTrialStarter": "Prueba Starter gratuita",
@@ -2451,8 +2463,11 @@ var I18N = {
       "plans.feat.inventory": "Inventario",
       "plans.feat.forecast": "Previsioni IA",
       "plans.feat.kits": "Kit e Bundle",
-      "plans.feat.orders": "Ordini",
+      "plans.feat.orders": "Ordini (PO)",
       "plans.feat.multiUsers": "Multi-utenti",
+      "plans.feat.unlimitedSuppliers": "Fornitori illimitati",
+      "plans.feat.notifications": "Notifiche",
+      "plans.bestValue": "MIGLIOR VALORE",
       
       // Trial
       "trial.freeTrialStarter": "Prova Starter gratuita",
