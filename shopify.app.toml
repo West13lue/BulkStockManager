@@ -9,9 +9,14 @@ embedded = true
 automatically_update_urls_on_dev = true
 dev_store_url = "cbd-music-district.myshopify.com"
 
-[embedded]
-# Permissions iframe pour accéder à la caméra
-allow = ["camera", "microphone", "clipboard-write", "clipboard-read"]
+[access_scopes]
+scopes = "read_products,write_inventory,read_locations,read_orders"
+use_legacy_install_flow = false
+
+[auth]
+redirect_urls = [
+  "https://stock-cbd-manager-1.onrender.com/api/auth/callback"
+]
 
 [webhooks]
 api_version = "2025-10"
@@ -39,13 +44,3 @@ api_version = "2025-10"
   [[webhooks.subscriptions]]
   topics = [ "app_subscriptions/update" ]
   uri = "/webhooks/app_subscriptions/update"
-
-[access_scopes]
-scopes = "read_products,write_inventory,read_locations,read_orders"
-use_legacy_install_flow = false
-
-
-[auth]
-redirect_urls = [
-  "https://stock-cbd-manager-1.onrender.com/api/auth/callback"
-]

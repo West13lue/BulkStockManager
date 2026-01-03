@@ -11,8 +11,6 @@ const express = require("express");
 const path = require("path");
 const crypto = require("crypto");
 const fs = require("fs");
-const helmet = require("helmet");
-const rateLimit = require("express-rate-limit");
 
 // aÃ…â€œÃ¢â‚¬Â¦ OAuth token store (Render disk)
 const tokenStore = require("./utils/tokenStore");
@@ -154,26 +152,6 @@ const _oauthStateByShop = new Map();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-
-// ✅ Security: Helmet (headers de sécurité)
-app.use(helmet({
-  contentSecurityPolicy: false, // On gère CSP manuellement pour Shopify embedded
-  crossOriginEmbedderPolicy: false,
-  crossOriginOpenerPolicy: false
-}));
-
-// ✅ Security: Rate limiting
-const apiLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 200, // 200 requêtes par fenêtre
-  message: { error: "Trop de requêtes, réessayez dans quelques minutes" },
-  standardHeaders: true,
-  legacyHeaders: false,
-  skip: (req) => {
-    // Ne pas limiter les webhooks Shopify
-    return req.path.startsWith("/webhooks/");
-  }
-});
 
 const ROOT_DIR = __dirname;
 const PUBLIC_DIR = path.join(ROOT_DIR, "public");
@@ -624,6 +602,11 @@ router.use((req, res, next) => {
   const envShopName = String(process.env.SHOP_NAME || "").trim();
   const shopDomain = envShopName ? `https://${normalizeShopDomain(envShopName)}` : "*";
   res.setHeader("Content-Security-Policy", `frame-ancestors https://admin.shopify.com ${shopDomain};`);
+  
+  // Permissions-Policy pour autoriser la caméra dans l'iframe
+  // Ceci permet au navigateur de demander l'accès caméra même dans une iframe
+  res.setHeader("Permissions-Policy", "camera=*, microphone=*, clipboard-write=*, clipboard-read=*");
+  
   next();
 });
 
@@ -635,10 +618,7 @@ router.get("/api/public/config", (req, res) => {
   });
 });
 
-// ✅ Rate limiting sur toutes les routes /api/*
-router.use("/api", apiLimiter);
-
-// ✅ SECURE toutes les routes /api/*
+// aÃ…â€œÃ¢â‚¬Â¦ SECURE toutes les routes /api/*
 router.use("/api", requireApiAuth);
 
 // aÃ…â€œÃ¢â‚¬Â¦ DURCISSEMENT #1 (suite) : anti-spoof APRES auth
@@ -1768,15 +1748,11 @@ router.put("/api/settings/:section", (req, res) => {
     if (!settingsManager) return apiError(res, 500, "SettingsManager non disponible");
 
     const currentSettings = settingsManager.loadSettings(shop);
-    const section = String(req.params.section);
-    
-    // Permettre de modifier readOnlyMode même en mode lecture seule
-    const isDisablingReadOnly = section === "security" && req.body.readOnlyMode === false;
-    
-    if (currentSettings.security?.readOnlyMode && !isDisablingReadOnly) {
+    if (currentSettings.security?.readOnlyMode) {
       return res.status(403).json({ error: "readonly_mode", message: "Mode lecture seule active" });
     }
 
+    const section = String(req.params.section);
     try {
       const updated = settingsManager.updateSettings(shop, section, req.body);
       logEvent("settings_updated", { shop, section }, "info");
@@ -1894,140 +1870,7 @@ router.get("/api/settings/support-bundle", (req, res) => {
 });
 
 // =====================================================
-// USER PROFILES ROUTES
-// =====================================================
-
-let userProfileStore = null;
-try {
-  userProfileStore = require("./userProfileStore");
-  console.log("[Server] userProfileStore loaded");
-} catch (e) {
-  console.warn("[Server] userProfileStore not available");
-}
-
-const defaultProfile = { id: "admin", name: "Admin", role: "admin", color: "#6366f1", isDefault: true };
-
-router.get("/api/profiles", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!userProfileStore) return res.json({ profiles: [defaultProfile], activeProfileId: "admin", settings: {} });
-    const data = userProfileStore.loadProfiles(shop);
-    res.json({ profiles: data.profiles || [defaultProfile], activeProfileId: data.activeProfileId || "admin", settings: data.settings || {} });
-  });
-});
-
-router.post("/api/profiles", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!userProfileStore) return apiError(res, 503, "Module profils non disponible");
-    const { name, role, color } = req.body;
-    if (!name || !name.trim()) return apiError(res, 400, "Le nom est requis");
-    const profile = userProfileStore.createProfile(shop, { name: name.trim(), role, color });
-    res.json({ success: true, profile });
-  });
-});
-
-router.post("/api/profiles/:id/activate", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!userProfileStore) return res.json({ success: true, profile: defaultProfile });
-    const result = userProfileStore.setActiveProfile(shop, req.params.id);
-    if (!result.success) return apiError(res, 404, result.error || "Profil introuvable");
-    res.json({ success: true, profile: result.profile });
-  });
-});
-
-router.put("/api/profiles/:id", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!userProfileStore) return apiError(res, 503, "Module profils non disponible");
-    const profile = userProfileStore.updateProfile(shop, req.params.id, req.body);
-    if (!profile) return apiError(res, 404, "Profil introuvable");
-    res.json({ success: true, profile });
-  });
-});
-
-router.delete("/api/profiles/:id", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!userProfileStore) return apiError(res, 503, "Module profils non disponible");
-    const result = userProfileStore.deleteProfile(shop, req.params.id);
-    if (!result.success) return apiError(res, 400, result.error || "Impossible de supprimer");
-    res.json({ success: true });
-  });
-});
-
-// =====================================================
-// NOTIFICATIONS ROUTES
-// =====================================================
-
-let notificationStore = null;
-let alertChecker = null;
-try {
-  notificationStore = require("./notificationStore");
-  alertChecker = require("./alertChecker");
-  console.log("[Server] notificationStore & alertChecker loaded");
-} catch (e) {
-  console.warn("[Server] Notification modules not available");
-}
-
-router.get("/api/notifications", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!notificationStore) return res.json({ alerts: [], counts: {}, unreadCount: 0 });
-    const limit = parseInt(req.query.limit) || 50;
-    const alerts = notificationStore.getAlerts(shop, { limit });
-    const counts = notificationStore.getCountByPriority(shop);
-    res.json({ alerts, counts, unreadCount: counts.critical + counts.high + counts.normal });
-  });
-});
-
-router.get("/api/notifications/count", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!notificationStore) return res.json({ unreadCount: 0, critical: 0, high: 0, normal: 0 });
-    const counts = notificationStore.getCountByPriority(shop);
-    res.json({ unreadCount: notificationStore.getUnreadCount(shop), ...counts });
-  });
-});
-
-router.post("/api/notifications/check", async (req, res) => {
-  safeJson(req, res, async () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (!alertChecker) return res.json({ success: true, newAlerts: 0 });
-    const results = await alertChecker.checkAllAlerts(shop);
-    res.json({ success: true, ...results });
-  });
-});
-
-router.post("/api/notifications/:id/read", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (notificationStore) notificationStore.markAsRead(shop, req.params.id);
-    res.json({ success: true });
-  });
-});
-
-router.post("/api/notifications/:id/dismiss", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-    if (notificationStore) notificationStore.dismissAlert(shop, req.params.id);
-    res.json({ success: true });
-  });
-});
-
-// =====================================================
-// PLAN ROUTES – Billing Shopify (AppSubscription)
+// PLAN ROUTES aÃ…â€œÃ¢â‚¬Â¦ Billing Shopify (AppSubscription)
 // =====================================================
 
 // Helper: map planId -> billing config
