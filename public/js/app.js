@@ -1181,6 +1181,8 @@
             showOpenInNewTab = true;
           } else {
             errorMsg = t("scanner.permissionDenied", "Accès caméra refusé. Autorisez l'accès dans les paramètres.");
+            // Toujours proposer nouvel onglet au cas où
+            showOpenInNewTab = true;
           }
         } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
           errorMsg = t("scanner.noCameraFound", "Aucune caméra détectée sur cet appareil.");
@@ -1189,15 +1191,22 @@
         } else if (err.name === 'SecurityError') {
           errorMsg = t("scanner.securityError", "Accès caméra bloqué par les paramètres de sécurité.");
           showOpenInNewTab = true;
+        } else {
+          // Erreur inconnue - proposer nouvel onglet
+          showOpenInNewTab = true;
         }
         
-        var buttonsHtml = '<br><button class="btn btn-sm btn-secondary mt-sm" onclick="app.startCamera()">' + 
+        var buttonsHtml = '<br><div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:12px">' +
+          '<button class="btn btn-sm btn-secondary" onclick="app.startCamera()">' + 
           '<i data-lucide="refresh-cw"></i> ' + t("action.retry", "Réessayer") + '</button>';
         
         if (showOpenInNewTab) {
-          buttonsHtml += ' <button class="btn btn-sm btn-primary mt-sm" onclick="window.open(location.href, \'_blank\')">' + 
-            '<i data-lucide="external-link"></i> ' + t("scanner.openNewTab", "Ouvrir dans un nouvel onglet") + '</button>';
+          // Construire l'URL de l'app hors iframe
+          var appUrl = window.location.origin + window.location.pathname;
+          buttonsHtml += '<button class="btn btn-sm btn-primary" onclick="window.open(\'' + appUrl + '\', \'_blank\')">' + 
+            '<i data-lucide="external-link"></i> ' + t("scanner.openNewTab", "Nouvel onglet") + '</button>';
         }
+        buttonsHtml += '</div>';
         
         status.innerHTML = '<span class="text-danger"><i data-lucide="x-circle"></i> ' + errorMsg + '</span>' + buttonsHtml;
         if (typeof lucide !== "undefined") lucide.createIcons();
