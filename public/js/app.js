@@ -131,46 +131,24 @@
       console.warn("[AppBridge] apiKey introuvable");
       return false;
     }
-    
-    // Nouveau App Bridge CDN (shopify global)
-    if (typeof shopify !== "undefined" && shopify.idToken) {
-      console.log("[AppBridge] Nouveau CDN detecte");
-      appBridgeApp = { type: "new", apiKey: apiKey, host: host };
-      return true;
-    }
-    
-    // Fallback: Ancien App Bridge v3 (unpkg)
     var AB = window["app-bridge"];
-    if (AB && typeof AB.createApp === "function") {
-      appBridgeApp = AB.createApp({ apiKey: apiKey, host: host, forceRedirect: true });
-      appBridgeApp.type = "legacy";
-      console.log("[AppBridge] Legacy v3 OK");
-      return true;
+    if (!AB || typeof AB.createApp !== "function") {
+      console.warn("[AppBridge] non charge");
+      return false;
     }
-    
-    console.warn("[AppBridge] non charge");
-    return false;
+    appBridgeApp = AB.createApp({ apiKey: apiKey, host: host, forceRedirect: true });
+    console.log("[AppBridge] OK");
+    return true;
   }
 
   async function getSessionToken() {
     if (sessionToken) return sessionToken;
     if (!appBridgeApp) return null;
-    
+    var ABU = window["app-bridge-utils"];
+    if (!ABU || typeof ABU.getSessionToken !== "function") return null;
     try {
-      // Nouveau App Bridge CDN
-      if (typeof shopify !== "undefined" && shopify.idToken) {
-        sessionToken = await shopify.idToken();
-        return sessionToken;
-      }
-      
-      // Fallback: Ancien App Bridge v3
-      var ABU = window["app-bridge-utils"];
-      if (ABU && typeof ABU.getSessionToken === "function") {
-        sessionToken = await ABU.getSessionToken(appBridgeApp);
-        return sessionToken;
-      }
-      
-      return null;
+      sessionToken = await ABU.getSessionToken(appBridgeApp);
+      return sessionToken;
     } catch (e) {
       console.warn("[AppBridge] Erreur:", e);
       return null;
