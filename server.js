@@ -1695,11 +1695,42 @@ router.get("/api/auth/callback", (req, res) => {
     tokenStore.saveToken(shop, tokenJson.access_token, { scope: tokenJson.scope });
 
     res.type("html").send(`
-      <div style="font-family:system-ui;padding:24px">
-        <h2>aÃ…â€œÃ¢â‚¬Â¦ OAuth OK</h2>
-        <p>Token enregistre pour <b>${shop}</b>.</p>
-        <p>Tu peux fermer cette page et relancer l'app.</p>
-      </div>
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="UTF-8">
+        <title>OAuth Success</title>
+        <style>
+          body { font-family: system-ui, sans-serif; padding: 40px; text-align: center; background: #1a1a2e; color: #fff; }
+          .success { color: #10b981; font-size: 48px; margin-bottom: 16px; }
+          h2 { margin: 0 0 8px 0; }
+          p { color: #a0a0a0; margin: 8px 0; }
+          .shop { color: #6c5ce7; font-weight: bold; }
+        </style>
+      </head>
+      <body>
+        <div class="success">&#10003;</div>
+        <h2 id="title">Connection successful</h2>
+        <p><span id="tokenText">Token saved for</span> <span class="shop">${shop}</span></p>
+        <p id="closeText">This page will close automatically...</p>
+        <script>
+          var translations = {
+            en: { title: "Connection successful", tokenText: "Token saved for", closeText: "This page will close automatically..." },
+            fr: { title: "Connexion reussie", tokenText: "Token enregistre pour", closeText: "Cette page va se fermer automatiquement..." },
+            de: { title: "Verbindung erfolgreich", tokenText: "Token gespeichert fur", closeText: "Diese Seite wird automatisch geschlossen..." },
+            es: { title: "Conexion exitosa", tokenText: "Token guardado para", closeText: "Esta pagina se cerrara automaticamente..." },
+            it: { title: "Connessione riuscita", tokenText: "Token salvato per", closeText: "Questa pagina si chiudera automaticamente..." }
+          };
+          var lang = (navigator.language || "en").substring(0, 2);
+          var t = translations[lang] || translations.en;
+          document.getElementById("title").textContent = t.title;
+          document.getElementById("tokenText").textContent = t.tokenText;
+          document.getElementById("closeText").textContent = t.closeText;
+          if (window.opener) window.opener.location.reload();
+          setTimeout(function() { window.close(); }, 1500);
+        </script>
+      </body>
+      </html>
     `);
   });
 });
@@ -1970,12 +2001,32 @@ router.get("/api/billing/return", (req, res) => {
         interval: "lifetime",
       });
       return res.type("html").send(`
-        <div style="font-family:system-ui;padding:24px">
-          <h2>aÃ…â€œÃ¢â‚¬Â¦ Plan active (bypass)</h2>
-          <p>Boutique: <b>${shop}</b></p>
+        <!DOCTYPE html>
+        <html><head><meta charset="UTF-8"><title>Plan Active</title>
+        <style>body{font-family:system-ui;padding:40px;text-align:center;background:#1a1a2e;color:#fff}.success{color:#10b981;font-size:48px}h2{margin:16px 0 8px}p{color:#a0a0a0}.shop{color:#6c5ce7;font-weight:bold}</style>
+        </head><body>
+          <div class="success">&#10003;</div>
+          <h2 id="title">Plan activated (bypass)</h2>
+          <p><span id="shopText">Store</span>: <span class="shop">${shop}</span></p>
           <p>Plan: <b>${String(bypassPlan).toUpperCase()}</b></p>
-          <p>Tu peux fermer cette page.</p>
-        </div>
+          <p id="closeText">This page will close automatically...</p>
+          <script>
+            var translations = {
+              en: { title: "Plan activated (bypass)", shopText: "Store", closeText: "This page will close automatically..." },
+              fr: { title: "Plan active (bypass)", shopText: "Boutique", closeText: "Cette page va se fermer automatiquement..." },
+              de: { title: "Plan aktiviert (bypass)", shopText: "Shop", closeText: "Diese Seite wird automatisch geschlossen..." },
+              es: { title: "Plan activado (bypass)", shopText: "Tienda", closeText: "Esta pagina se cerrara automaticamente..." },
+              it: { title: "Piano attivato (bypass)", shopText: "Negozio", closeText: "Questa pagina si chiudera automaticamente..." }
+            };
+            var lang = (navigator.language || "en").substring(0, 2);
+            var t = translations[lang] || translations.en;
+            document.getElementById("title").textContent = t.title;
+            document.getElementById("shopText").textContent = t.shopText;
+            document.getElementById("closeText").textContent = t.closeText;
+            if(window.opener)window.opener.location.reload();
+            setTimeout(function(){window.close()},1500);
+          </script>
+        </body></html>
       `);
     }
 
@@ -1986,14 +2037,32 @@ router.get("/api/billing/return", (req, res) => {
     const chosen = Array.isArray(subs) && subs.length ? subs[0] : null;
 
     if (!chosen?.id) {
-      // Le marchand a peut-etre ferme avant de confirmer
       return res.type("html").send(`
-        <div style="font-family:system-ui;padding:24px">
-          <h2>aÃ…Â¡Ã‚Â iÃ‚Â¸Ã‚Â Abonnement non detecte</h2>
-          <p>Boutique: <b>${shop}</b></p>
-          <p>Aucun abonnement actif trouve cote Shopify.</p>
-          <p>Retourne dans laEURÃ¢â€žÂ¢app et relance laEURÃ¢â€žÂ¢upgrade.</p>
-        </div>
+        <!DOCTYPE html>
+        <html><head><meta charset="UTF-8"><title>Subscription not found</title>
+        <style>body{font-family:system-ui;padding:40px;text-align:center;background:#1a1a2e;color:#fff}.error{color:#ef4444;font-size:48px}h2{margin:16px 0 8px}p{color:#a0a0a0}.shop{color:#6c5ce7;font-weight:bold}</style>
+        </head><body>
+          <div class="error">&#10007;</div>
+          <h2 id="title">Subscription not found</h2>
+          <p><span id="shopText">Store</span>: <span class="shop">${shop}</span></p>
+          <p id="errorText">No active subscription found on Shopify.</p>
+          <p id="retryText">Return to the app and try again.</p>
+          <script>
+            var translations = {
+              en: { title: "Subscription not found", shopText: "Store", errorText: "No active subscription found on Shopify.", retryText: "Return to the app and try again." },
+              fr: { title: "Abonnement non detecte", shopText: "Boutique", errorText: "Aucun abonnement actif trouve cote Shopify.", retryText: "Retournez dans l'app et relancez l'upgrade." },
+              de: { title: "Abonnement nicht gefunden", shopText: "Shop", errorText: "Kein aktives Abonnement bei Shopify gefunden.", retryText: "Kehren Sie zur App zuruck und versuchen Sie es erneut." },
+              es: { title: "Suscripcion no encontrada", shopText: "Tienda", errorText: "No se encontro suscripcion activa en Shopify.", retryText: "Vuelva a la app e intente de nuevo." },
+              it: { title: "Abbonamento non trovato", shopText: "Negozio", errorText: "Nessun abbonamento attivo trovato su Shopify.", retryText: "Torna all'app e riprova." }
+            };
+            var lang = (navigator.language || "en").substring(0, 2);
+            var t = translations[lang] || translations.en;
+            document.getElementById("title").textContent = t.title;
+            document.getElementById("shopText").textContent = t.shopText;
+            document.getElementById("errorText").textContent = t.errorText;
+            document.getElementById("retryText").textContent = t.retryText;
+          </script>
+        </body></html>
       `);
     }
 
@@ -2009,18 +2078,39 @@ router.get("/api/billing/return", (req, res) => {
     logEvent("billing_confirmed", { shop, planId, subId: chosen.id, status: chosen.status }, "info");
 
     return res.type("html").send(`
-      <div style="font-family:system-ui;padding:24px">
-        <h2>aÃ…â€œÃ¢â‚¬Â¦ Abonnement active</h2>
-        <p>Boutique: <b>${shop}</b></p>
+      <!DOCTYPE html>
+      <html><head><meta charset="UTF-8"><title>Subscription activated</title>
+      <style>body{font-family:system-ui;padding:40px;text-align:center;background:#1a1a2e;color:#fff}.success{color:#10b981;font-size:48px}h2{margin:16px 0 8px}p{color:#a0a0a0}.shop{color:#6c5ce7;font-weight:bold}</style>
+      </head><body>
+        <div class="success">&#10003;</div>
+        <h2 id="title">Subscription activated</h2>
+        <p><span id="shopText">Store</span>: <span class="shop">${shop}</span></p>
         <p>Plan: <b>${planId.toUpperCase()}</b></p>
-        <p>Statut: <b>${String(chosen.status || "")}</b></p>
-        <p>Tu peux fermer cette page et retourner dans laEURÃ¢â€žÂ¢app.</p>
-      </div>
+        <p><span id="statusText">Status</span>: <b>${String(chosen.status || "")}</b></p>
+        <p id="closeText">This page will close automatically...</p>
+        <script>
+          var translations = {
+            en: { title: "Subscription activated", shopText: "Store", statusText: "Status", closeText: "This page will close automatically..." },
+            fr: { title: "Abonnement active", shopText: "Boutique", statusText: "Statut", closeText: "Cette page va se fermer automatiquement..." },
+            de: { title: "Abonnement aktiviert", shopText: "Shop", statusText: "Status", closeText: "Diese Seite wird automatisch geschlossen..." },
+            es: { title: "Suscripcion activada", shopText: "Tienda", statusText: "Estado", closeText: "Esta pagina se cerrara automaticamente..." },
+            it: { title: "Abbonamento attivato", shopText: "Negozio", statusText: "Stato", closeText: "Questa pagina si chiudera automaticamente..." }
+          };
+          var lang = (navigator.language || "en").substring(0, 2);
+          var t = translations[lang] || translations.en;
+          document.getElementById("title").textContent = t.title;
+          document.getElementById("shopText").textContent = t.shopText;
+          document.getElementById("statusText").textContent = t.statusText;
+          document.getElementById("closeText").textContent = t.closeText;
+          if(window.opener)window.opener.location.reload();
+          setTimeout(function(){window.close()},1500);
+        </script>
+      </body></html>
     `);
   });
 });
 
-// aÃ…â€œÃ¢â‚¬Â¦ Upgrade: cree un abonnement Shopify et renvoie confirmationUrl
+// Upgrade: cree un abonnement Shopify et renvoie confirmationUrl
 router.post("/api/plan/upgrade", (req, res) => {
   safeJson(req, res, async () => {
     const shop = getShop(req);
@@ -4453,23 +4543,9 @@ router.use((err, req, res, next) => {
   next(err);
 });
 
-// Pages légales (accessibles sans auth)
-router.get("/privacy", (req, res) => {
-  res.sendFile(path.join(ROOT_DIR, "privacy-policy.html"));
-});
-router.get("/privacy-policy", (req, res) => {
-  res.sendFile(path.join(ROOT_DIR, "privacy-policy.html"));
-});
-router.get("/terms", (req, res) => {
-  res.sendFile(path.join(ROOT_DIR, "terms-of-service.html"));
-});
-router.get("/terms-of-service", (req, res) => {
-  res.sendFile(path.join(ROOT_DIR, "terms-of-service.html"));
-});
-
 // Front SPA
 router.get("/", (req, res) => res.sendFile(INDEX_HTML));
-router.get(/^\/(?!api\/|webhooks\/|health|css\/|js\/|privacy|terms).*/, (req, res) => res.sendFile(INDEX_HTML));
+router.get(/^\/(?!api\/|webhooks\/|health|css\/|js\/).*/, (req, res) => res.sendFile(INDEX_HTML));
 
 // =====================================================
 // WEBHOOKS
