@@ -1205,6 +1205,11 @@ router.post("/api/products/:productId/adjust-total", (req, res) => {
     const productId = String(req.params.productId);
     const gramsDelta = Number(req.body?.gramsDelta);
     const purchasePricePerGram = Number(req.body?.purchasePricePerGram || 0);
+    
+    // Récupérer les infos du profil
+    const profileId = req.body?.profileId || null;
+    const profileName = req.body?.profileName || "User";
+    const profileColor = req.body?.profileColor || "#6366f1";
 
     if (!Number.isFinite(gramsDelta) || gramsDelta === 0) {
       return apiError(res, 400, "gramsDelta invalide (ex: 50 ou -50)");
@@ -1231,6 +1236,9 @@ router.post("/api/products/:productId/adjust-total", (req, res) => {
           gramsDelta,
           purchasePricePerGram: gramsDelta > 0 && purchasePricePerGram > 0 ? purchasePricePerGram : undefined,
           totalAfter: updated.totalGrams,
+          profileId,
+          profileName,
+          profileColor,
           shop,
         },
         shop

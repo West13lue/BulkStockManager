@@ -328,6 +328,9 @@
     
     // Initialiser les raccourcis clavier
     initKeyboardShortcuts();
+    
+    // Charger le profil actif pour afficher l'avatar
+    loadProfiles();
   }
 
   // Raccourcis clavier globaux
@@ -1299,7 +1302,7 @@
 
   async function loadDashboardMovements() {
     try {
-      var res = await authFetch(apiUrl("/movements?limit=10"));
+      var res = await authFetch(apiUrl("/movements?limit=20"));
       var container = document.getElementById("dashboardMovements");
       if (!container) return;
       
@@ -1317,7 +1320,8 @@
         return;
       }
       
-      var html = '<div class="movements-list">';
+      // Container scrollable limité à 5 éléments (~250px)
+      var html = '<div class="movements-list" style="max-height:250px;overflow-y:auto">';
       movements.forEach(function(m) {
         var mType = m.type || m.source || 'adjustment';
         var typeIcon = getMovementIcon(mType);
@@ -1352,7 +1356,7 @@
   // Activité récente avec profils
   async function loadDashboardActivity() {
     try {
-      var res = await authFetch(apiUrl("/movements?limit=15"));
+      var res = await authFetch(apiUrl("/movements?limit=20"));
       var container = document.getElementById("dashboardActivity");
       if (!container) return;
       
@@ -1370,7 +1374,8 @@
         return;
       }
       
-      var html = '<div class="activity-list">';
+      // Container scrollable limité à 5 éléments (~280px)
+      var html = '<div class="activity-list" style="max-height:280px;overflow-y:auto">';
       movements.forEach(function(m) {
         var mType = m.type || m.source || 'adjustment';
         var typeIcon = getMovementIcon(mType);
@@ -1379,7 +1384,7 @@
         var delta = m.delta || m.gramsDelta || 0;
         var deltaStr = delta >= 0 ? '+' + formatWeight(delta) : formatWeight(delta);
         var dateStr = formatRelativeDate(m.createdAt || m.date || m.ts);
-        var profileName = m.profileName || m.userName || t("dashboard.unknownUser", "Utilisateur");
+        var profileName = m.profileName || m.userName || 'User';
         var profileColor = m.profileColor || '#6366f1';
         var profileInitials = getInitials(profileName);
         
@@ -5294,10 +5299,18 @@
     var qtyInGrams = toGrams(qty);
     var delta = type === "remove" ? -Math.abs(qtyInGrams) : Math.abs(qtyInGrams);
     
+    // Ajouter le profil actif
+    var profileData = {};
+    if (activeProfile) {
+      profileData.profileId = activeProfile.id;
+      profileData.profileName = activeProfile.name;
+      profileData.profileColor = activeProfile.color;
+    }
+    
     try {
       var res = await authFetch(apiUrl("/products/" + encodeURIComponent(pid) + "/adjust-total"), {
         method: "POST",
-        body: JSON.stringify({ gramsDelta: delta }),
+        body: JSON.stringify({ gramsDelta: delta, ...profileData }),
       });
       if (res.ok) {
         showToast("Ajustement OK", "success");
