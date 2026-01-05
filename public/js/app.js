@@ -3781,9 +3781,9 @@
 
     c.innerHTML =
       '<div class="page-header"><div><h1 class="page-title"><i data-lucide="package"></i> ' + t("kits.title", "Kits & Bundles") + '</h1>' +
-      '<p class="page-subtitle">Packs, bundles et recettes</p></div>' +
+      '<p class="page-subtitle">' + t("kits.subtitle", "Packs, bundles et recettes") + '</p></div>' +
       '<div class="page-actions">' +
-      '<button class="btn btn-primary" onclick="app.showCreateKitModal()"><i data-lucide="plus"></i> Nouveau kit</button>' +
+      '<button class="btn btn-primary" onclick="app.showCreateKitModal()"><i data-lucide="plus"></i> ' + t("kits.newKit", "Nouveau kit") + '</button>' +
       '</div></div>' +
       '<div id="kitsKpis"><div class="text-center py-lg"><div class="spinner"></div></div></div>' +
       '<div id="kitsFilters"></div>' +
@@ -3857,9 +3857,9 @@
       container.innerHTML =
         '<div class="card"><div class="text-center py-xl">' +
         '<div class="empty-icon"><i data-lucide="package"></i></div>' +
-        '<h3>Aucun kit</h3>' +
-        '<p class="text-secondary">Creez votre premier kit ou bundle.</p>' +
-        '<button class="btn btn-primary mt-md" onclick="app.showCreateKitModal()">Nouveau kit</button>' +
+        '<h3>' + t("kits.noKits", "Aucun kit") + '</h3>' +
+        '<p class="text-secondary">' + t("kits.createFirst", "Creez votre premier kit ou bundle.") + '</p>' +
+        '<button class="btn btn-primary mt-md" onclick="app.showCreateKitModal()">' + t("kits.newKit", "Nouveau kit") + '</button>' +
         '</div></div>';
       if (typeof lucide !== "undefined") lucide.createIcons();
       return;

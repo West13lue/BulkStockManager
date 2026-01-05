@@ -1,5 +1,5 @@
-// settingsManager.js Ã¢â‚¬â€ Gestionnaire de parametres avance (multi-shop)
-// Ã¢Å“â€¦ International, compliance-friendly, app store ready
+// settingsManager.js ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Gestionnaire de parametres avance (multi-shop)
+// ÃƒÂ¢Ã…â€œÃ¢â‚¬Â¦ International, compliance-friendly, app store ready
 
 const fs = require("fs");
 const path = require("path");
@@ -162,7 +162,7 @@ const SETTING_OPTIONS = {
     { value: "fr", label: "Francais" },
     { value: "en", label: "English" },
     { value: "de", label: "Deutsch" },
-    { value: "es", label: "EspaÃƒÂ±ol" },
+    { value: "es", label: "Espanol" },
     { value: "it", label: "Italiano" },
   ],
   
@@ -187,11 +187,11 @@ const SETTING_OPTIONS = {
   currencies: [
     { value: "EUR", symbol: "EUR", label: "Euro" },
     { value: "USD", symbol: "$", label: "US Dollar" },
-    { value: "GBP", symbol: "Ã‚Â£", label: "British Pound" },
+    { value: "GBP", symbol: "Ãƒâ€šÃ‚Â£", label: "British Pound" },
     { value: "CAD", symbol: "CA$", label: "Canadian Dollar" },
     { value: "CHF", symbol: "CHF", label: "Swiss Franc" },
     { value: "AUD", symbol: "A$", label: "Australian Dollar" },
-    { value: "JPY", symbol: "Ã‚Â¥", label: "Japanese Yen" },
+    { value: "JPY", symbol: "Ãƒâ€šÃ‚Â¥", label: "Japanese Yen" },
   ],
   
   dateFormats: [
@@ -207,7 +207,7 @@ const SETTING_OPTIONS = {
   ],
   
   syncModes: [
-    { value: "realtime", label: "Temps reel", description: "Sync ÃƒÂ  chaque changement" },
+    { value: "realtime", label: "Temps reel", description: "Sync ÃƒÆ’Ã‚Â  chaque changement" },
     { value: "hourly", label: "Toutes les heures" },
     { value: "daily", label: "Une fois par jour" },
     { value: "manual", label: "Manuel uniquement" },
@@ -283,7 +283,7 @@ function loadSettings(shop) {
   // Merger avec les defaults pour avoir toutes les cles
   const settings = deepMerge(deepClone(DEFAULT_SETTINGS), saved);
   
-  // Mettre ÃƒÂ  jour les metadonnees
+  // Mettre ÃƒÆ’Ã‚Â  jour les metadonnees
   if (!settings._meta.createdAt) {
     settings._meta.createdAt = new Date().toISOString();
   }
@@ -297,7 +297,7 @@ function loadSettings(shop) {
 function saveSettings(shop, settings) {
   const file = settingsFile(shop);
   
-  // Mettre ÃƒÂ  jour les metadonnees
+  // Mettre ÃƒÆ’Ã‚Â  jour les metadonnees
   settings._meta = settings._meta || {};
   settings._meta.updatedAt = new Date().toISOString();
   settings._meta.version = DEFAULT_SETTINGS._meta.version;
@@ -310,7 +310,7 @@ function saveSettings(shop, settings) {
 }
 
 /**
- * Met ÃƒÂ  jour une section de parametres
+ * Met ÃƒÆ’Ã‚Â  jour une section de parametres
  */
 function updateSettings(shop, section, values) {
   const settings = loadSettings(shop);
@@ -324,7 +324,7 @@ function updateSettings(shop, section, values) {
 }
 
 /**
- * Met ÃƒÂ  jour un parametre unique
+ * Met ÃƒÆ’Ã‚Â  jour un parametre unique
  */
 function setSetting(shop, path, value) {
   const settings = loadSettings(shop);
@@ -627,7 +627,7 @@ function generateSupportBundle(shop, options = {}) {
       memory: process.memoryUsage(),
     },
     
-    // Etat des webhooks (ÃƒÂ  implementer avec les vrais statuts)
+    // Etat des webhooks (ÃƒÆ’Ã‚Â  implementer avec les vrais statuts)
     webhooks: {
       ordersCreate: { status: "unknown", lastReceived: null },
       ordersUpdate: { status: "unknown", lastReceived: null },

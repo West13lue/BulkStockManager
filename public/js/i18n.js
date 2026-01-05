@@ -447,6 +447,8 @@ var I18N = {
       "kits.subtitle": "Packs, bundles et recettes",
       "kits.lockedDesc": "Creez des packs, bundles et recettes.",
       "kits.newKit": "Nouveau kit",
+      "kits.noKits": "Aucun kit",
+      "kits.createFirst": "Creez votre premier kit ou bundle.",
       "kits.created": "Kit cree",
       "kits.addComponent": "Ajouter un composant",
       "kits.componentAdded": "Composant ajoute",
@@ -1247,6 +1249,8 @@ var I18N = {
       "kits.subtitle": "Packs, bundles and recipes",
       "kits.lockedDesc": "Create packs, bundles and recipes.",
       "kits.newKit": "New kit",
+      "kits.noKits": "No kits",
+      "kits.createFirst": "Create your first kit or bundle.",
       "kits.created": "Kit created",
       "kits.addComponent": "Add component",
       "kits.componentAdded": "Component added",
@@ -1722,7 +1726,22 @@ var I18N = {
       "msg.nameRequired": "Name erforderlich",
       "msg.noProducts": "Keine Produkte anzuzeigen.",
       "msg.noEvents": "Keine Ereignisse.",
-      "msg.selectProduct": "WÃ¤hlen Sie ein Produkt",
+      "msg.selectProduct": "Wahlen Sie ein Produkt",
+      "msg.noItems": "Keine Elemente",
+      "msg.syncing": "Sync...",
+      
+      // Forms
+      "form.select": "-- Auswahlen --",
+      
+      // Sync
+      "sync.starting": "Synchronisierung lauft...",
+      "sync.success": "Synchronisierung abgeschlossen",
+      "sync.error": "Synchronisierungsfehler",
+      
+      // Tutorial
+      "tutorial.quickGuide": "Kurzanleitung",
+      "tutorial.viewGuide": "Anleitung anzeigen",
+      "tutorial.understood": "Verstanden!",
       
       // Reasons
       "reason.count": "InventurzÃ¤hlung",
@@ -1832,9 +1851,11 @@ var I18N = {
       "kits.title": "Kits & Bundles",
       "kits.subtitle": "Pakete, Bundles und Rezepte",
       "kits.newKit": "Neues Kit",
+      "kits.noKits": "Keine Kits",
+      "kits.createFirst": "Erstellen Sie Ihr erstes Kit oder Bundle.",
       "kits.created": "Kit erstellt",
-      "kits.deleted": "Kit gelÃ¶scht",
-      "kits.confirmDelete": "Dieses Kit lÃ¶schen?",
+      "kits.deleted": "Kit geloscht",
+      "kits.confirmDelete": "Dieses Kit loschen?",
       "kits.totalKits": "Gesamte Kits",
       "kits.active": "Aktiv",
       "kits.sold": "Verkauft",
@@ -2056,6 +2077,21 @@ var I18N = {
       "msg.nameRequired": "Nombre requerido",
       "msg.noProducts": "No hay productos que mostrar.",
       "msg.noEvents": "Sin eventos.",
+      "msg.noItems": "Sin elementos",
+      "msg.syncing": "Sincronizando...",
+      
+      // Forms
+      "form.select": "-- Seleccionar --",
+      
+      // Sync
+      "sync.starting": "Sincronizacion en curso...",
+      "sync.success": "Sincronizacion completada",
+      "sync.error": "Error de sincronizacion",
+      
+      // Tutorial
+      "tutorial.quickGuide": "Guia rapida",
+      "tutorial.viewGuide": "Ver guia",
+      "tutorial.understood": "Entendido!",
       
       // Settings
       "settings.title": "Configuracion",
@@ -2139,8 +2175,16 @@ var I18N = {
       
       // Kits
       "kits.title": "Kits y Paquetes",
+      "kits.subtitle": "Paquetes, bundles y recetas",
       "kits.newKit": "Nuevo kit",
+      "kits.noKits": "Sin kits",
+      "kits.createFirst": "Cree su primer kit o bundle.",
       "kits.created": "Kit creado",
+      "kits.allStatuses": "Todos los estados",
+      "kits.allTypes": "Todos los tipos",
+      "kits.statusActive": "Activo",
+      "kits.statusDraft": "Borrador",
+      "kits.recipe": "Receta",
       
       // Forecast
       "forecast.title": "Previsiones",
@@ -2485,6 +2529,21 @@ var I18N = {
       "msg.noProducts": "Nessun prodotto da mostrare.",
       "msg.noEvents": "Nessun evento.",
       "msg.selectProduct": "Seleziona un prodotto",
+      "msg.noItems": "Nessun elemento",
+      "msg.syncing": "Sincronizzazione...",
+      
+      // Forms
+      "form.select": "-- Seleziona --",
+      
+      // Sync
+      "sync.starting": "Sincronizzazione in corso...",
+      "sync.success": "Sincronizzazione completata",
+      "sync.error": "Errore di sincronizzazione",
+      
+      // Tutorial
+      "tutorial.quickGuide": "Guida rapida",
+      "tutorial.viewGuide": "Vedi guida",
+      "tutorial.understood": "Capito!",
       
       // Settings
       "settings.title": "Impostazioni",
@@ -2584,6 +2643,8 @@ var I18N = {
       "kits.title": "Kit e Bundle",
       "kits.subtitle": "Pacchetti, bundle e ricette",
       "kits.newKit": "Nuovo kit",
+      "kits.noKits": "Nessun kit",
+      "kits.createFirst": "Crea il tuo primo kit o bundle.",
       "kits.created": "Kit creato",
       "kits.deleted": "Kit eliminato",
       "kits.confirmDelete": "Eliminare questo kit?",
