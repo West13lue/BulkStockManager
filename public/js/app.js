@@ -122,61 +122,79 @@
 
   async function initAppBridge() {
     var host = getHostFromUrl();
+    
+    // App Bridge v4 - shopify global est auto-initialisé par le CDN
+    if (typeof shopify !== "undefined") {
+      appBridgeApp = shopify;
+      console.log("[AppBridge v4] OK - shopify global disponible");
+      
+      // Attendre que App Bridge soit prêt
+      try {
+        if (typeof shopify.ready === "function") {
+          await shopify.ready();
+          console.log("[AppBridge v4] Ready");
+        }
+      } catch (e) {
+        console.warn("[AppBridge v4] ready() error:", e);
+      }
+      
+      return true;
+    }
+    
+    // Si shopify global n'existe pas, on est peut-être en dehors de l'admin Shopify
+    console.warn("[AppBridge] shopify global non disponible - app non embedded?");
+    
+    // Fallback : essayer App Bridge v3 si chargé
     if (!host) {
       console.warn("[AppBridge] host manquant");
       return false;
     }
+    
     var apiKey = await loadPublicConfig();
     if (!apiKey) {
       console.warn("[AppBridge] apiKey introuvable");
       return false;
     }
     
-    // App Bridge v4 - utilise shopify global
-    if (typeof shopify !== "undefined") {
-      appBridgeApp = shopify;
-      console.log("[AppBridge v4] OK - using shopify global");
-      return true;
-    }
-    
-    // Fallback App Bridge v3
     var AB = window["app-bridge"];
     if (AB && typeof AB.createApp === "function") {
       appBridgeApp = AB.createApp({ apiKey: apiKey, host: host, forceRedirect: true });
-      console.log("[AppBridge v3] OK");
+      console.log("[AppBridge v3 fallback] OK");
       return true;
     }
     
-    console.warn("[AppBridge] non charge");
+    console.warn("[AppBridge] Aucune methode disponible");
     return false;
   }
 
   async function getSessionToken() {
-    if (sessionToken) return sessionToken;
+    // Ne pas cacher le token trop longtemps - App Bridge v4 gère le refresh
     
     // App Bridge v4 - utilise shopify.idToken()
     if (typeof shopify !== "undefined" && typeof shopify.idToken === "function") {
       try {
-        sessionToken = await shopify.idToken();
-        console.log("[AppBridge v4] Token obtenu");
-        return sessionToken;
+        var token = await shopify.idToken();
+        console.log("[AppBridge v4] Token obtenu:", token ? token.substring(0, 20) + "..." : "null");
+        return token;
       } catch (e) {
         console.warn("[AppBridge v4] Erreur idToken:", e);
       }
     }
     
     // Fallback App Bridge v3
-    if (!appBridgeApp) return null;
-    var ABU = window["app-bridge-utils"];
-    if (ABU && typeof ABU.getSessionToken === "function") {
-      try {
-        sessionToken = await ABU.getSessionToken(appBridgeApp);
-        return sessionToken;
-      } catch (e) {
-        console.warn("[AppBridge v3] Erreur:", e);
+    if (appBridgeApp && window["app-bridge-utils"]) {
+      var ABU = window["app-bridge-utils"];
+      if (typeof ABU.getSessionToken === "function") {
+        try {
+          var token = await ABU.getSessionToken(appBridgeApp);
+          return token;
+        } catch (e) {
+          console.warn("[AppBridge v3] Erreur getSessionToken:", e);
+        }
       }
     }
     
+    console.warn("[AppBridge] Aucun token disponible");
     return null;
   }
 
@@ -305,58 +323,55 @@
   }
 
   async function init() {
-    console.log("[Init] Stock Manager Pro");
+    console.log("[Init] Stock Manager Pro - App Bridge v4");
 
     var host = getHostFromUrl();
+    var isEmbedded = window.top !== window.self;
+    
+    console.log("[Init] Embedded:", isEmbedded, "| Host:", host ? "present" : "missing", "| Shop:", CURRENT_SHOP || "none");
 
-    // 1) If not embedded, force OAuth
-    if (window.top === window.self) {
-      if (CURRENT_SHOP) {
-        window.location.href = "/api/auth/start?shop=" + encodeURIComponent(CURRENT_SHOP);
-        return;
-      }
+    // 1) Si pas embedded et pas de shop, afficher erreur
+    if (!isEmbedded && !CURRENT_SHOP) {
       document.body.innerHTML =
-        '<div style="padding:40px"><h2>Application Shopify</h2><p>Parametre shop manquant.</p></div>';
+        '<div style="padding:40px;text-align:center;font-family:Inter,sans-serif"><h2>Application Shopify</h2><p>Cette application doit etre ouverte depuis l\'admin Shopify.</p></div>';
+      return;
+    }
+    
+    // 2) Si pas embedded mais shop present, rediriger vers OAuth
+    if (!isEmbedded && CURRENT_SHOP) {
+      console.log("[Init] Not embedded, redirecting to OAuth...");
+      window.location.href = "/api/auth/start?shop=" + encodeURIComponent(CURRENT_SHOP);
       return;
     }
 
-    // 2) embedded but host missing Ã¢â€ â€™ OAuth
-    if (!host && CURRENT_SHOP) {
-      window.top.location.href = "/api/auth/start?shop=" + encodeURIComponent(CURRENT_SHOP);
-      return;
-    }
-
-    // 3) shop missing
-    if (!CURRENT_SHOP) {
-      document.body.innerHTML =
-        '<div style="padding:40px"><h2>Application Shopify</h2><p>Parametre shop manquant.</p></div>';
-      return;
-    }
-
+    // 3) Embedded - initialiser App Bridge v4
     var ready = await initAppBridge();
     if (!ready) {
-      console.warn("[Init] AppBridge fail");
+      console.warn("[Init] AppBridge init returned false, trying to continue...");
+    }
+
+    // 4) Verifier la session
+    var okSession = await ensureSessionOrRedirect();
+    if (!okSession) {
+      console.warn("[Init] Session check failed");
       return;
     }
 
-    var okSession = await ensureSessionOrRedirect();
-    if (!okSession) return;
-
+    console.log("[Init] Session OK, loading app...");
+    
     setupNavigation();
     await ensureOAuthInstalled();
     await loadPlanInfo();
-    await loadSettingsDataSilent();  // Charger les settings pour getStatus
+    await loadSettingsDataSilent();
     await loadProducts();
     renderTab("dashboard");
     updateUI();
-    console.log("[Init] Ready - Plan:", state.planId, "Features:", state.limits);
+    console.log("[Init] Ready - Plan:", state.planId);
     
-    // Initialiser les raccourcis clavier
     initKeyboardShortcuts();
-    
-    // Charger le profil actif pour afficher l'avatar
     loadProfiles();
   }
+
 
   // Raccourcis clavier globaux
   function initKeyboardShortcuts() {
