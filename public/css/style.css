@@ -303,6 +303,11 @@ input, select, textarea {
   color: white;
 }
 
+.nav-badge.starter {
+  background: var(--plan-starter);
+  color: white;
+}
+
 .nav-badge.business {
   background: var(--plan-business);
   color: black;
@@ -4473,4 +4478,96 @@ html, body {
     width: 100%;
     justify-content: center;
   }
+}
+/* ============================================
+   COLOR PICKER (Profiles)
+   ============================================ */
+
+.color-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.color-option {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  cursor: pointer;
+  border: 3px solid transparent;
+  transition: all 0.2s ease;
+}
+
+.color-option:hover {
+  transform: scale(1.1);
+}
+
+.color-option.selected {
+  border-color: white;
+  box-shadow: 0 0 0 2px var(--text-primary);
+}
+
+/* ============================================
+   PROFILES LIST
+   ============================================ */
+
+.profiles-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.profile-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  background: var(--surface);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.profile-item:hover {
+  background: var(--surface-hover);
+}
+
+.profile-item.active {
+  background: rgba(99, 102, 241, 0.15);
+  border: 1px solid var(--accent-primary);
+}
+
+.profile-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-weight: 600;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.profile-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.profile-name {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.profile-role {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.profile-actions {
+  display: flex;
+  gap: 4px;
 }

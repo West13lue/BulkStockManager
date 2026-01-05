@@ -135,6 +135,14 @@ try {
   console.warn("ForecastManager non disponible:", e.message);
 }
 
+// --- User Profile Store (Profils utilisateurs)
+let userProfileStore = null;
+try {
+  userProfileStore = require("./userProfileStore");
+} catch (e) {
+  console.warn("UserProfileStore non disponible:", e.message);
+}
+
 
 // aÃ…â€œÃ¢â‚¬Â¦ OAuth config
 const SHOPIFY_API_KEY = String(process.env.SHOPIFY_API_KEY || "").trim();
@@ -1893,6 +1901,113 @@ router.get("/api/settings/support-bundle", (req, res) => {
     res.setHeader("Content-Type", "application/json");
     res.setHeader("Content-Disposition", `attachment; filename="support-bundle.json"`);
     res.json(bundle);
+  });
+});
+
+// =====================================================
+// USER PROFILES ROUTES
+// =====================================================
+
+// Liste des profils
+router.get("/api/profiles", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    if (!userProfileStore) return apiError(res, 500, "UserProfileStore non disponible");
+
+    const data = userProfileStore.loadProfiles(shop);
+    res.json({
+      profiles: data.profiles || [],
+      activeProfileId: data.activeProfileId,
+      settings: data.settings || {}
+    });
+  });
+});
+
+// Profil actif
+router.get("/api/profiles/active", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    if (!userProfileStore) return apiError(res, 500, "UserProfileStore non disponible");
+
+    const profile = userProfileStore.getActiveProfile(shop);
+    res.json({ profile });
+  });
+});
+
+// Créer un profil
+router.post("/api/profiles", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    if (!userProfileStore) return apiError(res, 500, "UserProfileStore non disponible");
+
+    const { name, role, color } = req.body || {};
+    if (!name) return apiError(res, 400, "Nom requis");
+
+    const profile = userProfileStore.createProfile(shop, { name, role, color });
+    res.json({ success: true, profile });
+  });
+});
+
+// Mettre à jour un profil
+router.put("/api/profiles/:id", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    if (!userProfileStore) return apiError(res, 500, "UserProfileStore non disponible");
+
+    const { id } = req.params;
+    const updates = req.body || {};
+
+    const profile = userProfileStore.updateProfile(shop, id, updates);
+    if (!profile) return apiError(res, 404, "Profil non trouve");
+
+    res.json({ success: true, profile });
+  });
+});
+
+// Supprimer un profil
+router.delete("/api/profiles/:id", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    if (!userProfileStore) return apiError(res, 500, "UserProfileStore non disponible");
+
+    const { id } = req.params;
+    const result = userProfileStore.deleteProfile(shop, id);
+
+    if (!result.success) return apiError(res, 400, result.error || "Impossible de supprimer");
+    res.json({ success: true });
+  });
+});
+
+// Changer le profil actif
+router.post("/api/profiles/:id/activate", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    if (!userProfileStore) return apiError(res, 500, "UserProfileStore non disponible");
+
+    const { id } = req.params;
+    const result = userProfileStore.setActiveProfile(shop, id);
+
+    if (!result.success) return apiError(res, 404, result.error || "Profil non trouve");
+    res.json({ success: true, profile: result.profile });
+  });
+});
+
+// Mettre à jour les paramètres des profils
+router.put("/api/profiles/settings", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    if (!userProfileStore) return apiError(res, 500, "UserProfileStore non disponible");
+
+    const settings = req.body || {};
+    const updated = userProfileStore.updateSettings(shop, settings);
+    res.json({ success: true, settings: updated });
   });
 });
 
