@@ -3104,24 +3104,44 @@ router.post("/api/sync/shopify", async (req, res) => {
       
       let imported = 0;
       let updated = 0;
+      let skipped = 0;
       
       for (const shopifyProduct of products) {
         const productId = shopifyProduct.id.toString();
         const existingProduct = stock.getProductSnapshot(shop, productId);
         
         // Préparer les variantes au format attendu par stockManager
+        // IMPORTANT: normalizeVariants exige inventoryItemId ET gramsPerUnit > 0
         const variantsObj = {};
+        let hasValidVariant = false;
+        
         if (shopifyProduct.variants && shopifyProduct.variants.length > 0) {
           shopifyProduct.variants.forEach(v => {
-            variantsObj[v.id.toString()] = {
-              variantId: v.id.toString(),
-              title: v.title || "Default",
-              sku: v.sku || "",
-              barcode: v.barcode || "",
-              gramsPerUnit: parseFloat(v.grams) || 1,
-              price: parseFloat(v.price) || 0
-            };
+            // inventory_item_id est fourni par Shopify API
+            const inventoryItemId = v.inventory_item_id || v.inventoryItemId || 0;
+            // grams est le poids en grammes de Shopify, sinon on met 1 par défaut
+            const gramsPerUnit = parseFloat(v.grams) || 1;
+            
+            if (inventoryItemId && gramsPerUnit > 0) {
+              // Utiliser le titre de la variante comme clé (ex: "1.5", "3", "5g")
+              const label = v.title || v.id.toString();
+              variantsObj[label] = {
+                variantId: v.id.toString(),
+                inventoryItemId: inventoryItemId,
+                gramsPerUnit: gramsPerUnit,
+                sku: v.sku || "",
+                barcode: v.barcode || "",
+                price: parseFloat(v.price) || 0
+              };
+              hasValidVariant = true;
+            }
           });
+        }
+        
+        // Si aucune variante valide, on skip ce produit
+        if (!hasValidVariant) {
+          skipped++;
+          continue;
         }
         
         // Utiliser upsertImportedProductConfig qui existe dans stockManager
@@ -3133,23 +3153,35 @@ router.post("/api/sync/shopify", async (req, res) => {
           categoryIds: existingProduct ? existingProduct.categoryIds : []
         };
         
-        stock.upsertImportedProductConfig(shop, productData);
-        
-        if (!existingProduct) {
-          imported++;
-        } else {
-          updated++;
+        try {
+          stock.upsertImportedProductConfig(shop, productData);
+          
+          if (!existingProduct) {
+            imported++;
+          } else {
+            updated++;
+          }
+        } catch (productError) {
+          // Log l'erreur mais continue avec les autres produits
+          logEvent("sync_product_error", { 
+            shop, 
+            productId, 
+            productName: shopifyProduct.title,
+            error: productError.message 
+          }, "warn");
+          skipped++;
         }
       }
 
-      logEvent("sync_shopify", { shop, imported, updated });
+      logEvent("sync_shopify", { shop, imported, updated, skipped });
       
       res.json({
         success: true,
         imported,
         updated,
+        skipped,
         total: products.length,
-        message: `Sync terminé: ${imported} importés, ${updated} mis à jour`
+        message: `Sync terminé: ${imported} importés, ${updated} mis à jour, ${skipped} ignorés`
       });
 
     } catch (e) {
