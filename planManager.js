@@ -656,6 +656,7 @@ function checkLimit(shop, action, context = {}) {
     manage_reports: ["hasReports", "Rapports auto", "business"],
     multi_store: ["hasMultiStore", "Multi-boutiques", "enterprise"],
     use_api: ["hasApi", "Acces API", "enterprise"],
+    view_notifications: ["hasNotifications", "Notifications", "pro"],
     manage_notifications: ["hasNotifications", "Notifications", "pro"],
     manage_freebies: ["hasFreebies", "Freebies", "pro"],
     advanced_export: ["hasAdvancedExports", "Exports avances", "starter"],

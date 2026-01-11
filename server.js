@@ -143,6 +143,16 @@ try {
   console.warn("UserProfileStore non disponible:", e.message);
 }
 
+// ✅ Notifications & Alertes
+let notificationStore = null;
+let alertChecker = null;
+try {
+  notificationStore = require("./notificationStore");
+  alertChecker = require("./alertChecker");
+} catch (e) {
+  console.warn("NotificationStore/AlertChecker non disponible:", e.message);
+}
+
 
 // ✅ OAuth config
 const SHOPIFY_API_KEY = String(process.env.SHOPIFY_API_KEY || "").trim();
@@ -3071,6 +3081,210 @@ router.get("/api/analytics/sales", async (req, res) => {
     logEvent("analytics_sales_error", { error: e.message }, "error");
     return apiError(res, 500, "Erreur: " + e.message);
   }
+});
+
+// ============================================
+// SYNC SHOPIFY API
+// ============================================
+
+// Sync produits depuis Shopify
+router.post("/api/sync/shopify", async (req, res) => {
+  safeJson(req, res, async () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+
+    try {
+      const client = getShopifyClient(shop);
+      if (!client) {
+        return apiError(res, 400, "Client Shopify non configuré");
+      }
+
+      // Récupérer les produits Shopify
+      const products = await client.product.list({ limit: 250 });
+      
+      let imported = 0;
+      let updated = 0;
+      
+      for (const shopifyProduct of products) {
+        const existingProduct = stock.getProductById(shop, shopifyProduct.id.toString());
+        
+        if (!existingProduct) {
+          // Créer le produit
+          const newProduct = {
+            productId: shopifyProduct.id.toString(),
+            name: shopifyProduct.title,
+            sku: shopifyProduct.variants?.[0]?.sku || "",
+            barcode: shopifyProduct.variants?.[0]?.barcode || "",
+            shopifyId: shopifyProduct.id.toString(),
+            vendor: shopifyProduct.vendor || "",
+            productType: shopifyProduct.product_type || "",
+            totalGrams: 0,
+            averageCostPerGram: 0,
+            variants: shopifyProduct.variants?.map(v => ({
+              variantId: v.id.toString(),
+              title: v.title,
+              sku: v.sku,
+              barcode: v.barcode,
+              gramsPerUnit: parseFloat(v.grams) || 0,
+              price: parseFloat(v.price) || 0
+            })) || [],
+            createdAt: new Date().toISOString(),
+            source: "shopify_sync"
+          };
+          
+          stock.upsertProduct(shop, newProduct);
+          imported++;
+        } else {
+          // Mettre à jour les infos de base
+          existingProduct.name = shopifyProduct.title;
+          existingProduct.vendor = shopifyProduct.vendor || existingProduct.vendor;
+          existingProduct.productType = shopifyProduct.product_type || existingProduct.productType;
+          stock.upsertProduct(shop, existingProduct);
+          updated++;
+        }
+      }
+
+      logEvent("sync_shopify", { shop, imported, updated });
+      
+      res.json({
+        success: true,
+        imported,
+        updated,
+        total: products.length,
+        message: `Sync terminé: ${imported} importés, ${updated} mis à jour`
+      });
+
+    } catch (e) {
+      logEvent("sync_shopify_error", { shop, error: e.message }, "error");
+      return apiError(res, 500, "Erreur sync Shopify: " + e.message);
+    }
+  });
+});
+
+// ============================================
+// NOTIFICATIONS API
+// ============================================
+
+// Liste des notifications/alertes
+router.get("/api/notifications", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+
+    // Vérifier le plan
+    if (planManager) {
+      const check = planManager.checkLimit(shop, "view_notifications");
+      if (!check.allowed) {
+        return res.status(403).json({ error: "plan_limit", message: check.reason, upgrade: check.upgrade });
+      }
+    }
+
+    if (!notificationStore) {
+      return res.json({ notifications: [], unreadCount: 0 });
+    }
+
+    const limit = parseInt(req.query.limit) || 20;
+    const data = notificationStore.loadNotifications(shop);
+    const alerts = data.alerts || [];
+    
+    // Trier par date décroissante
+    alerts.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    
+    const unreadCount = alerts.filter(a => !a.read && !a.dismissed).length;
+    
+    res.json({
+      notifications: alerts.slice(0, limit),
+      unreadCount,
+      total: alerts.length,
+      settings: data.settings,
+      lastCheck: data.lastCheck
+    });
+  });
+});
+
+// Vérifier/générer les alertes
+router.post("/api/notifications/check", async (req, res) => {
+  safeJson(req, res, async () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+
+    if (!alertChecker) {
+      return res.json({ newAlerts: 0, resolvedAlerts: 0, message: "AlertChecker non disponible" });
+    }
+
+    try {
+      const results = await alertChecker.checkAllAlerts(shop);
+      res.json(results);
+    } catch (e) {
+      logEvent("notifications_check_error", { shop, error: e.message }, "error");
+      return apiError(res, 500, "Erreur vérification alertes: " + e.message);
+    }
+  });
+});
+
+// Marquer une notification comme lue
+router.put("/api/notifications/:id/read", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+
+    if (!notificationStore) {
+      return apiError(res, 500, "NotificationStore non disponible");
+    }
+
+    const alertId = req.params.id;
+    notificationStore.markAsRead(shop, alertId);
+    
+    res.json({ success: true });
+  });
+});
+
+// Ignorer/dismiss une notification
+router.put("/api/notifications/:id/dismiss", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+
+    if (!notificationStore) {
+      return apiError(res, 500, "NotificationStore non disponible");
+    }
+
+    const alertId = req.params.id;
+    notificationStore.dismissAlert(shop, alertId);
+    
+    res.json({ success: true });
+  });
+});
+
+// Paramètres des notifications
+router.get("/api/notifications/settings", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+
+    if (!notificationStore) {
+      return res.json({ settings: {} });
+    }
+
+    const data = notificationStore.loadNotifications(shop);
+    res.json({ settings: data.settings || {} });
+  });
+});
+
+router.put("/api/notifications/settings", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+
+    if (!notificationStore) {
+      return apiError(res, 500, "NotificationStore non disponible");
+    }
+
+    const newSettings = req.body;
+    notificationStore.updateSettings(shop, newSettings);
+    
+    res.json({ success: true });
+  });
 });
 
 // ============================================

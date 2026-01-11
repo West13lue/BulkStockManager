@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" fill="none">
+  <!-- Package/Box icon pour stock management -->
+  <path d="M8 1L14 4V12L8 15L2 12V4L8 1Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" fill="none"/>
+  <path d="M8 1V15" stroke="currentColor" stroke-width="1.5"/>
+  <path d="M2 4L8 7L14 4" stroke="currentColor" stroke-width="1.5"/>
+</svg>

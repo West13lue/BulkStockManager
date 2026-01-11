@@ -134,6 +134,10 @@
           await shopify.ready();
           console.log("[AppBridge v4] Ready");
         }
+        
+        // ✅ Configurer le menu de navigation App Bridge
+        setupAppBridgeNavigation();
+        
       } catch (e) {
         console.warn("[AppBridge v4] ready() error:", e);
       }
@@ -165,6 +169,55 @@
     
     console.warn("[AppBridge] Aucune methode disponible");
     return false;
+  }
+
+  // ✅ Configuration du menu de navigation App Bridge (Shopify Admin)
+  function setupAppBridgeNavigation() {
+    if (typeof shopify === "undefined") {
+      console.warn("[AppBridge Nav] shopify global non disponible");
+      return;
+    }
+    
+    try {
+      // Menu de navigation principal dans l'admin Shopify
+      // Documentation: https://shopify.dev/docs/api/app-bridge-library/apis/navigation-menu
+      
+      var navItems = [
+        {
+          label: t("nav.dashboard", "Dashboard"),
+          destination: "/",
+        },
+        {
+          label: t("nav.products", "Produits"),
+          destination: "/?tab=products",
+        },
+        {
+          label: t("nav.analytics", "Analytics"),
+          destination: "/?tab=analytics",
+        },
+        {
+          label: t("nav.settings", "Paramètres"),
+          destination: "/?tab=settings",
+        }
+      ];
+      
+      // App Bridge v4 - NavigationMenu API
+      if (typeof shopify.navigationMenu === "function") {
+        shopify.navigationMenu({
+          items: navItems,
+          matcher: function(link, location) {
+            // Matcher pour highlight l'item actif
+            return link.destination === location.pathname + location.search;
+          }
+        });
+        console.log("[AppBridge Nav] Menu configuré avec", navItems.length, "items");
+      } else {
+        console.warn("[AppBridge Nav] navigationMenu() non disponible");
+      }
+      
+    } catch (e) {
+      console.warn("[AppBridge Nav] Erreur configuration:", e);
+    }
   }
 
   async function getSessionToken() {
