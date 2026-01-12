@@ -164,6 +164,7 @@ const SETTING_OPTIONS = {
     { value: "de", label: "Deutsch" },
     { value: "es", label: "Espanol" },
     { value: "it", label: "Italiano" },
+    { value: "pt", label: "Portugues" },
   ],
   
   timezones: [

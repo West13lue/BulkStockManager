@@ -2974,28 +2974,26 @@
       if ((sup.products || []).length > 0) {
         var prodRows = sup.products.map(function(p) {
           return '<tr>' +
-            '<td>' + esc(p.productName || p.productId) + '</td>' +
+            '<td>' + esc(p.productName || p.productId || t("products.unknown", "Produit inconnu")) + '</td>' +
             '<td>' + formatPricePerUnit(p.pricePerGram || 0) + '</td>' +
             '<td>' + formatWeight(p.currentStock || 0) + '</td>' +
             '<td>' + (p.lastUpdated || '-').slice(0, 10) + '</td>' +
             '<td class="cell-actions">' +
-            '<button class="btn btn-ghost btn-xs btn-danger-hover" onclick="event.stopPropagation();app.unlinkSupplierProduct(\'' + supplierId + '\',\'' + p.productId + '\')" title="' + t("action.delete", "Supprimer") + '"><i data-lucide="trash-2"></i></button>' +
+            '<button class="btn btn-ghost btn-xs btn-danger-hover" onclick="event.stopPropagation();app.unlinkSupplierProduct(\'' + supplierId + '\',\'' + (p.productId || p.id) + '\')" title="' + t("action.remove", "Retirer") + '"><i data-lucide="x"></i></button>' +
             '</td>' +
             '</tr>';
         }).join('');
         productsContent = 
-          '<div class="section-header-actions mb-sm">' +
-          '<button class="btn btn-sm btn-primary" onclick="app.showLinkProductModal(\'' + supplierId + '\')"><i data-lucide="plus"></i> ' + t("suppliers.linkProduct", "Lier un produit") + '</button>' +
-          '</div>' +
           '<table class="data-table data-table-compact"><thead><tr>' +
           '<th>' + t("table.product", "Produit") + '</th>' +
           '<th>' + t("table.price", "Prix") + '</th>' +
           '<th>' + t("table.currentStock", "Stock actuel") + '</th>' +
           '<th>' + t("table.updated", "Maj") + '</th>' +
-          '<th></th></tr></thead><tbody>' + prodRows + '</tbody></table>';
+          '<th style="width:50px"></th></tr></thead><tbody>' + prodRows + '</tbody></table>' +
+          '<div class="mt-md"><button class="btn btn-sm btn-secondary" onclick="app.showLinkProductModal(\'' + supplierId + '\')"><i data-lucide="plus"></i> ' + t("suppliers.addProduct", "Ajouter un produit") + '</button></div>';
       } else {
         productsContent = '<div class="empty-state-small"><p class="text-secondary">' + t("suppliers.noProducts", "Aucun produit lie") + '</p>' +
-          '<button class="btn btn-sm btn-primary mt-sm" onclick="app.showLinkProductModal(\'' + supplierId + '\')">' + t("suppliers.linkProduct", "Lier un produit") + '</button></div>';
+          '<button class="btn btn-sm btn-primary mt-sm" onclick="app.showLinkProductModal(\'' + supplierId + '\')"><i data-lucide="plus"></i> ' + t("suppliers.addProduct", "Ajouter un produit") + '</button></div>';
       }
 
       // Contenu Lots

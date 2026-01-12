@@ -43,6 +43,7 @@ const catalogStore = require("./catalogStore");
 
 // --- Movements (multi-shop)
 const movementStore = require("./movementStore");
+const notificationStore = require("./notificationStore");
 
 // --- Batch/Lots tracking (multi-shop) - PRO
 let batchStore = null;
@@ -3402,6 +3403,198 @@ router.get("/api/analytics/sales", async (req, res) => {
     logEvent("analytics_sales_error", { error: e.message }, "error");
     return apiError(res, 500, "Erreur: " + e.message);
   }
+});
+
+// ============================================
+// NOTIFICATIONS API
+// ============================================
+
+// Liste des notifications
+router.get("/api/notifications", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+
+    const limit = Math.min(Number(req.query.limit) || 20, 100);
+    const data = notificationStore.loadNotifications(shop);
+    const alerts = Array.isArray(data.alerts) ? data.alerts : [];
+    
+    // Trier par date décroissante
+    alerts.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+    
+    // Compter les non lues
+    const unreadCount = alerts.filter(a => !a.read && !a.dismissed).length;
+    
+    // Filtrer les notifications non ignorées et limiter
+    const notifications = alerts
+      .filter(a => !a.dismissed)
+      .slice(0, limit)
+      .map(a => ({
+        id: a.id,
+        type: a.type,
+        title: a.title || a.message,
+        message: a.message,
+        priority: a.priority || "medium",
+        read: !!a.read,
+        productId: a.productId,
+        productName: a.productName,
+        createdAt: a.createdAt
+      }));
+
+    res.json({ 
+      notifications, 
+      unreadCount,
+      total: alerts.filter(a => !a.dismissed).length 
+    });
+  });
+});
+
+// Marquer une notification comme lue
+router.patch("/api/notifications/:id/read", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+
+    const notificationId = req.params.id;
+    const result = notificationStore.markAsRead(shop, notificationId);
+    
+    res.json({ success: true, notification: result });
+  });
+});
+
+// Ignorer une notification
+router.delete("/api/notifications/:id", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+
+    const notificationId = req.params.id;
+    const result = notificationStore.dismissAlert(shop, notificationId);
+    
+    res.json({ success: true });
+  });
+});
+
+// Marquer toutes comme lues
+router.post("/api/notifications/mark-all-read", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+
+    const data = notificationStore.loadNotifications(shop);
+    if (Array.isArray(data.alerts)) {
+      data.alerts.forEach(a => { a.read = true; });
+      notificationStore.saveNotifications(shop, data);
+    }
+    
+    res.json({ success: true });
+  });
+});
+
+// Vérifier et générer les alertes (appelé périodiquement ou manuellement)
+router.post("/api/notifications/check", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+
+    try {
+      // Récupérer les données de stock
+      const snapshot = stock.getCatalogSnapshot ? stock.getCatalogSnapshot(shop) : { products: [] };
+      const products = Array.isArray(snapshot.products) ? snapshot.products : [];
+      
+      // Récupérer les settings pour les seuils
+      const settings = settingsStore.loadSettings ? settingsStore.loadSettings(shop) : {};
+      const criticalThreshold = (settings.stock && settings.stock.criticalThreshold) || 50;
+      const lowThreshold = (settings.stock && settings.stock.lowStockThreshold) || 200;
+      
+      let alertsGenerated = 0;
+      
+      // Vérifier chaque produit
+      products.forEach(p => {
+        const totalGrams = p.totalGrams || 0;
+        const productId = p.productId;
+        const productName = p.name || "Produit";
+        
+        // Rupture de stock
+        if (totalGrams <= 0) {
+          notificationStore.addAlert(shop, {
+            type: "out_of_stock",
+            priority: "high",
+            title: "Rupture de stock",
+            message: productName + " est en rupture de stock",
+            productId,
+            productName
+          });
+          alertsGenerated++;
+        }
+        // Stock critique
+        else if (totalGrams < criticalThreshold * 1000) { // Convertir en grammes
+          notificationStore.addAlert(shop, {
+            type: "critical_stock",
+            priority: "high",
+            title: "Stock critique",
+            message: productName + " a un stock critique",
+            productId,
+            productName
+          });
+          alertsGenerated++;
+        }
+        // Stock bas
+        else if (totalGrams < lowThreshold * 1000) { // Convertir en grammes
+          notificationStore.addAlert(shop, {
+            type: "low_stock",
+            priority: "medium",
+            title: "Stock bas",
+            message: productName + " a un stock bas",
+            productId,
+            productName
+          });
+          alertsGenerated++;
+        }
+      });
+      
+      // Mettre à jour la date de dernière vérification
+      const data = notificationStore.loadNotifications(shop);
+      data.lastCheck = new Date().toISOString();
+      notificationStore.saveNotifications(shop, data);
+      
+      logEvent("notifications_check", { shop, alertsGenerated }, "info");
+      
+      res.json({ 
+        success: true, 
+        alertsGenerated,
+        lastCheck: data.lastCheck 
+      });
+    } catch (e) {
+      logEvent("notifications_check_error", { shop, error: e.message }, "error");
+      return apiError(res, 500, "Erreur: " + e.message);
+    }
+  });
+});
+
+// Paramètres des notifications
+router.get("/api/notifications/settings", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+
+    const data = notificationStore.loadNotifications(shop);
+    res.json({ settings: data.settings || {} });
+  });
+});
+
+router.put("/api/notifications/settings", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+
+    const newSettings = req.body || {};
+    const data = notificationStore.loadNotifications(shop);
+    data.settings = { ...data.settings, ...newSettings };
+    notificationStore.saveNotifications(shop, data);
+    
+    res.json({ success: true, settings: data.settings });
+  });
 });
 
 // ============================================
