@@ -2978,9 +2978,21 @@
             '<td>' + formatPricePerUnit(p.pricePerGram || 0) + '</td>' +
             '<td>' + formatWeight(p.currentStock || 0) + '</td>' +
             '<td>' + (p.lastUpdated || '-').slice(0, 10) + '</td>' +
+            '<td class="cell-actions">' +
+            '<button class="btn btn-ghost btn-xs btn-danger-hover" onclick="event.stopPropagation();app.unlinkSupplierProduct(\'' + supplierId + '\',\'' + p.productId + '\')" title="' + t("action.delete", "Supprimer") + '"><i data-lucide="trash-2"></i></button>' +
+            '</td>' +
             '</tr>';
         }).join('');
-        productsContent = '<table class="data-table data-table-compact"><thead><tr><th>Produit</th><th>Prix</th><th>Stock actuel</th><th>Maj</th></tr></thead><tbody>' + prodRows + '</tbody></table>';
+        productsContent = 
+          '<div class="section-header-actions mb-sm">' +
+          '<button class="btn btn-sm btn-primary" onclick="app.showLinkProductModal(\'' + supplierId + '\')"><i data-lucide="plus"></i> ' + t("suppliers.linkProduct", "Lier un produit") + '</button>' +
+          '</div>' +
+          '<table class="data-table data-table-compact"><thead><tr>' +
+          '<th>' + t("table.product", "Produit") + '</th>' +
+          '<th>' + t("table.price", "Prix") + '</th>' +
+          '<th>' + t("table.currentStock", "Stock actuel") + '</th>' +
+          '<th>' + t("table.updated", "Maj") + '</th>' +
+          '<th></th></tr></thead><tbody>' + prodRows + '</tbody></table>';
       } else {
         productsContent = '<div class="empty-state-small"><p class="text-secondary">' + t("suppliers.noProducts", "Aucun produit lie") + '</p>' +
           '<button class="btn btn-sm btn-primary mt-sm" onclick="app.showLinkProductModal(\'' + supplierId + '\')">' + t("suppliers.linkProduct", "Lier un produit") + '</button></div>';
@@ -3845,10 +3857,31 @@
       
       showToast(t("suppliers.productLinked", "Produit lie"), "success");
       closeModal();
-      // Recharger les dÃ©tails du fournisseur
-      if (typeof loadSupplierDetails === "function") {
-        loadSupplierDetails(supplierId);
+      // Recharger les détails du fournisseur
+      openSupplierDetails(supplierId);
+    } catch (e) {
+      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
+    }
+  }
+
+  async function unlinkSupplierProduct(supplierId, productId) {
+    if (!confirm(t("suppliers.confirmUnlink", "Retirer ce produit du fournisseur ?"))) {
+      return;
+    }
+    
+    try {
+      var res = await authFetch(apiUrl("/suppliers/" + supplierId + "/products/" + productId), {
+        method: "DELETE"
+      });
+      
+      if (!res.ok) {
+        var err = await res.json().catch(function() { return {}; });
+        throw new Error(err.error || "Erreur");
       }
+      
+      showToast(t("suppliers.productUnlinked", "Produit retire"), "success");
+      // Recharger les détails du fournisseur
+      openSupplierDetails(supplierId);
     } catch (e) {
       showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
     }
@@ -4388,11 +4421,11 @@
           return '<tr><td>' + esc(item.productName || item.productId) + '</td><td>' + item.quantity + ' ' + item.unitType + '</td>' +
             '<td>' + formatPricePerUnit(detail.costPerUnit || 0) + '</td><td>' + formatCurrency(detail.itemCost || 0) + '</td>' +
             '<td>' + formatWeight(detail.availableStock || 0) + '</td>' +
-            '<td><button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();app.removeKitItem(\'' + kit.id + '\',\'' + item.id + '\')"><i data-lucide="trash-2"></i></button></td></tr>';
+            '<td><button class="btn btn-ghost btn-sm btn-danger-hover" onclick="event.stopPropagation();app.removeKitItem(\'' + kit.id + '\',\'' + item.id + '\')"><i data-lucide="trash-2"></i></button></td></tr>';
         }).join("");
-        itemsHtml = '<table class="data-table data-table-compact"><thead><tr><th>Composant</th><th>Qte</th><th>Cout unit.</th><th>Cout total</th><th>Stock</th><th></th></tr></thead><tbody>' + itemRows + '</tbody></table>';
+        itemsHtml = '<table class="data-table data-table-compact"><thead><tr><th>' + t("kits.component", "Composant") + '</th><th>' + t("kits.qty", "Qte") + '</th><th>' + t("kits.unitCost", "Cout unit.") + '</th><th>' + t("kits.totalCost", "Cout total") + '</th><th>' + t("table.stock", "Stock") + '</th><th></th></tr></thead><tbody>' + itemRows + '</tbody></table>';
       } else {
-        itemsHtml = '<p class="text-secondary text-center py-md">Aucun composant. Ajoutez-en pour calculer les couts.</p>';
+        itemsHtml = '<p class="text-secondary text-center py-md">' + t("kits.noComponents", "Aucun composant. Ajoutez-en pour calculer les couts.") + '</p>';
       }
 
       showModal({
@@ -4401,34 +4434,35 @@
         content:
           '<div class="kit-detail-header"><div style="display:flex;gap:8px">' + getKitTypeBadge(kit.type) + ' ' + getKitStatusBadge(kit.status) + '</div></div>' +
           '<div class="stats-grid stats-grid-4 mt-md">' +
-          '<div class="stat-card"><div class="stat-value">' + formatCurrency(costData.salePrice || 0) + '</div><div class="stat-label">Prix vente</div></div>' +
-          '<div class="stat-card"><div class="stat-value">' + formatCurrency(costData.totalCost || 0) + '</div><div class="stat-label">Cout</div></div>' +
-          '<div class="stat-card stat-' + marginClass + '"><div class="stat-value">' + formatCurrency(costData.margin || 0) + '</div><div class="stat-label">Marge</div></div>' +
-          '<div class="stat-card stat-' + marginClass + '"><div class="stat-value">' + (costData.marginPercent || 0).toFixed(1) + '%</div><div class="stat-label">Marge %</div></div></div>' +
-          '<div class="section-header mt-lg"><h3>Composants (BOM)</h3><button class="btn btn-sm btn-secondary" onclick="app.showAddKitItemModal(\'' + kit.id + '\')"><i data-lucide="plus"></i> Ajouter</button></div>' +
+          '<div class="stat-card"><div class="stat-value">' + formatCurrency(costData.salePrice || 0) + '</div><div class="stat-label">' + t("kits.salePrice", "Prix vente") + '</div></div>' +
+          '<div class="stat-card"><div class="stat-value">' + formatCurrency(costData.totalCost || 0) + '</div><div class="stat-label">' + t("kits.cost", "Cout") + '</div></div>' +
+          '<div class="stat-card stat-' + marginClass + '"><div class="stat-value">' + formatCurrency(costData.margin || 0) + '</div><div class="stat-label">' + t("kits.margin", "Marge") + '</div></div>' +
+          '<div class="stat-card stat-' + marginClass + '"><div class="stat-value">' + (costData.marginPercent || 0).toFixed(1) + '%</div><div class="stat-label">' + t("kits.marginPercent", "Marge %") + '</div></div></div>' +
+          '<div class="section-header mt-lg"><h3>' + t("kits.components", "Composants (BOM)") + '</h3><button class="btn btn-sm btn-secondary" onclick="app.showAddKitItemModal(\'' + kit.id + '\')"><i data-lucide="plus"></i> ' + t("action.add", "Ajouter") + '</button></div>' +
           '<div class="card-body">' + itemsHtml + '</div>' +
-          '<div class="section-header mt-lg"><h3>Simulation</h3></div>' +
-          '<div class="card-body"><div style="display:flex;gap:16px;align-items:center"><span>Si vendu</span><input type="number" class="form-input" id="simQty" value="1" style="width:80px" min="1"><span>fois</span>' +
-          '<button class="btn btn-secondary" onclick="app.runKitSimulation(\'' + kit.id + '\')">Simuler</button></div><div id="simResults" class="mt-md"></div></div>',
-        footer: '<button class="btn btn-ghost text-danger" onclick="app.deleteKit(\'' + kit.id + '\')"><i data-lucide="trash-2"></i> Supprimer</button>' +
-          '<button class="btn btn-secondary" onclick="app.closeModal()">Fermer</button>' +
-          (kit.status === "draft" ? '<button class="btn btn-success" onclick="app.activateKit(\'' + kit.id + '\')">Activer</button>' : '') +
-          '<button class="btn btn-primary" onclick="app.showAssembleKitModal(\'' + kit.id + '\')">Assembler</button>'
+          '<div class="section-header mt-lg"><h3>' + t("kits.simulation", "Simulation") + '</h3></div>' +
+          '<div class="card-body"><div style="display:flex;gap:16px;align-items:center"><span>' + t("kits.ifSold", "Si vendu") + '</span><input type="number" class="form-input" id="simQty" value="1" style="width:80px" min="1"><span>' + t("kits.times", "fois") + '</span>' +
+          '<button class="btn btn-secondary" onclick="app.runKitSimulation(\'' + kit.id + '\')">' + t("kits.simulate", "Simuler") + '</button></div><div id="simResults" class="mt-md"></div></div>',
+        footer: '<button class="btn btn-ghost text-danger" onclick="app.deleteKit(\'' + kit.id + '\')"><i data-lucide="trash-2"></i> ' + t("action.delete", "Supprimer") + '</button>' +
+          '<button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.close", "Fermer") + '</button>' +
+          (kit.status === "draft" ? '<button class="btn btn-success" onclick="app.activateKit(\'' + kit.id + '\')">' + t("kits.activate", "Activer") + '</button>' : '') +
+          '<button class="btn btn-primary" onclick="app.showAssembleKitModal(\'' + kit.id + '\')">' + t("kits.assemble", "Assembler") + '</button>'
       });
       if (typeof lucide !== "undefined") lucide.createIcons();
     } catch (e) { showToast(t("msg.error", "Erreur") + ": " + e.message, "error"); }
   }
 
   function showAddKitItemModal(kitId) {
-    var productOptions = (productsData || []).map(function(p) { return '<option value="' + p.productId + '" data-name="' + esc(p.name) + '">' + esc(p.name) + '</option>'; }).join("");
+    // Utiliser state.products au lieu de productsData
+    var productOptions = (state.products || []).map(function(p) { return '<option value="' + p.productId + '" data-name="' + esc(p.name) + '">' + esc(p.name) + '</option>'; }).join("");
     showModal({
       title: t("kits.addComponent", "Ajouter un composant"),
       content:
-        '<div class="form-group"><label class="form-label">Produit *</label><select class="form-select" id="itemProduct"><option value="">-- Selectionner --</option>' + productOptions + '</select></div>' +
-        '<div style="display:flex;gap:16px"><div class="form-group" style="flex:1"><label class="form-label">Quantite *</label><input type="number" class="form-input" id="itemQty" step="0.01" placeholder="10"></div>' +
-        '<div class="form-group" style="flex:1"><label class="form-label">Unite</label><select class="form-select" id="itemUnit"><option value="g">' + getWeightUnit() + '</option><option value="unit">Unite</option><option value="ml">ml</option></select></div></div>' +
-        '<div class="form-group"><label class="form-check"><input type="checkbox" id="itemFreebie"> Freebie (cadeau inclus)</label></div>',
-      footer: '<button class="btn btn-secondary" onclick="app.closeModal()">Annuler</button><button class="btn btn-primary" onclick="app.saveKitItem(\'' + kitId + '\')">Ajouter</button>'
+        '<div class="form-group"><label class="form-label">' + t("table.product", "Produit") + ' *</label><select class="form-select" id="itemProduct"><option value="">-- ' + t("action.select", "Selectionner") + ' --</option>' + productOptions + '</select></div>' +
+        '<div style="display:flex;gap:16px"><div class="form-group" style="flex:1"><label class="form-label">' + t("kits.quantity", "Quantite") + ' *</label><input type="number" class="form-input" id="itemQty" step="0.01" placeholder="10"></div>' +
+        '<div class="form-group" style="flex:1"><label class="form-label">' + t("kits.unit", "Unite") + '</label><select class="form-select" id="itemUnit"><option value="g">' + getWeightUnit() + '</option><option value="unit">' + t("kits.unitPiece", "Unite") + '</option><option value="ml">ml</option></select></div></div>' +
+        '<div class="form-group"><label class="form-check"><input type="checkbox" id="itemFreebie"> ' + t("kits.freebie", "Freebie (cadeau inclus)") + '</label></div>',
+      footer: '<button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.cancel", "Annuler") + '</button><button class="btn btn-primary" onclick="app.saveKitItem(\'' + kitId + '\')">' + t("action.add", "Ajouter") + '</button>'
     });
   }
 
@@ -4457,7 +4491,7 @@
   }
 
   async function removeKitItem(kitId, itemId) {
-    if (!confirm("Supprimer ce composant ?")) return;
+    if (!confirm(t("kits.confirmRemoveComponent", "Supprimer ce composant ?"))) return;
     try {
       var res = await authFetch(apiUrl("/kits/" + kitId + "/items/" + itemId), { method: "DELETE" });
       if (!res.ok) throw new Error("Erreur");
@@ -6036,7 +6070,8 @@
     var criticalInGrams = toGrams(criticalThreshold);
     var lowInGrams = toGrams(lowThreshold);
     
-    if (g <= 0) return { c: "critical", l: t("status.outOfStock", "Rupture"), i: "[!]" };
+    // Rupture = rouge, Critical = orange, Low = jaune, OK = vert
+    if (g <= 0) return { c: "outofstock", l: t("status.outOfStock", "Rupture"), i: "[!]" };
     if (g < criticalInGrams) return { c: "critical", l: t("status.critical", "Critique"), i: "[!]" };
     if (g < lowInGrams) return { c: "low", l: t("status.low", "Bas"), i: "[~]" };
     return { c: "good", l: t("status.ok", "OK"), i: "[OK]" };
@@ -6998,10 +7033,10 @@
     // KPI Cards
     var kpiCards = 
       '<div class="analytics-kpis">' +
-      '<div class="kpi-card"><div class="kpi-value">' + formatCurrency(k.totalStockValue || 0) + '</div><div class="kpi-label">Valeur stock</div></div>' +
-      '<div class="kpi-card"><div class="kpi-value">' + formatCurrency((h.vendable || {}).value || 0) + '</div><div class="kpi-label">Stock vendable</div><div class="kpi-sub success">' + ((h.vendable || {}).percent || 0) + '%</div></div>' +
-      '<div class="kpi-card' + (k.alertsCount > 0 ? ' kpi-warning' : '') + '"><div class="kpi-value">' + (k.alertsCount || 0) + '</div><div class="kpi-label">Alertes</div></div>' +
-      '<div class="kpi-card"><div class="kpi-value">' + (k.avgRotationDays ? k.avgRotationDays + 'j' : '--') + '</div><div class="kpi-label">Rotation moy.</div></div>' +
+      '<div class="kpi-card"><div class="kpi-value">' + formatCurrency(k.totalStockValue || 0) + '</div><div class="kpi-label">' + t("analytics.stockValue", "Valeur stock") + '</div></div>' +
+      '<div class="kpi-card"><div class="kpi-value">' + formatCurrency((h.vendable || {}).value || 0) + '</div><div class="kpi-label">' + t("analytics.sellableStock", "Stock vendable") + '</div><div class="kpi-sub success">' + ((h.vendable || {}).percent || 0) + '%</div></div>' +
+      '<div class="kpi-card' + (k.alertsCount > 0 ? ' kpi-warning' : '') + '"><div class="kpi-value">' + (k.alertsCount || 0) + '</div><div class="kpi-label">' + t("analytics.alerts", "Alertes") + '</div></div>' +
+      '<div class="kpi-card"><div class="kpi-value">' + (k.avgRotationDays ? k.avgRotationDays + t("common.daysShort", "j") : '--') + '</div><div class="kpi-label">' + t("analytics.avgRotation", "Rotation moy.") + '</div></div>' +
       '</div>';
 
     // Score de sante
@@ -7009,16 +7044,16 @@
     var healthSection = 
       '<div class="analytics-section">' +
       '<div class="section-header" onclick="app.toggleSection(\'health\')">' +
-      '<h3>Sante du stock</h3><span class="section-toggle" id="toggle-health">-</span></div>' +
+      '<h3>' + t("analytics.stockHealth", "Sante du stock") + '</h3><span class="section-toggle" id="toggle-health">-</span></div>' +
       '<div class="section-content" id="section-health">' +
       '<div class="health-score-container">' +
       '<div class="health-score ' + scoreClass + '">' + (k.healthScore || 0) + '</div>' +
-      '<div class="health-score-label">Score de sante</div>' +
+      '<div class="health-score-label">' + t("analytics.healthScore", "Score de sante") + '</div>' +
       '</div>' +
       '<div class="health-bars">' +
-      '<div class="health-bar-item"><div class="health-bar-label">Vendable (&lt;30j)</div><div class="health-bar-track"><div class="health-bar-fill success" style="width:' + ((h.vendable || {}).percent || 0) + '%"></div></div><div class="health-bar-value">' + formatCurrency((h.vendable || {}).value || 0) + ' (' + ((h.vendable || {}).percent || 0) + '%)</div></div>' +
-      '<div class="health-bar-item"><div class="health-bar-label">Lent (30-60j)</div><div class="health-bar-track"><div class="health-bar-fill warning" style="width:' + ((h.lent || {}).percent || 0) + '%"></div></div><div class="health-bar-value">' + formatCurrency((h.lent || {}).value || 0) + ' (' + ((h.lent || {}).percent || 0) + '%)</div></div>' +
-      '<div class="health-bar-item"><div class="health-bar-label">Dormant (&gt;60j)</div><div class="health-bar-track"><div class="health-bar-fill danger" style="width:' + ((h.dormant || {}).percent || 0) + '%"></div></div><div class="health-bar-value">' + formatCurrency((h.dormant || {}).value || 0) + ' (' + ((h.dormant || {}).percent || 0) + '%)</div></div>' +
+      '<div class="health-bar-item"><div class="health-bar-label">' + t("analytics.sellable", "Vendable") + ' (&lt;30' + t("common.daysShort", "j") + ')</div><div class="health-bar-track"><div class="health-bar-fill success" style="width:' + ((h.vendable || {}).percent || 0) + '%"></div></div><div class="health-bar-value">' + formatCurrency((h.vendable || {}).value || 0) + ' (' + ((h.vendable || {}).percent || 0) + '%)</div></div>' +
+      '<div class="health-bar-item"><div class="health-bar-label">' + t("analytics.slow", "Lent") + ' (30-60' + t("common.daysShort", "j") + ')</div><div class="health-bar-track"><div class="health-bar-fill warning" style="width:' + ((h.lent || {}).percent || 0) + '%"></div></div><div class="health-bar-value">' + formatCurrency((h.lent || {}).value || 0) + ' (' + ((h.lent || {}).percent || 0) + '%)</div></div>' +
+      '<div class="health-bar-item"><div class="health-bar-label">' + t("analytics.dormant", "Dormant") + ' (&gt;60' + t("common.daysShort", "j") + ')</div><div class="health-bar-track"><div class="health-bar-fill danger" style="width:' + ((h.dormant || {}).percent || 0) + '%"></div></div><div class="health-bar-value">' + formatCurrency((h.dormant || {}).value || 0) + ' (' + ((h.dormant || {}).percent || 0) + '%)</div></div>' +
       '</div>' +
       '</div></div>';
 
@@ -7027,37 +7062,37 @@
     var alertsHtml = '';
     
     if ((alerts.rupture || []).length > 0) {
-      alertsHtml += '<div class="alert-group alert-danger"><div class="alert-title">Rupture de stock (' + alerts.rupture.length + ')</div>';
+      alertsHtml += '<div class="alert-group alert-danger"><div class="alert-title">' + t("analytics.outOfStock", "Rupture de stock") + ' (' + alerts.rupture.length + ')</div>';
       alerts.rupture.forEach(function(a) {
-        alertsHtml += '<div class="alert-item"><span class="alert-product">' + esc(a.name) + '</span><span class="alert-action">Reapprovisionner</span></div>';
+        alertsHtml += '<div class="alert-item"><span class="alert-product">' + esc(a.name) + '</span><span class="alert-action">' + t("action.restock", "Reapprovisionner") + '</span></div>';
       });
       alertsHtml += '</div>';
     }
     
     if ((alerts.lowStock || []).length > 0) {
-      alertsHtml += '<div class="alert-group alert-warning"><div class="alert-title">Stock critique (' + alerts.lowStock.length + ')</div>';
+      alertsHtml += '<div class="alert-group alert-warning"><div class="alert-title">' + t("analytics.criticalStock", "Stock critique") + ' (' + alerts.lowStock.length + ')</div>';
       alerts.lowStock.forEach(function(a) {
-        alertsHtml += '<div class="alert-item"><span class="alert-product">' + esc(a.name) + '</span><span class="alert-days">' + (a.daysLeft || '?') + 'j restants</span><span class="alert-action">Commander</span></div>';
+        alertsHtml += '<div class="alert-item"><span class="alert-product">' + esc(a.name) + '</span><span class="alert-days">' + (a.daysLeft || '?') + t("common.daysShort", "j") + ' ' + t("analytics.remaining", "restants") + '</span><span class="alert-action">' + t("analytics.order", "Commander") + '</span></div>';
       });
       alertsHtml += '</div>';
     }
     
     if ((alerts.dormant || []).length > 0) {
-      alertsHtml += '<div class="alert-group alert-info"><div class="alert-title">Stock dormant (' + alerts.dormant.length + ')</div>';
+      alertsHtml += '<div class="alert-group alert-info"><div class="alert-title">' + t("analytics.dormantStock", "Stock dormant") + ' (' + alerts.dormant.length + ')</div>';
       alerts.dormant.slice(0, 5).forEach(function(a) {
-        alertsHtml += '<div class="alert-item"><span class="alert-product">' + esc(a.name) + '</span><span class="alert-value">' + formatCurrency(a.value) + ' immobilises</span><span class="alert-action">Promo?</span></div>';
+        alertsHtml += '<div class="alert-item"><span class="alert-product">' + esc(a.name) + '</span><span class="alert-value">' + formatCurrency(a.value) + ' ' + t("analytics.tied", "immobilises") + '</span><span class="alert-action">' + t("analytics.promo", "Promo?") + '</span></div>';
       });
       alertsHtml += '</div>';
     }
 
     if (!alertsHtml) {
-      alertsHtml = '<div class="empty-state-small"><p class="text-secondary">Aucune alerte</p></div>';
+      alertsHtml = '<div class="empty-state-small"><p class="text-secondary">' + t("analytics.noAlerts", "Aucune alerte") + '</p></div>';
     }
 
     var alertsSection = 
       '<div class="analytics-section">' +
       '<div class="section-header" onclick="app.toggleSection(\'alerts\')">' +
-      '<h3>Alertes & Actions</h3><span class="section-toggle" id="toggle-alerts">-</span></div>' +
+      '<h3>' + t("analytics.alertsActions", "Alertes & Actions") + '</h3><span class="section-toggle" id="toggle-alerts">-</span></div>' +
       '<div class="section-content" id="section-alerts">' + alertsHtml + '</div></div>';
 
     // Top produits
@@ -7065,65 +7100,65 @@
     var topsHtml = '<div class="tops-grid">';
     
     // Top vendus
-    topsHtml += '<div class="top-list"><h4>Plus vendus</h4>';
+    topsHtml += '<div class="top-list"><h4>' + t("analytics.topSold", "Plus vendus") + '</h4>';
     if ((tops.vendus || []).length > 0) {
       tops.vendus.forEach(function(p, i) {
         topsHtml += '<div class="top-item"><span class="top-rank">' + (i + 1) + '</span><span class="top-name">' + esc(p.name) + '</span><span class="top-value">' + formatWeight(p.totalSoldGrams) + '</span></div>';
       });
     } else {
-      topsHtml += '<p class="text-secondary text-sm">Pas de donnees</p>';
+      topsHtml += '<p class="text-secondary text-sm">' + t("analytics.noData", "Pas de donnees") + '</p>';
     }
     topsHtml += '</div>';
 
     // Top valeur
-    topsHtml += '<div class="top-list"><h4>Plus haute valeur</h4>';
+    topsHtml += '<div class="top-list"><h4>' + t("analytics.highestValue", "Plus haute valeur") + '</h4>';
     if ((tops.valeur || []).length > 0) {
       tops.valeur.forEach(function(p, i) {
         topsHtml += '<div class="top-item"><span class="top-rank">' + (i + 1) + '</span><span class="top-name">' + esc(p.name) + '</span><span class="top-value">' + formatCurrency(p.value) + '</span></div>';
       });
     } else {
-      topsHtml += '<p class="text-secondary text-sm">Pas de donnees</p>';
+      topsHtml += '<p class="text-secondary text-sm">' + t("analytics.noData", "Pas de donnees") + '</p>';
     }
     topsHtml += '</div>';
 
     // Plus lents
-    topsHtml += '<div class="top-list"><h4>Rotation lente</h4>';
+    topsHtml += '<div class="top-list"><h4>' + t("analytics.slowRotation", "Rotation lente") + '</h4>';
     if ((tops.lents || []).length > 0) {
       tops.lents.forEach(function(p, i) {
-        topsHtml += '<div class="top-item"><span class="top-rank danger">' + (i + 1) + '</span><span class="top-name">' + esc(p.name) + '</span><span class="top-value">' + (p.rotationDays ? p.rotationDays + 'j' : 'Dormant') + '</span></div>';
+        topsHtml += '<div class="top-item"><span class="top-rank danger">' + (i + 1) + '</span><span class="top-name">' + esc(p.name) + '</span><span class="top-value">' + (p.rotationDays ? p.rotationDays + t("common.daysShort", "j") : t("analytics.dormant", "Dormant")) + '</span></div>';
       });
     } else {
-      topsHtml += '<p class="text-secondary text-sm">Pas de donnees</p>';
+      topsHtml += '<p class="text-secondary text-sm">' + t("analytics.noData", "Pas de donnees") + '</p>';
     }
     topsHtml += '</div></div>';
 
     var topsSection = 
       '<div class="analytics-section">' +
       '<div class="section-header" onclick="app.toggleSection(\'tops\')">' +
-      '<h3>Top Produits</h3><span class="section-toggle" id="toggle-tops">-</span></div>' +
+      '<h3>' + t("analytics.topProducts", "Top Produits") + '</h3><span class="section-toggle" id="toggle-tops">-</span></div>' +
       '<div class="section-content" id="section-tops">' + topsHtml + '</div></div>';
 
     // Par categorie
     var cats = d.categories || [];
     var catsHtml = '';
     if (cats.length > 0) {
-      catsHtml = '<table class="data-table data-table-compact"><thead><tr><th>Categorie</th><th>Produits</th><th>Stock</th><th>Valeur</th><th>Rotation</th><th>Sante</th></tr></thead><tbody>';
+      catsHtml = '<table class="data-table data-table-compact"><thead><tr><th>' + t("table.category", "Categorie") + '</th><th>' + t("table.products", "Produits") + '</th><th>' + t("table.stock", "Stock") + '</th><th>' + t("table.value", "Valeur") + '</th><th>' + t("analytics.rotation", "Rotation") + '</th><th>' + t("analytics.health", "Sante") + '</th></tr></thead><tbody>';
       cats.forEach(function(cat) {
-        var healthBadge = cat.health === 'good' ? '<span class="badge badge-success">OK</span>' : 
-                          cat.health === 'slow' ? '<span class="badge badge-warning">Lent</span>' : 
-                          cat.health === 'dormant' ? '<span class="badge badge-danger">Dormant</span>' : 
+        var healthBadge = cat.health === 'good' ? '<span class="badge badge-success">' + t("status.ok", "OK") + '</span>' : 
+                          cat.health === 'slow' ? '<span class="badge badge-warning">' + t("analytics.slow", "Lent") + '</span>' : 
+                          cat.health === 'dormant' ? '<span class="badge badge-danger">' + t("analytics.dormant", "Dormant") + '</span>' : 
                           '<span class="badge badge-secondary">--</span>';
-        catsHtml += '<tr><td>' + esc(cat.name) + '</td><td>' + cat.productCount + '</td><td>' + formatWeight(cat.stockGrams) + '</td><td>' + formatCurrency(cat.stockValue) + '</td><td>' + (cat.avgRotationDays ? cat.avgRotationDays + 'j' : '--') + '</td><td>' + healthBadge + '</td></tr>';
+        catsHtml += '<tr><td>' + esc(cat.name) + '</td><td>' + cat.productCount + '</td><td>' + formatWeight(cat.stockGrams) + '</td><td>' + formatCurrency(cat.stockValue) + '</td><td>' + (cat.avgRotationDays ? cat.avgRotationDays + t("common.daysShort", "j") : '--') + '</td><td>' + healthBadge + '</td></tr>';
       });
       catsHtml += '</tbody></table>';
     } else {
-      catsHtml = '<div class="empty-state-small"><p class="text-secondary">Creez des categories pour voir cette analyse</p></div>';
+      catsHtml = '<div class="empty-state-small"><p class="text-secondary">' + t("analytics.createCategories", "Creez des categories pour voir cette analyse") + '</p></div>';
     }
 
     var catsSection = 
       '<div class="analytics-section">' +
       '<div class="section-header" onclick="app.toggleSection(\'categories\')">' +
-      '<h3>Par Categorie</h3><span class="section-toggle" id="toggle-categories">-</span></div>' +
+      '<h3>' + t("analytics.byCategory", "Par Categorie") + '</h3><span class="section-toggle" id="toggle-categories">-</span></div>' +
       '<div class="section-content" id="section-categories">' + catsHtml + '</div></div>';
 
     // Par format
@@ -7137,13 +7172,13 @@
       });
       formatsHtml += '</div>';
     } else {
-      formatsHtml = '<div class="empty-state-small"><p class="text-secondary">Pas de donnees de format</p></div>';
+      formatsHtml = '<div class="empty-state-small"><p class="text-secondary">' + t("analytics.noFormatData", "Pas de donnees de format") + '</p></div>';
     }
 
     var formatsSection = 
       '<div class="analytics-section">' +
       '<div class="section-header" onclick="app.toggleSection(\'formats\')">' +
-      '<h3>Par Format</h3><span class="section-toggle" id="toggle-formats">-</span></div>' +
+      '<h3>' + t("analytics.byFormat", "Par Format") + '</h3><span class="section-toggle" id="toggle-formats">-</span></div>' +
       '<div class="section-content" id="section-formats">' + formatsHtml + '</div></div>';
 
     // Assembler
@@ -7677,6 +7712,7 @@
     showReceivePOModal: showReceivePOModal,
     receivePO: receivePO,
     showLinkProductModal: showLinkProductModal,
+    unlinkSupplierProduct: unlinkSupplierProduct,
     linkProduct: linkProduct,
     // Activity log
     showFullActivityLog: showFullActivityLog,

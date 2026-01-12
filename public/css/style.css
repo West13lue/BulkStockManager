@@ -1177,13 +1177,18 @@ input, select, textarea {
 }
 
 .stock-badge.critical {
+  background: var(--warning-bg);
+  color: var(--warning);
+}
+
+.stock-badge.outofstock {
   background: var(--danger-bg);
   color: var(--danger);
 }
 
 .stock-badge.low {
-  background: var(--warning-bg);
-  color: var(--warning);
+  background: rgba(251, 191, 36, 0.15);
+  color: #d97706;
 }
 
 .stock-badge.good {
