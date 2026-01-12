@@ -5344,14 +5344,17 @@
   }
 
   function showAddProductModal() {
+    var weightUnit = getWeightUnit();
+    var currencySymbol = getCurrencySymbol();
+    
     showModal({
       title: t("products.add", "Ajouter un produit"),
       content:
-        '<div class="form-group"><label class="form-label">Nom</label><input class="form-input" id="pName" placeholder="CBD Premium"></div>' +
-        '<div style="display:flex;gap:16px"><div class="form-group" style="flex:1"><label class="form-label">Stock (" + getWeightUnit() + ")</label><input type="number" class="form-input" id="pStock" value="0"></div>' +
-        '<div class="form-group" style="flex:1"><label class="form-label">Cout (" + getCurrencySymbol() + "/" + getWeightUnit() + ")</label><input type="number" class="form-input" id="pCost" value="0" step="0.01"></div></div>',
+        '<div class="form-group"><label class="form-label">' + t("form.name", "Nom") + '</label><input class="form-input" id="pName" placeholder="Ex: Cafe Colombie"></div>' +
+        '<div style="display:flex;gap:16px"><div class="form-group" style="flex:1"><label class="form-label">' + t("form.stock", "Stock") + ' (' + weightUnit + ')</label><input type="number" class="form-input" id="pStock" value="0"></div>' +
+        '<div class="form-group" style="flex:1"><label class="form-label">' + t("form.cost", "Cout") + ' (' + currencySymbol + '/' + weightUnit + ')</label><input type="number" class="form-input" id="pCost" value="0" step="0.01"></div></div>',
       footer:
-        '<button class="btn btn-ghost" onclick="app.closeModal()">Annuler</button><button class="btn btn-primary" onclick="app.saveProduct()">Ajouter</button>',
+        '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.cancel", "Annuler") + '</button><button class="btn btn-primary" onclick="app.saveProduct()">' + t("action.add", "Ajouter") + '</button>',
     });
   }
 
@@ -5432,6 +5435,9 @@
   }
 
   function showRestockModal(pid) {
+    var weightUnit = getWeightUnit();
+    var currencySymbol = getCurrencySymbol();
+    
     var opts = state.products
       .map(function (p) {
         return (
@@ -5448,17 +5454,19 @@
     showModal({
       title: t("products.restock", "Reapprovisionner"),
       content:
-        '<div class="form-group"><label class="form-label">Produit</label><select class="form-select" id="rProd">' +
+        '<div class="form-group"><label class="form-label">' + t("form.product", "Produit") + '</label><select class="form-select" id="rProd">' +
         opts +
         '</select></div>' +
-        '<div style="display:flex;gap:16px"><div class="form-group" style="flex:1"><label class="form-label">Quantite (" + getWeightUnit() + ")</label><input type="number" class="form-input" id="rQty" placeholder="500"></div>' +
-        '<div class="form-group" style="flex:1"><label class="form-label">Prix (" + getCurrencySymbol() + "/" + getWeightUnit() + ")</label><input type="number" class="form-input" id="rPrice" placeholder="4.50" step="0.01"></div></div>',
+        '<div style="display:flex;gap:16px"><div class="form-group" style="flex:1"><label class="form-label">' + t("form.quantity", "Quantite") + ' (' + weightUnit + ')</label><input type="number" class="form-input" id="rQty" placeholder="500"></div>' +
+        '<div class="form-group" style="flex:1"><label class="form-label">' + t("form.price", "Prix") + ' (' + currencySymbol + '/' + weightUnit + ')</label><input type="number" class="form-input" id="rPrice" placeholder="4.50" step="0.01"></div></div>',
       footer:
-        '<button class="btn btn-ghost" onclick="app.closeModal()">Annuler</button><button class="btn btn-primary" onclick="app.saveRestock()">Valider</button>',
+        '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.cancel", "Annuler") + '</button><button class="btn btn-primary" onclick="app.saveRestock()">' + t("action.validate", "Valider") + '</button>',
     });
   }
 
   function showAdjustModal(pid) {
+    var weightUnit = getWeightUnit();
+    
     var opts = state.products
       .map(function (p) {
         return (
@@ -5477,15 +5485,15 @@
     showModal({
       title: t("products.adjustStock", "Ajuster le stock"),
       content:
-        '<div class="form-group"><label class="form-label">Produit</label><select class="form-select" id="aProd">' +
+        '<div class="form-group"><label class="form-label">' + t("form.product", "Produit") + '</label><select class="form-select" id="aProd">' +
         opts +
         '</select></div>' +
-        '<div class="form-group"><label class="form-label">Type</label><div style="display:flex;gap:16px">' +
-        '<label><input type="radio" name="aType" value="add" checked> Ajouter</label>' +
-        '<label><input type="radio" name="aType" value="remove"> Retirer</label></div></div>' +
-        '<div class="form-group"><label class="form-label">Quantite (" + getWeightUnit() + ")</label><input type="number" class="form-input" id="aQty" placeholder="100"></div>',
+        '<div class="form-group"><label class="form-label">' + t("form.type", "Type") + '</label><div style="display:flex;gap:16px">' +
+        '<label><input type="radio" name="aType" value="add" checked> ' + t("action.add", "Ajouter") + '</label>' +
+        '<label><input type="radio" name="aType" value="remove"> ' + t("action.remove", "Retirer") + '</label></div></div>' +
+        '<div class="form-group"><label class="form-label">' + t("form.quantity", "Quantite") + ' (' + weightUnit + ')</label><input type="number" class="form-input" id="aQty" placeholder="100"></div>',
       footer:
-        '<button class="btn btn-ghost" onclick="app.closeModal()">Annuler</button><button class="btn btn-primary" onclick="app.saveAdjust()">Appliquer</button>',
+        '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.cancel", "Annuler") + '</button><button class="btn btn-primary" onclick="app.saveAdjust()">' + t("action.apply", "Appliquer") + '</button>',
     });
   }
 
@@ -6014,18 +6022,24 @@
   
   function getStatus(g) {
     // Utiliser les seuils des settings si disponibles
-    var criticalThreshold = 50;
-    var lowThreshold = 200;
+    // Les seuils sont stockés dans l'unité d'affichage (kg, g, etc.)
+    // Il faut les convertir en grammes pour comparer avec g
+    var criticalThreshold = 50;  // valeur par défaut en unité d'affichage
+    var lowThreshold = 200;      // valeur par défaut en unité d'affichage
     
     if (settingsData && settingsData.stock) {
       criticalThreshold = settingsData.stock.criticalThreshold || 50;
       lowThreshold = settingsData.stock.lowStockThreshold || 200;
     }
     
-    if (g <= 0) return { c: "critical", l: "Rupture", i: "[!]" };
-    if (g < criticalThreshold) return { c: "critical", l: "Critique", i: "[!]" };
-    if (g < lowThreshold) return { c: "low", l: "Bas", i: "[~]" };
-    return { c: "good", l: "OK", i: "[OK]" };
+    // Convertir les seuils en grammes (car g est en grammes)
+    var criticalInGrams = toGrams(criticalThreshold);
+    var lowInGrams = toGrams(lowThreshold);
+    
+    if (g <= 0) return { c: "critical", l: t("status.outOfStock", "Rupture"), i: "[!]" };
+    if (g < criticalInGrams) return { c: "critical", l: t("status.critical", "Critique"), i: "[!]" };
+    if (g < lowInGrams) return { c: "low", l: t("status.low", "Bas"), i: "[~]" };
+    return { c: "good", l: t("status.ok", "OK"), i: "[OK]" };
   }
   function esc(s) {
     if (!s) return "";
@@ -6691,44 +6705,57 @@
 
   function showEditCMPModal(productId, currentCMP) {
     closeModal();
+    // Convertir le CMP par gramme en CMP par unite d'affichage
+    var displayCMP = fromPricePerGram(currentCMP);
+    // Arrondir a 2 decimales pour l'affichage
+    displayCMP = Math.round(displayCMP * 100) / 100;
+    
+    var currencySymbol = getCurrencySymbol();
+    var weightUnit = getWeightUnit();
+    
     showModal({
       title: t("products.editCMP", "Modifier le cout moyen (CMP)"),
       content:
-        '<p class="text-secondary mb-md">Le CMP actuel est de <strong>' + formatPricePerUnit(currentCMP) + '</strong>.</p>' +
-        '<div class="form-group"><label class="form-label">Nouveau CMP (" + getCurrencySymbol() + "/" + getWeightUnit() + ")</label>' +
-        '<input type="number" class="form-input" id="newCMP" value="' + currentCMP + '" step="0.01" min="0"></div>' +
-        '<p class="form-hint">Ã¢Å¡Â Ã¯Â¸Â La modification manuelle du CMP ecrase le calcul automatique.</p>',
+        '<p class="text-secondary mb-md">' + t("products.currentCMPIs", "Le CMP actuel est de") + ' <strong>' + formatPricePerUnit(currentCMP) + '</strong>.</p>' +
+        '<div class="form-group"><label class="form-label">' + t("products.newCMP", "Nouveau CMP") + ' (' + currencySymbol + '/' + weightUnit + ')</label>' +
+        '<input type="number" class="form-input" id="newCMP" value="' + displayCMP + '" step="0.01" min="0"></div>' +
+        '<p class="form-hint text-warning"><i data-lucide="alert-triangle" style="width:14px;height:14px;vertical-align:middle;margin-right:4px"></i>' + t("products.cmpWarning", "La modification manuelle du CMP ecrase le calcul automatique.") + '</p>',
       footer:
-        '<button class="btn btn-ghost" onclick="app.closeModal()">Annuler</button>' +
-        '<button class="btn btn-primary" onclick="app.saveCMP(\'' + productId + '\')">Enregistrer</button>',
+        '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.cancel", "Annuler") + '</button>' +
+        '<button class="btn btn-primary" onclick="app.saveCMP(\'' + productId + '\')">' + t("action.save", "Enregistrer") + '</button>',
     });
+    if (typeof lucide !== "undefined") lucide.createIcons();
   }
 
   async function saveCMP(productId) {
     var input = document.getElementById("newCMP");
-    var newCMP = parseFloat(input ? input.value : 0);
-    if (!Number.isFinite(newCMP) || newCMP < 0) {
-      showToast("Valeur invalide", "error");
+    var inputValue = parseFloat(input ? input.value : 0);
+    if (!Number.isFinite(inputValue) || inputValue < 0) {
+      showToast(t("msg.invalidValue", "Valeur invalide"), "error");
       return;
     }
+    // Convertir le CMP saisi (par unite d'affichage) en CMP par gramme
+    var newCMPPerGram = toPricePerGram(inputValue);
+    
     try {
       var res = await authFetch(apiUrl("/products/" + encodeURIComponent(productId) + "/average-cost"), {
         method: "PATCH",
-        body: JSON.stringify({ averageCostPerGram: newCMP }),
+        body: JSON.stringify({ averageCostPerGram: newCMPPerGram }),
       });
       if (res.ok) {
-        showToast("CMP mis a jour", "success");
+        showToast(t("products.cmpUpdated", "CMP mis a jour"), "success");
         closeModal();
         await loadProducts();
         renderTab(state.currentTab);
       } else {
         var e = await res.json();
-        showToast(e.error || "Erreur", "error");
+        showToast(e.error || t("msg.error", "Erreur"), "error");
       }
     } catch (e) {
       showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
     }
   }
+
 
   // ============================================
   // ANALYTICS PRO

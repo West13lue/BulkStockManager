@@ -66,6 +66,10 @@ var I18N = {
       "products.adjustStock": "Ajuster le stock",
       "products.details": "Fiche produit",
       "products.editCMP": "Modifier le cout moyen (CMP)",
+      "products.currentCMPIs": "Le CMP actuel est de",
+      "products.newCMP": "Nouveau CMP",
+      "products.cmpWarning": "La modification manuelle du CMP ecrase le calcul automatique.",
+      "products.cmpUpdated": "CMP mis a jour",
       "products.importShopify": "Import Shopify",
       "products.restock": "Reapprovisionner",
       "products.product": "Produit",
@@ -120,6 +124,9 @@ var I18N = {
       // Actions
       "action.save": "Enregistrer",
       "action.cancel": "Annuler",
+      "action.validate": "Valider",
+      "action.apply": "Appliquer",
+      "action.remove": "Retirer",
       "action.close": "Fermer",
       "action.edit": "Modifier",
       "action.delete": "Supprimer",
@@ -145,6 +152,13 @@ var I18N = {
       
       // Forms
       "form.select": "-- Selectionner --",
+      "form.name": "Nom",
+      "form.product": "Produit",
+      "form.quantity": "Quantite",
+      "form.price": "Prix",
+      "form.stock": "Stock",
+      "form.cost": "Cout",
+      "form.type": "Type",
       
       // Sync
       "sync.starting": "Synchronisation en cours...",
@@ -924,6 +938,10 @@ var I18N = {
       "products.adjustStock": "Adjust stock",
       "products.details": "Product details",
       "products.editCMP": "Edit average cost",
+      "products.currentCMPIs": "Current average cost is",
+      "products.newCMP": "New average cost",
+      "products.cmpWarning": "Manual CMP modification overrides automatic calculation.",
+      "products.cmpUpdated": "Average cost updated",
       "products.importShopify": "Import Shopify",
       "products.restock": "Restock",
       "products.product": "Product",
@@ -978,6 +996,9 @@ var I18N = {
       // Actions
       "action.save": "Save",
       "action.cancel": "Cancel",
+      "action.validate": "Validate",
+      "action.apply": "Apply",
+      "action.remove": "Remove",
       "action.close": "Close",
       "action.edit": "Edit",
       "action.delete": "Delete",
@@ -1003,6 +1024,13 @@ var I18N = {
       
       // Forms
       "form.select": "-- Select --",
+      "form.name": "Name",
+      "form.product": "Product",
+      "form.quantity": "Quantity",
+      "form.price": "Price",
+      "form.stock": "Stock",
+      "form.cost": "Cost",
+      "form.type": "Type",
       
       // Sync
       "sync.starting": "Synchronization in progress...",
