@@ -1075,9 +1075,14 @@ input, select, textarea {
   border-radius: var(--radius-sm);
 }
 
-.stock-badge.critical {
+.stock-badge.outofstock {
   background: var(--danger-bg);
   color: var(--danger);
+}
+
+.stock-badge.critical {
+  background: rgba(251, 146, 60, 0.15);
+  color: #fb923c;
 }
 
 .stock-badge.low {
@@ -2014,6 +2019,83 @@ input, select, textarea {
 .filter-group .form-select {
   height: 38px;
   font-size: 13px;
+}
+
+/* ============================================
+   DROPDOWN FILTER (Categories)
+   ============================================ */
+
+.dropdown-filter {
+  position: relative;
+}
+
+.dropdown-filter-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+}
+
+.dropdown-filter-icon {
+  width: 16px;
+  height: 16px;
+  transition: transform 0.2s;
+}
+
+.dropdown-filter.open .dropdown-filter-icon {
+  transform: rotate(180deg);
+}
+
+.dropdown-filter-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  min-width: 200px;
+  max-height: 300px;
+  overflow-y: auto;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  z-index: 1000;
+  display: none;
+  margin-top: 4px;
+}
+
+.dropdown-filter.open .dropdown-filter-menu {
+  display: block;
+}
+
+.category-filter-item {
+  padding: 8px 12px;
+}
+
+.category-filter-item:hover {
+  background: var(--bg-tertiary);
+}
+
+.category-filter-item .checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.category-filter-item input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--primary);
+}
+
+.category-filter-divider {
+  height: 1px;
+  background: var(--border-color);
+  margin: 4px 0;
 }
 
 /* ============================================

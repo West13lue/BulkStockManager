@@ -1814,11 +1814,11 @@
         return stockMovementTypes.indexOf(mType) !== -1 || (m.gramsDelta && m.gramsDelta !== 0);
       });
       
-      var modalContent = document.querySelector('.modal-content .modal-body');
-      if (!modalContent) return;
+      var modalBody = document.querySelector('.modal .modal-body');
+      if (!modalBody) return;
       
       if (movements.length === 0) {
-        modalContent.innerHTML = '<div class="empty-state-small"><p class="text-secondary">' + t("dashboard.noMovements", "Aucun mouvement") + '</p></div>';
+        modalBody.innerHTML = '<div class="empty-state-small"><p class="text-secondary">' + t("dashboard.noMovements", "Aucun mouvement") + '</p></div>';
         return;
       }
       
@@ -1843,13 +1843,13 @@
       });
       html += '</div>';
       
-      modalContent.innerHTML = html;
+      modalBody.innerHTML = html;
       if (typeof lucide !== "undefined") lucide.createIcons();
       
     } catch (e) {
-      var modalContent = document.querySelector('.modal-content .modal-body');
-      if (modalContent) {
-        modalContent.innerHTML = '<p class="text-danger text-center">' + t("msg.error", "Erreur") + '</p>';
+      var modalBody = document.querySelector('.modal .modal-body');
+      if (modalBody) {
+        modalBody.innerHTML = '<p class="text-danger text-center">' + t("msg.error", "Erreur") + ': ' + e.message + '</p>';
       }
     }
   }
