@@ -1015,20 +1015,82 @@ router.get("/api/stock.csv", (req, res) => {
 
     const snapshot = stock.getCatalogSnapshot ? stock.getCatalogSnapshot(shop) : { products: [], categories: [] };
     const products = Array.isArray(snapshot.products) ? snapshot.products : [];
+    const categories = snapshot.categories || [];
+    
+    // Map des catégories pour afficher les noms
+    const catMap = {};
+    categories.forEach(c => { catMap[c.id] = c.name; });
 
-    const header = ["productId", "name", "totalGrams", "averageCostPerGram", "categoryIds"].join(",");
+    // En-têtes lisibles
+    const header = [
+      "Produit",
+      "Reference Shopify",
+      "Stock (g)",
+      "Stock (kg)",
+      "Cout moyen (EUR/kg)",
+      "Valeur stock (EUR)",
+      "Categories",
+      "Statut"
+    ].join(";");
+
+    const csvEscape = (v) => {
+      const s = String(v ?? "");
+      return /[;"\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+
+    const formatNumber = (num, decimals = 2) => {
+      if (num === null || num === undefined || isNaN(num)) return "";
+      return Number(num).toFixed(decimals).replace(".", ",");
+    };
+
+    const getStatus = (grams) => {
+      if (grams <= 0) return "Rupture";
+      if (grams < 500) return "Critique";
+      if (grams < 2000) return "Bas";
+      return "OK";
+    };
+
     const lines = products.map((p) => {
-      const cat = Array.isArray(p.categoryIds) ? p.categoryIds.join("|") : "";
-      const esc = (v) => {
-        const s = v === null || v === undefined ? "" : String(v);
-        return /[,"\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-      };
-      return [esc(p.productId), esc(p.name), esc(p.totalGrams), esc(p.averageCostPerGram || 0), esc(cat)].join(",");
+      const grams = p.totalGrams || 0;
+      const costPerGram = p.averageCostPerGram || 0;
+      const stockValue = grams * costPerGram;
+      
+      // Convertir les IDs de catégories en noms
+      const catNames = Array.isArray(p.categoryIds) 
+        ? p.categoryIds.map(id => catMap[id] || id).join(", ")
+        : "";
+      
+      return [
+        csvEscape(p.name || "Sans nom"),
+        csvEscape(p.productId),
+        csvEscape(formatNumber(grams, 0)),
+        csvEscape(formatNumber(grams / 1000, 3)),
+        csvEscape(formatNumber(costPerGram * 1000)),
+        csvEscape(formatNumber(stockValue)),
+        csvEscape(catNames),
+        csvEscape(getStatus(grams))
+      ].join(";");
     });
 
+    // Ligne de résumé
+    const totalGrams = products.reduce((sum, p) => sum + (p.totalGrams || 0), 0);
+    const totalValue = products.reduce((sum, p) => sum + (p.totalGrams || 0) * (p.averageCostPerGram || 0), 0);
+    
+    const summaryLine = [
+      "TOTAL",
+      products.length + " produits",
+      formatNumber(totalGrams, 0),
+      formatNumber(totalGrams / 1000, 3),
+      "",
+      formatNumber(totalValue),
+      "",
+      ""
+    ].join(";");
+
     res.setHeader("Content-Type", "text/csv; charset=utf-8");
-    res.setHeader("Content-Disposition", 'attachment; filename="stock.csv"');
-    res.send([header, ...lines].join("\n"));
+    res.setHeader("Content-Disposition", 'attachment; filename="inventaire-stock.csv"');
+    // BOM UTF-8 pour Excel
+    res.send("\uFEFF" + [header, ...lines, "", summaryLine].join("\n"));
   });
 });
 
@@ -1180,31 +1242,79 @@ router.get("/api/movements.csv", (req, res) => {
 
     const rows = movementStore.listMovements ? movementStore.listMovements({ shop, days, limit }) : [];
 
-    const header = ["ts", "source", "productId", "productName", "gramsDelta", "purchasePricePerGram", "totalAfter", "shop"].join(
-      ","
-    );
+    // En-têtes lisibles par l'humain
+    const header = [
+      "Date",
+      "Heure", 
+      "Type de mouvement",
+      "Produit",
+      "Quantite (g)",
+      "Quantite (kg)",
+      "Prix achat (EUR/kg)",
+      "Stock apres (g)",
+      "Stock apres (kg)",
+      "Utilisateur"
+    ].join(";");
 
     const csvEscape = (v) => {
       const s = String(v ?? "");
-      return /[,"\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+      return /[;"\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+
+    // Traduire les types de mouvements
+    const translateType = (type) => {
+      const types = {
+        restock: "Reapprovisionnement",
+        sale: "Vente",
+        adjustment: "Ajustement",
+        import: "Import",
+        manual: "Manuel",
+        order: "Commande",
+        kit_assembly: "Assemblage kit",
+        transfer: "Transfert",
+        batch_add: "Ajout lot",
+        batch_consume: "Consommation lot",
+        product_created: "Creation produit",
+        product_deleted: "Suppression produit"
+      };
+      return types[type] || type || "Autre";
+    };
+
+    // Formater la date lisiblement
+    const formatDate = (ts) => {
+      if (!ts) return "";
+      const d = new Date(ts);
+      return d.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" });
+    };
+
+    const formatTime = (ts) => {
+      if (!ts) return "";
+      const d = new Date(ts);
+      return d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
     };
 
     const lines = (rows || []).map((m) => {
+      const grams = m.gramsDelta ?? 0;
+      const totalGrams = m.totalAfter ?? 0;
       return [
-        csvEscape(m.ts || ""),
-        csvEscape(m.source || ""),
-        csvEscape(m.productId || ""),
-        csvEscape(m.productName || ""),
-        csvEscape(m.gramsDelta ?? ""),
-        csvEscape(m.purchasePricePerGram ?? ""),
-        csvEscape(m.totalAfter ?? ""),
-        csvEscape(m.shop || shop),
-      ].join(",");
+        csvEscape(formatDate(m.ts)),
+        csvEscape(formatTime(m.ts)),
+        csvEscape(translateType(m.source || m.type)),
+        csvEscape(m.productName || m.productId || ""),
+        csvEscape(grams),
+        csvEscape((grams / 1000).toFixed(3)),
+        csvEscape(m.purchasePricePerGram ? (m.purchasePricePerGram * 1000).toFixed(2) : ""),
+        csvEscape(totalGrams),
+        csvEscape((totalGrams / 1000).toFixed(3)),
+        csvEscape(m.profileName || "")
+      ].join(";");
     });
 
+    // Utiliser ; comme séparateur pour Excel FR
     res.setHeader("Content-Type", "text/csv; charset=utf-8");
-    res.setHeader("Content-Disposition", 'attachment; filename="stock-movements.csv"');
-    res.send([header, ...lines].join("\n"));
+    res.setHeader("Content-Disposition", 'attachment; filename="mouvements-stock.csv"');
+    // Ajouter BOM UTF-8 pour Excel
+    res.send("\uFEFF" + [header, ...lines].join("\n"));
   });
 });
 
@@ -2956,23 +3066,108 @@ router.get("/api/analytics/categories", (req, res) => {
   });
 });
 
-// Export CSV
+// Export CSV - Format lisible
 router.get("/api/analytics/export.csv", (req, res) => {
   safeJson(req, res, () => {
     const shop = getShop(req);
     if (!shop) return apiError(res, 400, "Shop introuvable");
     if (!analyticsStore) return apiError(res, 500, "Analytics non disponible");
 
-    const from = req.query.from || null;
-    const to = req.query.to || null;
+    const period = req.query.period || "30";
+    const daysAgo = parseInt(period, 10) || 30;
+    const now = new Date();
+    const fromDate = new Date(now.getTime() - daysAgo * 24 * 60 * 60 * 1000);
+    const from = fromDate.toISOString().slice(0, 10);
+    const to = now.toISOString().slice(0, 10);
+    
     const limit = Math.min(Number(req.query.limit || 10000), 50000);
 
     const sales = analyticsStore.listSales({ shop, from, to, limit });
-    const csv = analyticsStore.toCSV(sales);
+    
+    // En-têtes lisibles
+    const header = [
+      "Date commande",
+      "N° commande",
+      "Produit",
+      "Variante",
+      "Quantite",
+      "Poids unitaire (g)",
+      "Poids total (kg)",
+      "Prix brut (EUR)",
+      "Remise (EUR)",
+      "CA net (EUR)",
+      "Cout unitaire (EUR/kg)",
+      "Cout total (EUR)",
+      "Marge (EUR)",
+      "Marge (%)"
+    ].join(";");
+
+    const csvEscape = (v) => {
+      const s = String(v ?? "");
+      return /[;"\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+
+    const formatDate = (dateStr) => {
+      if (!dateStr) return "";
+      const d = new Date(dateStr);
+      return d.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" });
+    };
+
+    const formatNumber = (num, decimals = 2) => {
+      if (num === null || num === undefined || isNaN(num)) return "";
+      return Number(num).toFixed(decimals).replace(".", ",");
+    };
+
+    const lines = (sales || []).map((s) => {
+      const gramsPerUnit = s.gramsPerUnit || 0;
+      const totalGrams = s.totalGrams || 0;
+      const costPerGram = s.costPerGram || 0;
+      
+      return [
+        csvEscape(formatDate(s.orderDate)),
+        csvEscape(s.orderNumber || s.orderId || ""),
+        csvEscape(s.productName || ""),
+        csvEscape(s.variantTitle || "-"),
+        csvEscape(s.quantity || 0),
+        csvEscape(formatNumber(gramsPerUnit, 0)),
+        csvEscape(formatNumber(totalGrams / 1000, 3)),
+        csvEscape(formatNumber(s.grossPrice)),
+        csvEscape(formatNumber(s.discountAmount)),
+        csvEscape(formatNumber(s.netRevenue)),
+        csvEscape(formatNumber(costPerGram * 1000)),
+        csvEscape(formatNumber(s.totalCost)),
+        csvEscape(formatNumber(s.margin)),
+        csvEscape(formatNumber(s.marginPercent, 1))
+      ].join(";");
+    });
+
+    // Ajouter une ligne de résumé
+    const totalRevenue = sales.reduce((sum, s) => sum + (s.netRevenue || 0), 0);
+    const totalCost = sales.reduce((sum, s) => sum + (s.totalCost || 0), 0);
+    const totalMargin = sales.reduce((sum, s) => sum + (s.margin || 0), 0);
+    const avgMarginPct = totalRevenue > 0 ? (totalMargin / totalRevenue) * 100 : 0;
+    
+    const summaryLine = [
+      "TOTAL",
+      "",
+      sales.length + " lignes",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      formatNumber(totalRevenue),
+      "",
+      formatNumber(totalCost),
+      formatNumber(totalMargin),
+      formatNumber(avgMarginPct, 1)
+    ].join(";");
 
     res.setHeader("Content-Type", "text/csv; charset=utf-8");
-    res.setHeader("Content-Disposition", `attachment; filename="analytics-${from || "all"}-${to || "now"}.csv"`);
-    res.send(csv);
+    res.setHeader("Content-Disposition", `attachment; filename="analytics-${daysAgo}j-${to}.csv"`);
+    // BOM UTF-8 pour Excel + séparateur ; pour Excel FR
+    res.send("\uFEFF" + [header, ...lines, "", summaryLine].join("\n"));
   });
 });
 

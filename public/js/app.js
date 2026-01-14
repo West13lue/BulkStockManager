@@ -2199,6 +2199,7 @@
       '<div class="page-header"><div><h1 class="page-title">' + t("products.title", "Produits") + '</h1><p class="page-subtitle">' +
       state.products.length + " " + t("products.productCount", "produit(s)") + "</p></div>" +
       '<div class="page-actions">' +
+      '<button class="btn btn-ghost" onclick="app.exportStockCSV()" title="' + t("action.exportCSV", "Export CSV") + '"><i data-lucide="download"></i></button>' +
       '<button class="btn btn-ghost" onclick="app.showScannerModal()" title="' + t("scanner.title", "Scanner code-barres") + '"><i data-lucide="scan-barcode"></i></button>' +
       '<button class="btn btn-ghost" onclick="app.showCategoriesModal()">' + t("categories.title", "Categories") + '</button>' +
       '<button class="btn btn-secondary" onclick="app.showImportModal()">' + t("products.importShopify", "Import Shopify") + '</button>' +
@@ -5444,6 +5445,27 @@
     }
   }
   
+  async function exportStockCSV() {
+    try {
+      var res = await authFetch(apiUrl("/stock.csv"));
+      if (res.ok) {
+        var csvData = await res.text();
+        var blob = new Blob([csvData], { type: "text/csv;charset=utf-8" });
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement("a");
+        a.href = url;
+        a.download = "inventaire-" + new Date().toISOString().slice(0, 10) + ".csv";
+        a.click();
+        URL.revokeObjectURL(url);
+        showToast(t("stock.exported", "Stock exporte"), "success");
+      } else {
+        throw new Error(t("msg.error", "Error"));
+      }
+    } catch (e) {
+      showToast(t("msg.exportError", "Erreur export") + ": " + e.message, "error");
+    }
+  }
+  
   async function exportMovementsCSV() {
     try {
       var res = await authFetch(apiUrl("/movements.csv"));
@@ -7870,6 +7892,7 @@
     updateSetting: updateSetting,
     updateNestedSetting: updateNestedSetting,
     exportSettings: exportSettings,
+    exportStockCSV: exportStockCSV,
     exportMovementsCSV: exportMovementsCSV,
     cancelPlan: cancelPlan,
     resetAllSettings: resetAllSettings,
