@@ -1794,7 +1794,8 @@
       title: '<i data-lucide="activity"></i> ' + t("movements.allMovements", "Tous les mouvements"),
       size: "lg",
       content: '<div class="text-center py-lg"><div class="spinner"></div></div>',
-      footer: '<button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.close", "Close") + '</button>'
+      footer: '<button class="btn btn-ghost" onclick="app.exportMovementsCSV()"><i data-lucide="download"></i> ' + t("action.exportCSV", "Export CSV") + '</button>' +
+              '<button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.close", "Close") + '</button>'
     });
     if (typeof lucide !== "undefined") lucide.createIcons();
     
@@ -2670,7 +2671,8 @@
         footer:
           '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.close", "Close") + '</button>' +
           '<button class="btn btn-secondary" onclick="app.showAdjustBatchModal(\'' + productId + '\',\'' + lotId + '\')">' + t("batches.adjust", "Ajuster") + '</button>' +
-          (lot.status === "active" ? '<button class="btn btn-danger" onclick="app.deactivateBatch(\'' + productId + '\',\'' + lotId + '\')">' + t("batches.deactivate", "Desactiver") + '</button>' : '')
+          (lot.status === "active" ? '<button class="btn btn-warning" onclick="app.deactivateBatch(\'' + productId + '\',\'' + lotId + '\')">' + t("batches.deactivate", "Desactiver") + '</button>' : '') +
+          '<button class="btn btn-danger" onclick="app.deleteBatch(\'' + productId + '\',\'' + lotId + '\')"><i data-lucide="trash-2"></i> ' + t("action.delete", "Delete") + '</button>'
       });
 
     } catch (e) {
@@ -5749,10 +5751,15 @@
       );
     }).join("");
     
+    var cancelLink = '';
+    if (state.planId && state.planId !== 'free' && state.planId !== 'starter_trial') {
+      cancelLink = '<div class="text-center mt-md"><a href="#" class="text-secondary text-sm" onclick="app.closeModal();app.cancelPlan();return false;">' + t("plan.cancelSubscription", "Annuler mon abonnement") + '</a></div>';
+    }
+    
     showModal({
       title: t("plans.choosePlan", "Choisir un plan"),
       size: "xl",
-      content: '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:20px;padding:8px">' + cards + '</div>',
+      content: '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:20px;padding:8px">' + cards + '</div>' + cancelLink,
       footer: '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.close", "Close") + '</button>',
     });
     if (typeof lucide !== "undefined") lucide.createIcons();
@@ -6313,7 +6320,9 @@
       title: '<i data-lucide="bell"></i> ' + t("notifications.title", "Notifications"),
       size: "md",
       content: '<div id="notificationsModalContent"><div class="text-center py-lg"><div class="spinner"></div></div></div>',
-      footer: '<button class="btn btn-ghost" onclick="app.checkAlerts()">' + t("notifications.refresh", "Actualiser") + '</button><button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.close", "Close") + '</button>'
+      footer: '<button class="btn btn-ghost" onclick="app.markAllNotificationsRead()"><i data-lucide="check-check"></i> ' + t("notifications.markAllRead", "Tout marquer lu") + '</button>' +
+              '<button class="btn btn-ghost" onclick="app.checkAlerts()">' + t("notifications.refresh", "Actualiser") + '</button>' +
+              '<button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.close", "Close") + '</button>'
     });
     if (typeof lucide !== "undefined") lucide.createIcons();
     
@@ -6986,6 +6995,7 @@
     c.innerHTML =
       '<div class="page-header"><div><h1 class="page-title"><i data-lucide="bar-chart-3"></i> ' + t("analytics.title", "Analytics PRO") + '</h1><p class="page-subtitle">' + t("analytics.subtitle", "Ventes, marges et performance") + '</p></div>' +
       '<div class="page-actions">' +
+      '<button class="btn btn-ghost" onclick="app.exportAnalyticsCSV()"><i data-lucide="download"></i> ' + t("action.export", "Export") + '</button>' +
       '<select class="form-select" id="analyticsPeriod" onchange="app.changeAnalyticsPeriod(this.value)">' +
       '<option value="7"' + (analyticsPeriod === "7" ? " selected" : "") + '>' + t("analytics.last7days", "7 derniers jours") + '</option>' +
       '<option value="30"' + (analyticsPeriod === "30" ? " selected" : "") + '>' + t("analytics.last30days", "30 derniers jours") + '</option>' +
@@ -7023,6 +7033,27 @@
       } else {
         loadAnalytics();
       }
+    }
+  }
+  
+  async function exportAnalyticsCSV() {
+    try {
+      var res = await authFetch(apiUrl("/analytics/export.csv?period=" + analyticsPeriod));
+      if (res.ok) {
+        var csvData = await res.text();
+        var blob = new Blob([csvData], { type: "text/csv;charset=utf-8" });
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement("a");
+        a.href = url;
+        a.download = "analytics-" + analyticsPeriod + "j-" + new Date().toISOString().slice(0, 10) + ".csv";
+        a.click();
+        URL.revokeObjectURL(url);
+        showToast(t("analytics.exported", "Analytics exportes"), "success");
+      } else {
+        throw new Error(t("msg.error", "Error"));
+      }
+    } catch (e) {
+      showToast(t("msg.exportError", "Erreur export") + ": " + e.message, "error");
     }
   }
 
@@ -7756,6 +7787,7 @@
     deleteProduct: deleteProduct,
     // Analytics
     changeAnalyticsPeriod: changeAnalyticsPeriod,
+    exportAnalyticsCSV: exportAnalyticsCSV,
     toggleSection: toggleSection,
     switchAnalyticsTab: switchAnalyticsTab,
     // Batches / Lots
