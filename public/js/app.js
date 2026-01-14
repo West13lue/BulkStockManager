@@ -104,7 +104,7 @@
     console.log("[Shop]", CURRENT_SHOP);
   }
 
-  // aÃ…"aâ‚¬¦ IMPORTANT: API calls should NOT include ?shop=... in an embedded app.
+  // ... IMPORTANT: API calls should NOT include ?shop=... in an embedded app.
   // The server should resolve shop from the Session Token (JWT) for security + Shopify review.
   function apiUrl(endpoint) {
     return API_BASE + endpoint;
@@ -202,7 +202,7 @@
     sessionToken = null;
   }
 
-  // aÃ…"aâ‚¬¦ authFetch correctly closed + sends Session Token
+  // ... authFetch correctly closed + sends Session Token
   async function authFetch(url, options) {
     options = options || {};
     var token = await getSessionToken();
@@ -225,7 +225,7 @@
       res = await doFetch();
     }
 
-    // Ãƒ°Ã…¸aâ‚¬ OAuth AUTO if token missing/revoked
+    //  OAuth AUTO if token missing/revoked
     if (res.status === 401) {
       var data = null;
       try {
@@ -301,7 +301,7 @@
     try {
       var token = await getSessionToken();
       if (!token) {
-        console.warn("[OAuth] Aucun session token aaâ‚¬ aâ‚¬â„¢ redirection");
+        console.warn("[OAuth] Aucun session token aa a„¢ redirection");
         var shop = CURRENT_SHOP;
         if (!shop) throw new Error("Shop manquant");
         var url = "/api/auth/start?shop=" + encodeURIComponent(shop);
@@ -311,7 +311,7 @@
       }
       return true;
     } catch (e) {
-      console.warn("[OAuth] Erreur session aaâ‚¬ aâ‚¬â„¢ redirection", e);
+      console.warn("[OAuth] Erreur session aa a„¢ redirection", e);
       var shop2 = CURRENT_SHOP;
       if (shop2) {
         var url2 = "/api/auth/start?shop=" + encodeURIComponent(shop2);
@@ -572,7 +572,7 @@
     });
     
     html += '<div class="search-shortcut-hint">' +
-      '<span><kbd>â†‘â†“</kbd> ' + t("search.navigate", "Naviguer") + '</span>' +
+      '<span><kbd>†‘†“</kbd> ' + t("search.navigate", "Naviguer") + '</span>' +
       '<span><kbd>Enter</kbd> ' + t("search.select", "Selectionner") + '</span>' +
       '<span><kbd>Esc</kbd> ' + t("search.close", "Fermer") + '</span>' +
       '</div>';
@@ -661,7 +661,7 @@
         '<div class="shortcut-item"><kbd>Esc</kbd><span>' + t("shortcuts.closeModal", "Fermer fenetre") + '</span></div>' +
         '<div class="shortcut-item"><kbd>?</kbd><span>' + t("shortcuts.help", "Afficher cette aide") + '</span></div>' +
         '</div>',
-      footer: '<button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.close", "Fermer") + '</button>'
+      footer: '<button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.close", "Close") + '</button>'
     });
     if (typeof lucide !== "undefined") lucide.createIcons();
   }
@@ -905,7 +905,7 @@
   }
 
   // ============================================
-  // SYSTÃˆME DE TUTORIEL CONTEXTUEL
+  // SYSTEME DE TUTORIEL CONTEXTUEL
   // ============================================
   
   var tutorialsSeen = {};
@@ -964,7 +964,7 @@
         icon: "tags",
         steps: [
           { icon: "calendar", text: t("tutorial.batches.step1", "Gerez les dates de peremption de vos produits.") },
-          { icon: "alert-circle", text: t("tutorial.batches.step2", "Recevez des alertes pour les lots qui arrivent Ã  expiration.") },
+          { icon: "alert-circle", text: t("tutorial.batches.step2", "Recevez des alertes pour les lots qui arrivent a  expiration.") },
           { icon: "package", text: t("tutorial.batches.step3", "Suivez la tracabilite de chaque lot entrant.") }
         ],
         tip: t("tutorial.batches.tip", "Astuce : Les lots expires sont automatiquement signales en rouge.")
@@ -974,8 +974,8 @@
         icon: "factory",
         steps: [
           { icon: "users", text: t("tutorial.suppliers.step1", "Centralisez les informations de vos fournisseurs.") },
-          { icon: "phone", text: t("tutorial.suppliers.step2", "Gardez leurs contacts et conditions Ã  portee de main.") },
-          { icon: "link", text: t("tutorial.suppliers.step3", "Associez les produits Ã  leurs fournisseurs pour un suivi optimal.") }
+          { icon: "phone", text: t("tutorial.suppliers.step2", "Gardez leurs contacts et conditions a  portee de main.") },
+          { icon: "link", text: t("tutorial.suppliers.step3", "Associez les produits a  leurs fournisseurs pour un suivi optimal.") }
         ],
         tip: t("tutorial.suppliers.tip", "Astuce : Ajoutez les delais de livraison pour anticiper vos commandes.")
       },
@@ -985,7 +985,7 @@
         steps: [
           { icon: "shopping-cart", text: t("tutorial.orders.step1", "Creez des bons de commande vers vos fournisseurs.") },
           { icon: "truck", text: t("tutorial.orders.step2", "Suivez l'etat de vos commandes en cours.") },
-          { icon: "check-circle", text: t("tutorial.orders.step3", "Receptionnez les commandes pour mettre Ã  jour le stock automatiquement.") }
+          { icon: "check-circle", text: t("tutorial.orders.step3", "Receptionnez les commandes pour mettre a  jour le stock automatiquement.") }
         ],
         tip: t("tutorial.orders.tip", "Astuce : Importez vos commandes Shopify pour un suivi complet.")
       },
@@ -1035,7 +1035,7 @@
         steps: [
           { icon: "globe", text: t("tutorial.settings.step1", "Configurez la langue et les unites de mesure.") },
           { icon: "bell", text: t("tutorial.settings.step2", "Personnalisez vos seuils d'alerte de stock.") },
-          { icon: "palette", text: t("tutorial.settings.step3", "Adaptez l'interface Ã  vos preferences.") }
+          { icon: "palette", text: t("tutorial.settings.step3", "Adaptez l'interface a  vos preferences.") }
         ],
         tip: t("tutorial.settings.tip", "Astuce : Sauvegardez vos parametres pour les restaurer facilement.")
       }
@@ -1050,7 +1050,7 @@
   function showTabTutorialIfNeeded(tab) {
     loadTutorialState();
     
-    // Ne pas afficher si dejÃ  vu
+    // Ne pas afficher si deja vu
     if (tutorialsSeen[tab]) return;
     
     // Ne pas afficher si pas de tutoriel defini
@@ -1091,7 +1091,7 @@
     
     var footerHtml = '';
     if (isLocked) {
-      footerHtml = '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.close", "Fermer") + '</button>' +
+      footerHtml = '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.close", "Close") + '</button>' +
         '<button class="btn btn-primary" onclick="app.closeModal();app.showUpgradeModal()"><i data-lucide="sparkles"></i> ' + t("plan.upgrade", "Passer au plan superieur") + '</button>';
     } else {
       footerHtml = '<label class="tutorial-checkbox"><input type="checkbox" id="dontShowAgain" checked> ' + t("tutorial.dontShowAgain", "Ne plus afficher pour cet onglet") + '</label>' +
@@ -1136,7 +1136,7 @@
       size: "md",
       content: '<div class="tutorial-list">' + listHtml + '</div>',
       footer: '<button class="btn btn-ghost" onclick="app.resetAllTutorials();app.closeModal()">' + t("tutorial.resetAll", "Reinitialiser tout") + '</button>' +
-        '<button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.close", "Fermer") + '</button>'
+        '<button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.close", "Close") + '</button>'
     });
     
     if (typeof lucide !== "undefined") lucide.createIcons();
@@ -1289,7 +1289,7 @@
       title: '<i data-lucide="alert-triangle"></i> ' + t("dashboard.lowStockProducts", "Produits stock bas"),
       size: "md",
       content: html,
-      footer: '<button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.close", "Fermer") + '</button>'
+      footer: '<button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.close", "Close") + '</button>'
     });
     if (typeof lucide !== "undefined") lucide.createIcons();
   }
@@ -1319,7 +1319,7 @@
       title: '<i data-lucide="x-circle"></i> ' + t("dashboard.outOfStockProducts", "Produits en rupture"),
       size: "md",
       content: html,
-      footer: '<button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.close", "Fermer") + '</button>'
+      footer: '<button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.close", "Close") + '</button>'
     });
     if (typeof lucide !== "undefined") lucide.createIcons();
   }
@@ -1352,7 +1352,7 @@
         '</div></div>' +
         '<div class="form-group"><label>' + t("products.note", "Note") + ' (' + t("products.optional", "optionnel") + ')</label>' +
         '<input type="text" id="quickRestockNote" class="form-input" placeholder="' + t("products.notePlaceholder", "Ex: Livraison fournisseur") + '"></div>',
-      footer: '<button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.cancel", "Annuler") + '</button>' +
+      footer: '<button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.cancel", "Cancel") + '</button>' +
         '<button class="btn btn-primary" onclick="app.doQuickRestock()">' + t("action.confirm", "Valider") + '</button>'
     });
     if (typeof lucide !== "undefined") lucide.createIcons();
@@ -1429,9 +1429,9 @@
         closeModal();
         loadProducts(true).then(function() { renderTab(state.currentTab); });
       } else {
-        res.json().then(function(d) { showToast(d.error || t("msg.error", "Erreur"), "error"); });
+        res.json().then(function(d) { showToast(d.error || t("msg.error", "Error"), "error"); });
       }
-    }).catch(function() { showToast(t("msg.error", "Erreur"), "error"); });
+    }).catch(function() { showToast(t("msg.error", "Error"), "error"); });
   }
 
   // Ajustement rapide
@@ -1454,7 +1454,7 @@
         '<option value="theft">' + t("reason.theft", "Vol/Perte") + '</option>' +
         '<option value="correction">' + t("reason.correction", "Correction erreur") + '</option>' +
         '</select></div>',
-      footer: '<button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.cancel", "Annuler") + '</button>' +
+      footer: '<button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.cancel", "Cancel") + '</button>' +
         '<button class="btn btn-primary" onclick="app.doQuickAdjust()">' + t("action.confirm", "Valider") + '</button>'
     });
     if (typeof lucide !== "undefined") lucide.createIcons();
@@ -1477,9 +1477,9 @@
         closeModal();
         loadProducts(true).then(function() { renderTab(state.currentTab); });
       } else {
-        res.json().then(function(d) { showToast(d.error || t("msg.error", "Erreur"), "error"); });
+        res.json().then(function(d) { showToast(d.error || t("msg.error", "Error"), "error"); });
       }
-    }).catch(function() { showToast(t("msg.error", "Erreur"), "error"); });
+    }).catch(function() { showToast(t("msg.error", "Error"), "error"); });
   }
 
   // Scanner code-barres
@@ -1501,7 +1501,7 @@
         '<div style="display:flex;gap:8px"><input type="text" id="manual-barcode" class="form-input" placeholder="' + t("scanner.barcodePlaceholder", "Code-barres...") + '" onkeypress="if(event.key===\'Enter\')app.searchBarcode()">' +
         '<button class="btn btn-primary" onclick="app.searchBarcode()">' + t("action.search", "Rechercher") + '</button></div>' +
         '</div></div>',
-      footer: '<button class="btn btn-secondary" onclick="app.stopScanner();app.closeModal()">' + t("action.close", "Fermer") + '</button>'
+      footer: '<button class="btn btn-secondary" onclick="app.stopScanner();app.closeModal()">' + t("action.close", "Close") + '</button>'
     });
     if (typeof lucide !== "undefined") lucide.createIcons();
     
@@ -1533,7 +1533,7 @@
     var isSecure = location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1';
     if (!isSecure) {
       status.innerHTML = '<span class="text-warning"><i data-lucide="alert-triangle"></i> ' + 
-        t("scanner.httpsRequired", "HTTPS requis pour acceder Ã  la camera") + '</span>';
+        t("scanner.httpsRequired", "HTTPS requis pour acceder a  la camera") + '</span>';
       if (typeof lucide !== "undefined") lucide.createIcons();
       return;
     }
@@ -1546,7 +1546,7 @@
     }
     
     // Afficher loading
-    status.innerHTML = '<div class="spinner"></div> ' + t("scanner.requesting", "Demande d\'acces Ã  la camera...");
+    status.innerHTML = '<div class="spinner"></div> ' + t("scanner.requesting", "Demande d\'acces a  la camera...");
     
     // Contraintes optimisees pour mobile
     var constraints = {
@@ -1619,7 +1619,7 @@
             '<strong>' + t("scanner.howToEnable", "Comment activer la camera :") + '</strong><br>' +
             '<ol style="margin:8px 0 0 16px;padding:0">' +
             '<li>' + t("scanner.step1", "Cliquez sur l'icone camera/cadenas dans la barre d'adresse") + '</li>' +
-            '<li>' + t("scanner.step2", "Autorisez l'acces Ã  la camera pour ce site") + '</li>' +
+            '<li>' + t("scanner.step2", "Autorisez l'acces a  la camera pour ce site") + '</li>' +
             '<li>' + t("scanner.step3", "Rechargez la page si necessaire") + '</li>' +
             '</ol></div>';
         }
@@ -1710,8 +1710,8 @@
         title: '<i data-lucide="search-x"></i> ' + t("scanner.notFound", "Produit non trouve"),
         content: '<div class="text-center py-lg"><p>' + t("scanner.notFoundMsg", "Aucun produit trouve avec le code") + ' <strong>' + esc(code) + '</strong></p>' +
           '<p class="text-muted">' + t("scanner.notFoundHint", "Verifiez que le code-barres est configure sur le produit dans Shopify.") + '</p></div>',
-        footer: '<button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.close", "Fermer") + '</button>' +
-          '<button class="btn btn-primary" onclick="app.closeModal();app.showScannerModal()">' + t("scanner.scanAgain", "Scanner Ã  nouveau") + '</button>'
+        footer: '<button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.close", "Close") + '</button>' +
+          '<button class="btn btn-primary" onclick="app.closeModal();app.showScannerModal()">' + t("scanner.scanAgain", "Scanner a  nouveau") + '</button>'
       });
       if (typeof lucide !== "undefined") lucide.createIcons();
     }
@@ -1724,7 +1724,7 @@
       if (!container) return;
       
       if (!res.ok) {
-        container.innerHTML = '<p class="text-secondary text-center">' + t("msg.error", "Erreur") + '</p>';
+        container.innerHTML = '<p class="text-secondary text-center">' + t("msg.error", "Error") + '</p>';
         return;
       }
       
@@ -1783,7 +1783,7 @@
     } catch (e) {
       var container = document.getElementById("dashboardMovements");
       if (container) {
-        container.innerHTML = '<p class="text-secondary text-center">' + t("msg.error", "Erreur") + '</p>';
+        container.innerHTML = '<p class="text-secondary text-center">' + t("msg.error", "Error") + '</p>';
       }
     }
   }
@@ -1794,13 +1794,13 @@
       title: '<i data-lucide="activity"></i> ' + t("movements.allMovements", "Tous les mouvements"),
       size: "lg",
       content: '<div class="text-center py-lg"><div class="spinner"></div></div>',
-      footer: '<button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.close", "Fermer") + '</button>'
+      footer: '<button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.close", "Close") + '</button>'
     });
     if (typeof lucide !== "undefined") lucide.createIcons();
     
     try {
       var res = await authFetch(apiUrl("/movements?limit=100"));
-      if (!res.ok) throw new Error("Erreur");
+      if (!res.ok) throw new Error(t("msg.error", "Error"));
       
       var data = await res.json();
       var movements = data.movements || [];
@@ -1849,7 +1849,7 @@
     } catch (e) {
       var modalBody = document.querySelector('.modal .modal-body');
       if (modalBody) {
-        modalBody.innerHTML = '<p class="text-danger text-center">' + t("msg.error", "Erreur") + ': ' + e.message + '</p>';
+        modalBody.innerHTML = '<p class="text-danger text-center">' + t("msg.error", "Error") + ': ' + e.message + '</p>';
       }
     }
   }
@@ -1862,7 +1862,7 @@
       if (!container) return;
       
       if (!res.ok) {
-        container.innerHTML = '<p class="text-secondary text-center">' + t("msg.error", "Erreur") + '</p>';
+        container.innerHTML = '<p class="text-secondary text-center">' + t("msg.error", "Error") + '</p>';
         return;
       }
       
@@ -1875,7 +1875,7 @@
         return;
       }
       
-      // Container scrollable limite Ã  5 elements (~280px)
+      // Container scrollable limite a  5 elements (~280px)
       var html = '<div class="activity-list" style="max-height:280px;overflow-y:auto">';
       movements.forEach(function(m) {
         var mType = m.type || m.source || 'adjustment';
@@ -1913,7 +1913,7 @@
     } catch (e) {
       var container = document.getElementById("dashboardActivity");
       if (container) {
-        container.innerHTML = '<p class="text-secondary text-center">' + t("msg.error", "Erreur") + '</p>';
+        container.innerHTML = '<p class="text-secondary text-center">' + t("msg.error", "Error") + '</p>';
       }
     }
   }
@@ -1937,7 +1937,7 @@
       title: '<i data-lucide="history"></i> ' + t("dashboard.fullActivityLog", "Journal d\'activite"),
       size: "lg",
       content: '<div id="fullActivityContent"><div class="text-center py-lg"><div class="spinner"></div></div></div>',
-      footer: '<button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.close", "Fermer") + '</button>'
+      footer: '<button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.close", "Close") + '</button>'
     });
     if (typeof lucide !== "undefined") lucide.createIcons();
     loadFullActivityLog();
@@ -1950,7 +1950,7 @@
       if (!container) return;
       
       if (!res.ok) {
-        container.innerHTML = '<p class="text-danger text-center">' + t("msg.error", "Erreur") + '</p>';
+        container.innerHTML = '<p class="text-danger text-center">' + t("msg.error", "Error") + '</p>';
         return;
       }
       
@@ -2008,7 +2008,7 @@
     } catch (e) {
       var container = document.getElementById("fullActivityContent");
       if (container) {
-        container.innerHTML = '<p class="text-danger text-center">' + t("msg.error", "Erreur") + ': ' + e.message + '</p>';
+        container.innerHTML = '<p class="text-danger text-center">' + t("msg.error", "Error") + ': ' + e.message + '</p>';
       }
     }
   }
@@ -2201,7 +2201,7 @@
       '<button class="btn btn-ghost" onclick="app.showScannerModal()" title="' + t("scanner.title", "Scanner code-barres") + '"><i data-lucide="scan-barcode"></i></button>' +
       '<button class="btn btn-ghost" onclick="app.showCategoriesModal()">' + t("categories.title", "Categories") + '</button>' +
       '<button class="btn btn-secondary" onclick="app.showImportModal()">' + t("products.importShopify", "Import Shopify") + '</button>' +
-      '<button class="btn btn-primary" onclick="app.showAddProductModal()">+ ' + t("action.add", "Ajouter") + '</button></div></div>' +
+      '<button class="btn btn-primary" onclick="app.showAddProductModal()">+ ' + t("action.add", "Add") + '</button></div></div>' +
       
       // Toolbar filtres
       '<div class="toolbar-filters">' +
@@ -2294,7 +2294,7 @@
 
     } catch (e) {
       document.getElementById("batchesContent").innerHTML =
-        '<div class="card"><div class="card-body text-center"><p class="text-danger">' + t("msg.error", "Erreur") + ': ' + e.message + '</p></div></div>';
+        '<div class="card"><div class="card-body text-center"><p class="text-danger">' + t("msg.error", "Error") + ': ' + e.message + '</p></div></div>';
     }
   }
 
@@ -2384,7 +2384,7 @@
       
       return '<tr class="batch-row" onclick="app.openBatchDetails(\'' + esc(lot.productId) + '\',\'' + esc(lot.id) + '\')">' +
         '<td><span class="batch-id">' + esc(lot.id) + '</span></td>' +
-        '<td>' + esc(lot.productName || "Produit") + '</td>' +
+        '<td>' + esc(lot.productName || t("products.product", "Product")) + '</td>' +
         '<td>' + formatWeight(lot.currentGrams) + ' / ' + formatWeight(lot.initialGrams) + '</td>' +
         '<td>' + (lot.expiryDate ? lot.expiryDate : '-') + '</td>' +
         '<td>' + dlcBadge + '</td>' +
@@ -2500,8 +2500,8 @@
         '<div class="form-group"><label class="form-label">' + t("batches.notes", "Notes") + '</label>' +
         '<textarea class="form-input" id="batchNotes" rows="2" placeholder="Notes optionnelles..."></textarea></div>',
       footer:
-        '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.cancel", "Annuler") + '</button>' +
-        '<button class="btn btn-primary" onclick="app.saveBatch()">' + t("action.save", "Enregistrer") + '</button>'
+        '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.cancel", "Cancel") + '</button>' +
+        '<button class="btn btn-primary" onclick="app.saveBatch()">' + t("action.save", "Save") + '</button>'
     });
   }
 
@@ -2538,7 +2538,7 @@
 
       if (!res.ok) {
         var err = await res.json().catch(function() { return {}; });
-        throw new Error(err.error || "Erreur");
+        throw new Error(err.error || t("msg.error", "Error"));
       }
 
       closeModal();
@@ -2546,7 +2546,7 @@
       loadBatchesData();
 
     } catch (e) {
-      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
+      showToast(t("msg.error", "Error") + ": " + e.message, "error");
     }
   }
 
@@ -2559,8 +2559,8 @@
         '<div class="form-group"><label class="form-label">' + t("batches.reason", "Raison") + '</label>' +
         '<input type="text" class="form-input" id="adjustReason" placeholder="Perte, correction inventaire..."></div>',
       footer:
-        '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.cancel", "Annuler") + '</button>' +
-        '<button class="btn btn-primary" onclick="app.saveAdjustBatch(\'' + productId + '\',\'' + lotId + '\')">' + t("action.save", "Enregistrer") + '</button>'
+        '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.cancel", "Cancel") + '</button>' +
+        '<button class="btn btn-primary" onclick="app.saveAdjustBatch(\'' + productId + '\',\'' + lotId + '\')">' + t("action.save", "Save") + '</button>'
     });
   }
 
@@ -2584,7 +2584,7 @@
 
       if (!res.ok) {
         var err = await res.json().catch(function() { return {}; });
-        throw new Error(err.error || "Erreur");
+        throw new Error(err.error || t("msg.error", "Error"));
       }
 
       closeModal();
@@ -2592,7 +2592,7 @@
       loadBatchesData();
 
     } catch (e) {
-      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
+      showToast(t("msg.error", "Error") + ": " + e.message, "error");
     }
   }
 
@@ -2668,13 +2668,13 @@
           
           '</div>',
         footer:
-          '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.close", "Fermer") + '</button>' +
+          '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.close", "Close") + '</button>' +
           '<button class="btn btn-secondary" onclick="app.showAdjustBatchModal(\'' + productId + '\',\'' + lotId + '\')">' + t("batches.adjust", "Ajuster") + '</button>' +
           (lot.status === "active" ? '<button class="btn btn-danger" onclick="app.deactivateBatch(\'' + productId + '\',\'' + lotId + '\')">' + t("batches.deactivate", "Desactiver") + '</button>' : '')
       });
 
     } catch (e) {
-      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
+      showToast(t("msg.error", "Error") + ": " + e.message, "error");
     }
   }
 
@@ -2687,28 +2687,47 @@
         body: JSON.stringify({ status: "recalled" })
       });
 
-      if (!res.ok) throw new Error("Erreur");
+      if (!res.ok) throw new Error(t("msg.error", "Error"));
 
       closeModal();
       showToast(t("batches.lotDeactivated", "Lot desactive"), "success");
       loadBatchesData();
 
     } catch (e) {
-      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
+      showToast(t("msg.error", "Error") + ": " + e.message, "error");
+    }
+  }
+  
+  async function deleteBatch(productId, lotId) {
+    if (!confirm(t("batches.confirmDelete", "Voulez-vous vraiment supprimer ce lot ? Cette action est irreversible."))) return;
+
+    try {
+      var res = await authFetch(apiUrl("/lots/" + productId + "/" + lotId), {
+        method: "DELETE"
+      });
+
+      if (!res.ok) throw new Error(t("msg.error", "Error"));
+
+      closeModal();
+      showToast(t("batches.lotDeleted", "Lot supprime"), "success");
+      loadBatchesData();
+
+    } catch (e) {
+      showToast(t("msg.error", "Error") + ": " + e.message, "error");
     }
   }
 
   async function markExpiredBatches() {
     try {
       var res = await authFetch(apiUrl("/lots/mark-expired"), { method: "POST" });
-      if (!res.ok) throw new Error("Erreur");
+      if (!res.ok) throw new Error(t("msg.error", "Error"));
 
       var data = await res.json();
       showToast(t("batches.markedExpired", "lots marques expires").replace("{count}", data.markedCount), "success");
       loadBatchesData();
 
     } catch (e) {
-      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
+      showToast(t("msg.error", "Error") + ": " + e.message, "error");
     }
   }
 
@@ -2775,7 +2794,7 @@
 
     } catch (e) {
       document.getElementById("suppliersContent").innerHTML =
-        '<div class="card"><div class="card-body text-center"><p class="text-danger">' + t("msg.error", "Erreur") + ': ' + e.message + '</p></div></div>';
+        '<div class="card"><div class="card-body text-center"><p class="text-danger">' + t("msg.error", "Error") + ': ' + e.message + '</p></div></div>';
     }
   }
 
@@ -2959,8 +2978,8 @@
         '<div class="form-group"><label class="form-label">' + t("suppliers.notes", "Notes") + '</label>' +
         '<textarea class="form-input" id="supplierNotes" rows="2" placeholder="Notes internes..."></textarea></div>',
       footer:
-        '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.cancel", "Annuler") + '</button>' +
-        '<button class="btn btn-primary" onclick="app.saveSupplier()">' + t("action.save", "Enregistrer") + '</button>'
+        '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.cancel", "Cancel") + '</button>' +
+        '<button class="btn btn-primary" onclick="app.saveSupplier()">' + t("action.save", "Save") + '</button>'
     });
   }
 
@@ -3004,7 +3023,7 @@
 
       if (!res.ok) {
         var err = await res.json().catch(function() { return {}; });
-        throw new Error(err.error || err.message || "Erreur");
+        throw new Error(err.error || err.message || t("msg.error", "Error"));
       }
 
       closeModal();
@@ -3012,7 +3031,7 @@
       loadSuppliersData();
 
     } catch (e) {
-      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
+      showToast(t("msg.error", "Error") + ": " + e.message, "error");
     }
   }
 
@@ -3124,12 +3143,12 @@
         size: "xl",
         content: content,
         footer:
-          '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.close", "Fermer") + '</button>' +
-          '<button class="btn btn-secondary" onclick="app.showEditSupplierModal(\'' + supplierId + '\')">' + t("action.edit", "Modifier") + '</button>'
+          '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.close", "Close") + '</button>' +
+          '<button class="btn btn-secondary" onclick="app.showEditSupplierModal(\'' + supplierId + '\')">' + t("action.edit", "Edit") + '</button>'
       });
 
     } catch (e) {
-      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
+      showToast(t("msg.error", "Error") + ": " + e.message, "error");
     }
   }
 
@@ -3175,14 +3194,14 @@
         var footer = document.querySelector('.modal-footer');
         if (footer) {
           footer.innerHTML = 
-            '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.cancel", "Annuler") + '</button>' +
-            '<button class="btn btn-danger" onclick="app.deleteSupplier(\'' + supplierId + '\')">' + t("action.delete", "Supprimer") + '</button>' +
-            '<button class="btn btn-primary" onclick="app.updateSupplier(\'' + supplierId + '\')">' + t("action.save", "Enregistrer") + '</button>';
+            '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.cancel", "Cancel") + '</button>' +
+            '<button class="btn btn-danger" onclick="app.deleteSupplier(\'' + supplierId + '\')">' + t("action.delete", "Delete") + '</button>' +
+            '<button class="btn btn-primary" onclick="app.updateSupplier(\'' + supplierId + '\')">' + t("action.save", "Save") + '</button>';
         }
       }, 100);
 
     } catch (e) {
-      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
+      showToast(t("msg.error", "Error") + ": " + e.message, "error");
     }
   }
 
@@ -3195,14 +3214,14 @@
 
     try {
       var res = await authFetch(apiUrl("/suppliers/" + supplierId), { method: "DELETE" });
-      if (!res.ok) throw new Error("Erreur");
+      if (!res.ok) throw new Error(t("msg.error", "Error"));
 
       closeModal();
       showToast(t("suppliers.deleted", "Fournisseur supprime"), "success");
       loadSuppliersData();
 
     } catch (e) {
-      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
+      showToast(t("msg.error", "Error") + ": " + e.message, "error");
     }
   }
 
@@ -3290,7 +3309,7 @@
           showUpgradeModal();
           return;
         }
-        throw new Error(err.error || "Erreur");
+        throw new Error(err.error || t("msg.error", "Error"));
       }
 
       ordersData.purchases = await res.json();
@@ -3442,7 +3461,7 @@
         '<div class="form-group"><label class="form-label">' + t("orders.notes", "Notes") + '</label>' +
         '<textarea class="form-input" id="poNotes" rows="2"></textarea></div>',
       footer:
-        '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.cancel", "Annuler") + '</button>' +
+        '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.cancel", "Cancel") + '</button>' +
         '<button class="btn btn-primary" onclick="app.savePO()">' + t("action.save", "Creer") + '</button>'
     });
 
@@ -3546,14 +3565,14 @@
         })
       });
 
-      if (!res.ok) throw new Error("Erreur");
+      if (!res.ok) throw new Error(t("msg.error", "Error"));
 
       closeModal();
       showToast(t("orders.poCreated", "Commande creee"), "success");
       loadPurchaseOrders();
 
     } catch (e) {
-      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
+      showToast(t("msg.error", "Error") + ": " + e.message, "error");
     }
   }
 
@@ -3614,12 +3633,12 @@
           '<div class="po-total-row po-total-final"><span>' + t("orders.total", "Total") + ':</span><span>' + formatCurrency(po.total || 0) + '</span></div>' +
           '</div>',
         footer:
-          '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.close", "Fermer") + '</button>' +
+          '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.close", "Close") + '</button>' +
           actionsHtml
       });
 
     } catch (e) {
-      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
+      showToast(t("msg.error", "Error") + ": " + e.message, "error");
     }
   }
 
@@ -3630,7 +3649,7 @@
       showToast(t("orders.poSent", "Commande envoyee"), "success");
       loadPurchaseOrders();
     } catch (e) {
-      showToast(t("msg.error", "Erreur"), "error");
+      showToast(t("msg.error", "Error"), "error");
     }
   }
 
@@ -3641,19 +3660,19 @@
       showToast(t("orders.poConfirmed", "Commande confirmee"), "success");
       loadPurchaseOrders();
     } catch (e) {
-      showToast(t("msg.error", "Erreur"), "error");
+      showToast(t("msg.error", "Error"), "error");
     }
   }
 
   async function receivePO(poId) {
     try {
       var res = await authFetch(apiUrl("/purchase-orders/" + poId + "/receive"), { method: "POST" });
-      if (!res.ok) throw new Error((await res.json().catch(function(){return {};}).message || "Erreur"));
+      if (!res.ok) throw new Error((await res.json().catch(function(){return {};}).message || t("msg.error", "Error")));
       closeModal();
       showToast(t("orders.poReceived", "Commande receptionnee - stock mis a jour"), "success");
       loadPurchaseOrders();
     } catch (e) {
-      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
+      showToast(t("msg.error", "Error") + ": " + e.message, "error");
     }
   }
 
@@ -3661,12 +3680,12 @@
     if (!confirm(t("orders.confirmCancel", "Annuler cette commande ?"))) return;
     try {
       var res = await authFetch(apiUrl("/purchase-orders/" + poId + "/cancel"), { method: "POST" });
-      if (!res.ok) throw new Error("Erreur");
+      if (!res.ok) throw new Error(t("msg.error", "Error"));
       closeModal();
       showToast(t("orders.poCancelled", "Commande annulee"), "success");
       loadPurchaseOrders();
     } catch (e) {
-      showToast(t("msg.error", "Erreur"), "error");
+      showToast(t("msg.error", "Error"), "error");
     }
   }
 
@@ -3679,7 +3698,7 @@
       from.setDate(from.getDate() - parseInt(days));
 
       var res = await authFetch(apiUrl("/sales-orders?from=" + from.toISOString().slice(0, 10) + "&limit=100"));
-      if (!res.ok) throw new Error("Erreur");
+      if (!res.ok) throw new Error(t("msg.error", "Error"));
 
       ordersData.sales = await res.json();
       renderSalesKpis();
@@ -3786,7 +3805,7 @@
       showToast(t("orders.imported", "commandes importees").replace("{count}", data.imported), "success");
       loadSalesOrders();
     } catch (e) {
-      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
+      showToast(t("msg.error", "Error") + ": " + e.message, "error");
     }
   }
 
@@ -3837,12 +3856,12 @@
           '<th>%</th>' +
           '</tr></thead><tbody>' + linesHtml + '</tbody></table>' +
           '<div class="text-secondary text-sm mt-md">' + t("orders.date", "Date") + ': ' + (so.createdAt || '').slice(0, 10) + '</div>',
-        footer: '<button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.close", "Fermer") + '</button>'
+        footer: '<button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.close", "Close") + '</button>'
       });
       
       if (typeof lucide !== "undefined") lucide.createIcons();
     } catch (e) {
-      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
+      showToast(t("msg.error", "Error") + ": " + e.message, "error");
     }
   }
 
@@ -3861,7 +3880,7 @@
         '<textarea id="receiveNotes" class="form-input" rows="2" placeholder="' + t("orders.notesPlaceholder", "Ex: Livraison partielle, produit manquant...") + '"></textarea>' +
         '</div>',
       footer:
-        '<button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.cancel", "Annuler") + '</button>' +
+        '<button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.cancel", "Cancel") + '</button>' +
         '<button class="btn btn-primary" onclick="app.receivePO(\'' + poId + '\')">' + t("orders.confirmReceive", "Confirmer reception") + '</button>'
     });
   }
@@ -3884,11 +3903,11 @@
       closeModal();
       loadPurchaseOrders();
     } catch (e) {
-      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
+      showToast(t("msg.error", "Error") + ": " + e.message, "error");
     }
   }
 
-  // Modal pour lier un produit Ã  un fournisseur
+  // Modal pour lier un produit a  un fournisseur
   function showLinkProductModal(supplierId) {
     var productOptions = (state.products || []).map(function(p) {
       return '<option value="' + p.productId + '">' + esc(p.name) + '</option>';
@@ -3911,8 +3930,8 @@
         '<input type="text" id="linkProductSku" class="form-input" placeholder="SKU fournisseur">' +
         '</div>',
       footer:
-        '<button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.cancel", "Annuler") + '</button>' +
-        '<button class="btn btn-primary" onclick="app.linkProduct(\'' + supplierId + '\')">' + t("action.save", "Enregistrer") + '</button>'
+        '<button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.cancel", "Cancel") + '</button>' +
+        '<button class="btn btn-primary" onclick="app.linkProduct(\'' + supplierId + '\')">' + t("action.save", "Save") + '</button>'
     });
   }
 
@@ -3934,7 +3953,7 @@
       
       if (!res.ok) {
         var err = await res.json().catch(function() { return {}; });
-        throw new Error(err.error || "Erreur");
+        throw new Error(err.error || t("msg.error", "Error"));
       }
       
       showToast(t("suppliers.productLinked", "Produit lie"), "success");
@@ -3942,7 +3961,7 @@
       // Recharger les détails du fournisseur
       openSupplierDetails(supplierId);
     } catch (e) {
-      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
+      showToast(t("msg.error", "Error") + ": " + e.message, "error");
     }
   }
 
@@ -3958,14 +3977,14 @@
       
       if (!res.ok) {
         var err = await res.json().catch(function() { return {}; });
-        throw new Error(err.error || "Erreur");
+        throw new Error(err.error || t("msg.error", "Error"));
       }
       
       showToast(t("suppliers.productUnlinked", "Produit retire"), "success");
       // Recharger les détails du fournisseur
       openSupplierDetails(supplierId);
     } catch (e) {
-      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
+      showToast(t("msg.error", "Error") + ": " + e.message, "error");
     }
   }
 
@@ -4017,7 +4036,7 @@
           '<button class="btn btn-ghost btn-xs" onclick="app.showRestockModal(\'' + p.productId + '\')">+</button>' +
           '<button class="btn btn-ghost btn-xs" onclick="app.showAdjustModal(\'' + p.productId + '\')">' + t("action.edit", "Edit") + '</button>' +
           '<button class="btn btn-ghost btn-xs" onclick="app.openProductDetails(\'' + p.productId + '\')">' + t("action.details", "Details") + '</button>' +
-          '<button class="btn btn-ghost btn-xs btn-danger-hover" onclick="app.confirmDeleteProduct(\'' + p.productId + '\',\'' + esc(p.name || p.title || "").replace(/'/g, "\\'") + '\')" title="' + t("action.delete", "Supprimer") + '"><i data-lucide="trash-2"></i></button></td></tr>'
+          '<button class="btn btn-ghost btn-xs btn-danger-hover" onclick="app.confirmDeleteProduct(\'' + p.productId + '\',\'' + esc(p.name || p.title || "").replace(/'/g, "\\'") + '\')" title="' + t("action.delete", "Delete") + '"><i data-lucide="trash-2"></i></button></td></tr>'
         );
       })
       .join("");
@@ -4039,7 +4058,7 @@
     return (
       '<div class="empty-state"><div class="empty-icon"><i data-lucide="package-open"></i></div><h3>' + t("products.noProducts", "Aucun produit") + '</h3>' +
       '<p class="text-secondary">' + t("products.addOrImport", "Ajoutez ou importez des produits.") + '</p>' +
-      '<button class="btn btn-primary" onclick="app.showAddProductModal()">+ ' + t("action.add", "Ajouter") + '</button> ' +
+      '<button class="btn btn-primary" onclick="app.showAddProductModal()">+ ' + t("action.add", "Add") + '</button> ' +
       '<button class="btn btn-secondary" onclick="app.showImportModal()">' + t("products.importShopify", "Import Shopify") + '</button></div>'
     );
   }
@@ -4101,7 +4120,7 @@
       if (!res.ok) {
         var err = await res.json().catch(function() { return {}; });
         if (err.error === "plan_limit") { showUpgradeModal(); return; }
-        throw new Error(err.message || "Erreur");
+        throw new Error(err.message || t("msg.error", "Error"));
       }
 
       var data = await res.json();
@@ -4112,7 +4131,7 @@
       renderForecastFilters();
       renderForecastContent();
     } catch (e) {
-      document.getElementById("forecastContent").innerHTML = '<div class="card"><p class="text-danger text-center py-lg">" + t("msg.error", "Erreur") + ": ' + e.message + '</p></div>';
+      document.getElementById("forecastContent").innerHTML = '<div class="card"><p class="text-danger text-center py-lg">" + t("msg.error", "Error") + ": ' + e.message + '</p></div>';
     }
   }
 
@@ -4177,7 +4196,7 @@
 
     var rows = filtered.map(function(f) {
       var statusBadge = getForecastStatusBadge(f.status);
-      var daysDisplay = f.daysOfStock === Infinity ? "âˆž" : (f.daysOfStock !== null ? f.daysOfStock.toFixed(0) + "j" : "-");
+      var daysDisplay = f.daysOfStock === Infinity ? "ˆž" : (f.daysOfStock !== null ? f.daysOfStock.toFixed(0) + "j" : "-");
       var stockoutDisplay = f.stockoutDate || "-";
       var reorderDisplay = f.reorderQty > 0 ? formatWeight(f.reorderQty) : "-";
 
@@ -4230,7 +4249,7 @@
   async function openForecastDetails(productId) {
     try {
       var res = await authFetch(apiUrl("/forecast/" + productId + "?windowDays=" + (forecastSettings.windowDays || 30)));
-      if (!res.ok) throw new Error("Erreur");
+      if (!res.ok) throw new Error(t("msg.error", "Error"));
       var data = await res.json();
 
       var statusBadge = getForecastStatusBadge(data.status);
@@ -4287,11 +4306,11 @@
           '<div class="section-header mt-lg"><h3>' + t("forecast.scenarios", "Scenarios") + '</h3></div>' +
           scenariosHtml +
           explanationHtml,
-        footer: '<button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.close", "Fermer") + '</button>'
+        footer: '<button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.close", "Close") + '</button>'
       });
       if (typeof lucide !== "undefined") lucide.createIcons();
     } catch (e) {
-      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
+      showToast(t("msg.error", "Error") + ": " + e.message, "error");
     }
   }
 
@@ -4344,7 +4363,7 @@
       if (!res.ok) {
         var err = await res.json().catch(function() { return {}; });
         if (err.error === "plan_limit") { showUpgradeModal(); return; }
-        throw new Error(err.message || "Erreur");
+        throw new Error(err.message || t("msg.error", "Error"));
       }
 
       var data = await res.json();
@@ -4353,7 +4372,7 @@
       renderKitsFilters();
       renderKitsContent();
     } catch (e) {
-      document.getElementById("kitsContent").innerHTML = '<div class="card"><p class="text-danger text-center py-lg">" + t("msg.error", "Erreur") + ": ' + e.message + '</p></div>';
+      document.getElementById("kitsContent").innerHTML = '<div class="card"><p class="text-danger text-center py-lg">" + t("msg.error", "Error") + ": ' + e.message + '</p></div>';
     }
   }
 
@@ -4460,7 +4479,7 @@
         '<div class="form-group" style="flex:1"><label class="form-label">' + t("kits.pricingMode", "Mode de prix") + '</label><select class="form-select" id="kitPricingMode"><option value="fixed">' + t("kits.pricingFixed", "Prix fixe") + '</option><option value="sum">' + t("kits.pricingSum", "Somme composants") + '</option><option value="discount">' + t("kits.pricingDiscount", "Somme - remise %") + '</option></select></div>' +
         '<div class="form-group" style="flex:1"><label class="form-label">' + t("kits.salePrice", "Prix de vente") + ' (' + getCurrencySymbol() + ')</label><input type="number" class="form-input" id="kitSalePrice" step="0.01" placeholder="29.99"></div></div>' +
         '<div class="form-group"><label class="form-label">' + t("products.note", "Notes") + '</label><textarea class="form-textarea" id="kitNotes" rows="2"></textarea></div>',
-      footer: '<button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.cancel", "Annuler") + '</button><button class="btn btn-primary" onclick="app.saveKit()">' + t("action.create", "Creer") + '</button>'
+      footer: '<button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.cancel", "Cancel") + '</button><button class="btn btn-primary" onclick="app.saveKit()">' + t("action.create", "Create") + '</button>'
     });
   }
 
@@ -4480,12 +4499,12 @@
           status: "draft",
         })
       });
-      if (!res.ok) throw new Error((await res.json().catch(function(){return{};})).message || "Erreur");
+      if (!res.ok) throw new Error((await res.json().catch(function(){return{};})).message || t("msg.error", "Error"));
       var data = await res.json();
       closeModal();
       showToast(t("kits.created", "Kit cree"), "success");
       openKitDetails(data.kit.id);
-    } catch (e) { showToast(t("msg.error", "Erreur") + ": " + e.message, "error"); }
+    } catch (e) { showToast(t("msg.error", "Error") + ": " + e.message, "error"); }
   }
 
   async function openKitDetails(kitId) {
@@ -4521,18 +4540,18 @@
           '<div class="stat-card"><div class="stat-value">' + formatCurrency(costData.totalCost || 0) + '</div><div class="stat-label">' + t("kits.cost", "Cout") + '</div></div>' +
           '<div class="stat-card stat-' + marginClass + '"><div class="stat-value">' + formatCurrency(costData.margin || 0) + '</div><div class="stat-label">' + t("kits.margin", "Marge") + '</div></div>' +
           '<div class="stat-card stat-' + marginClass + '"><div class="stat-value">' + (costData.marginPercent || 0).toFixed(1) + '%</div><div class="stat-label">' + t("kits.marginPercent", "Marge %") + '</div></div></div>' +
-          '<div class="section-header mt-lg"><h3>' + t("kits.components", "Composants (BOM)") + '</h3><button class="btn btn-sm btn-secondary" onclick="app.showAddKitItemModal(\'' + kit.id + '\')"><i data-lucide="plus"></i> ' + t("action.add", "Ajouter") + '</button></div>' +
+          '<div class="section-header mt-lg"><h3>' + t("kits.components", "Composants (BOM)") + '</h3><button class="btn btn-sm btn-secondary" onclick="app.showAddKitItemModal(\'' + kit.id + '\')"><i data-lucide="plus"></i> ' + t("action.add", "Add") + '</button></div>' +
           '<div class="card-body">' + itemsHtml + '</div>' +
           '<div class="section-header mt-lg"><h3>' + t("kits.simulation", "Simulation") + '</h3></div>' +
           '<div class="card-body"><div style="display:flex;gap:16px;align-items:center"><span>' + t("kits.ifSold", "Si vendu") + '</span><input type="number" class="form-input" id="simQty" value="1" style="width:80px" min="1"><span>' + t("kits.times", "fois") + '</span>' +
           '<button class="btn btn-secondary" onclick="app.runKitSimulation(\'' + kit.id + '\')">' + t("kits.simulate", "Simuler") + '</button></div><div id="simResults" class="mt-md"></div></div>',
-        footer: '<button class="btn btn-ghost text-danger" onclick="app.deleteKit(\'' + kit.id + '\')"><i data-lucide="trash-2"></i> ' + t("action.delete", "Supprimer") + '</button>' +
-          '<button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.close", "Fermer") + '</button>' +
+        footer: '<button class="btn btn-ghost text-danger" onclick="app.deleteKit(\'' + kit.id + '\')"><i data-lucide="trash-2"></i> ' + t("action.delete", "Delete") + '</button>' +
+          '<button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.close", "Close") + '</button>' +
           (kit.status === "draft" ? '<button class="btn btn-success" onclick="app.activateKit(\'' + kit.id + '\')">' + t("kits.activate", "Activer") + '</button>' : '') +
           '<button class="btn btn-primary" onclick="app.showAssembleKitModal(\'' + kit.id + '\')">' + t("kits.assemble", "Assembler") + '</button>'
       });
       if (typeof lucide !== "undefined") lucide.createIcons();
-    } catch (e) { showToast(t("msg.error", "Erreur") + ": " + e.message, "error"); }
+    } catch (e) { showToast(t("msg.error", "Error") + ": " + e.message, "error"); }
   }
 
   function showAddKitItemModal(kitId) {
@@ -4545,7 +4564,7 @@
         '<div style="display:flex;gap:16px"><div class="form-group" style="flex:1"><label class="form-label">' + t("kits.quantity", "Quantite") + ' *</label><input type="number" class="form-input" id="itemQty" step="0.01" placeholder="10"></div>' +
         '<div class="form-group" style="flex:1"><label class="form-label">' + t("kits.unit", "Unite") + '</label><select class="form-select" id="itemUnit"><option value="g">' + getWeightUnit() + '</option><option value="unit">' + t("kits.unitPiece", "Unite") + '</option><option value="ml">ml</option></select></div></div>' +
         '<div class="form-group"><label class="form-check"><input type="checkbox" id="itemFreebie"> ' + t("kits.freebie", "Freebie (cadeau inclus)") + '</label></div>',
-      footer: '<button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.cancel", "Annuler") + '</button><button class="btn btn-primary" onclick="app.saveKitItem(\'' + kitId + '\')">' + t("action.add", "Ajouter") + '</button>'
+      footer: '<button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.cancel", "Cancel") + '</button><button class="btn btn-primary" onclick="app.saveKitItem(\'' + kitId + '\')">' + t("action.add", "Add") + '</button>'
     });
   }
 
@@ -4566,42 +4585,42 @@
           isFreebie: document.getElementById("itemFreebie").checked,
         })
       });
-      if (!res.ok) throw new Error((await res.json().catch(function(){return{};})).message || "Erreur");
+      if (!res.ok) throw new Error((await res.json().catch(function(){return{};})).message || t("msg.error", "Error"));
       closeModal();
       showToast(t("kits.componentAdded", "Composant ajoute"), "success");
       openKitDetails(kitId);
-    } catch (e) { showToast(t("msg.error", "Erreur") + ": " + e.message, "error"); }
+    } catch (e) { showToast(t("msg.error", "Error") + ": " + e.message, "error"); }
   }
 
   async function removeKitItem(kitId, itemId) {
     if (!confirm(t("kits.confirmRemoveComponent", "Supprimer ce composant ?"))) return;
     try {
       var res = await authFetch(apiUrl("/kits/" + kitId + "/items/" + itemId), { method: "DELETE" });
-      if (!res.ok) throw new Error("Erreur");
+      if (!res.ok) throw new Error(t("msg.error", "Error"));
       showToast(t("kits.componentRemoved", "Composant supprime"), "success");
       openKitDetails(kitId);
-    } catch (e) { showToast(t("msg.error", "Erreur") + ": " + e.message, "error"); }
+    } catch (e) { showToast(t("msg.error", "Error") + ": " + e.message, "error"); }
   }
 
   async function activateKit(kitId) {
     try {
       var res = await authFetch(apiUrl("/kits/" + kitId), { method: "PUT", body: JSON.stringify({ status: "active" }) });
-      if (!res.ok) throw new Error("Erreur");
+      if (!res.ok) throw new Error(t("msg.error", "Error"));
       showToast(t("kits.activated", "Kit active"), "success");
       closeModal();
       loadKitsData();
-    } catch (e) { showToast(t("msg.error", "Erreur") + ": " + e.message, "error"); }
+    } catch (e) { showToast(t("msg.error", "Error") + ": " + e.message, "error"); }
   }
 
   async function deleteKit(kitId) {
     if (!confirm(t("kits.confirmDelete", "Supprimer ce kit ?"))) return;
     try {
       var res = await authFetch(apiUrl("/kits/" + kitId), { method: "DELETE" });
-      if (!res.ok) throw new Error("Erreur");
+      if (!res.ok) throw new Error(t("msg.error", "Error"));
       showToast(t("kits.deleted", "Kit supprime"), "success");
       closeModal();
       loadKitsData();
-    } catch (e) { showToast(t("msg.error", "Erreur") + ": " + e.message, "error"); }
+    } catch (e) { showToast(t("msg.error", "Error") + ": " + e.message, "error"); }
   }
 
   function showAssembleKitModal(kitId) {
@@ -4620,11 +4639,11 @@
     try {
       var res = await authFetch(apiUrl("/kits/" + kitId + "/assemble"), { method: "POST", body: JSON.stringify({ quantity: qty, notes: notes }) });
       var data = await res.json();
-      if (!data.success) throw new Error(data.message || "Erreur");
+      if (!data.success) throw new Error(data.message || t("msg.error", "Error"));
       closeModal();
       showToast(data.message || "Kits assembles", "success");
       loadKitsData();
-    } catch (e) { showToast(t("msg.error", "Erreur") + ": " + e.message, "error"); }
+    } catch (e) { showToast(t("msg.error", "Error") + ": " + e.message, "error"); }
   }
 
   async function runKitSimulation(kitId) {
@@ -4641,7 +4660,7 @@
         (data.hasShortage ? '<div class="alert alert-warning mt-md">' + t("kits.stockShortage", "Stock insuffisant pour certains composants") + '</div>' : '') +
         '<p class="text-secondary mt-md">' + t("kits.maxProduction", "Capacite max de production") + ': <strong>' + (data.maxProducible || 0) + '</strong> kits</p>';
       if (typeof lucide !== "undefined") lucide.createIcons();
-    } catch (e) { container.innerHTML = '<p class="text-danger">' + t("msg.error", "Erreur") + ': ' + e.message + '</p>'; }
+    } catch (e) { container.innerHTML = '<p class="text-danger">' + t("msg.error", "Error") + ': ' + e.message + '</p>'; }
   }
 
   // ============================================
@@ -4687,13 +4706,13 @@
       if (!res.ok) {
         var err = await res.json().catch(function() { return {}; });
         if (err.error === "plan_limit") { showUpgradeModal(); return; }
-        throw new Error(err.message || "Erreur");
+        throw new Error(err.message || t("msg.error", "Error"));
       }
       var data = await res.json();
       inventorySessions = data.sessions || [];
       renderInventorySessions();
     } catch (e) {
-      document.getElementById("inventoryContent").innerHTML = '<div class="card"><p class="text-danger text-center py-lg">' + t("msg.error", "Erreur") + ': ' + e.message + '</p></div>';
+      document.getElementById("inventoryContent").innerHTML = '<div class="card"><p class="text-danger text-center py-lg">' + t("msg.error", "Error") + ': ' + e.message + '</p></div>';
     }
   }
 
@@ -4729,7 +4748,7 @@
         '<td onclick="event.stopPropagation()">' +
         '<button class="btn btn-ghost btn-sm" onclick="app.duplicateInventorySession(\'' + s.id + '\')" title="' + t("action.duplicate", "Dupliquer") + '"><i data-lucide="copy"></i></button>' +
         '<button class="btn btn-ghost btn-sm" onclick="app.archiveInventorySession(\'' + s.id + '\')" title="' + t("action.archive", "Archiver") + '"><i data-lucide="archive"></i></button>' +
-        '<button class="btn btn-ghost btn-sm text-danger" onclick="app.deleteInventorySession(\'' + s.id + '\', \'' + esc(s.name).replace(/'/g, "\\'") + '\')" title="' + t("action.delete", "Supprimer") + '"><i data-lucide="trash-2"></i></button>' +
+        '<button class="btn btn-ghost btn-sm text-danger" onclick="app.deleteInventorySession(\'' + s.id + '\', \'' + esc(s.name).replace(/'/g, "\\'") + '\')" title="' + t("action.delete", "Delete") + '"><i data-lucide="trash-2"></i></button>' +
         '</td>' +
         '</tr>';
     }).join("");
@@ -4780,13 +4799,13 @@
           '</select></div>' +
           '<div class="form-group"><label class="form-label">' + t("products.note", "Notes") + '</label>' +
           '<textarea class="form-textarea" id="invNotes" rows="2"></textarea></div>',
-        footer: '<button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.cancel", "Annuler") + '</button>' +
-          '<button class="btn btn-primary" onclick="app.createInventorySession()">' + t("action.create", "Creer") + '</button>'
+        footer: '<button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.cancel", "Cancel") + '</button>' +
+          '<button class="btn btn-primary" onclick="app.createInventorySession()">' + t("action.create", "Create") + '</button>'
       });
       console.log("[Inventory] Modal should be displayed");
     } catch (e) {
       console.error("[Inventory] Error in showCreateInventorySessionModal:", e);
-      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
+      showToast(t("msg.error", "Error") + ": " + e.message, "error");
     }
   }
 
@@ -4817,12 +4836,12 @@
           notes: document.getElementById("invNotes").value.trim(),
         })
       });
-      if (!res.ok) throw new Error((await res.json().catch(function(){return{};})).message || "Erreur");
+      if (!res.ok) throw new Error((await res.json().catch(function(){return{};})).message || t("msg.error", "Error"));
       var data = await res.json();
       closeModal();
       showToast(t("inventory.sessionCreated", "Session creee"), "success");
       openInventorySession(data.session.id);
-    } catch (e) { showToast(t("msg.error", "Erreur") + ": " + e.message, "error"); }
+    } catch (e) { showToast(t("msg.error", "Error") + ": " + e.message, "error"); }
   }
 
   async function openInventorySession(sessionId) {
@@ -4833,7 +4852,7 @@
       currentInventorySession = data.session;
       inventoryItems = data.items || [];
       renderInventorySessionDetail();
-    } catch (e) { showToast(t("msg.error", "Erreur") + ": " + e.message, "error"); }
+    } catch (e) { showToast(t("msg.error", "Error") + ": " + e.message, "error"); }
   }
 
   function renderInventorySessionDetail() {
@@ -4987,26 +5006,26 @@
         '<thead><tr><th>Date</th><th>Produit</th><th>Delta</th><th>Valeur</th><th>Raison</th></tr></thead>' +
         '<tbody>' + rows + '</tbody></table></div></div>';
     } catch (e) {
-      container.innerHTML = '<div class="card"><p class="text-danger text-center py-lg">" + t("msg.error", "Erreur") + ": ' + e.message + '</p></div>';
+      container.innerHTML = '<div class="card"><p class="text-danger text-center py-lg">" + t("msg.error", "Error") + ": ' + e.message + '</p></div>';
     }
   }
 
   async function startInventorySession() {
     try {
       var res = await authFetch(apiUrl("/inventory/sessions/" + currentInventorySession.id + "/start"), { method: "POST" });
-      if (!res.ok) throw new Error((await res.json()).message || "Erreur");
+      if (!res.ok) throw new Error((await res.json()).message || t("msg.error", "Error"));
       showToast(t("inventory.sessionStarted", "Session demarree"), "success");
       openInventorySession(currentInventorySession.id);
-    } catch (e) { showToast(t("msg.error", "Erreur") + ": " + e.message, "error"); }
+    } catch (e) { showToast(t("msg.error", "Error") + ": " + e.message, "error"); }
   }
 
   async function reviewInventorySession() {
     try {
       var res = await authFetch(apiUrl("/inventory/sessions/" + currentInventorySession.id + "/review"), { method: "POST" });
-      if (!res.ok) throw new Error((await res.json()).message || "Erreur");
+      if (!res.ok) throw new Error((await res.json()).message || t("msg.error", "Error"));
       showToast(t("inventory.sessionValidated", "Session validee"), "success");
       openInventorySession(currentInventorySession.id);
-    } catch (e) { showToast(t("msg.error", "Erreur") + ": " + e.message, "error"); }
+    } catch (e) { showToast(t("msg.error", "Error") + ": " + e.message, "error"); }
   }
 
   async function applyInventorySession() {
@@ -5014,10 +5033,10 @@
     try {
       var res = await authFetch(apiUrl("/inventory/sessions/" + currentInventorySession.id + "/apply"), { method: "POST", body: JSON.stringify({}) });
       var data = await res.json();
-      if (!data.success) throw new Error(data.message || "Erreur");
+      if (!data.success) throw new Error(data.message || t("msg.error", "Error"));
       showToast(data.applied + " ajustement(s) applique(s)", "success");
       openInventorySession(currentInventorySession.id);
-    } catch (e) { showToast(t("msg.error", "Erreur") + ": " + e.message, "error"); }
+    } catch (e) { showToast(t("msg.error", "Error") + ": " + e.message, "error"); }
   }
 
   async function updateInventoryItem(itemId, value) {
@@ -5027,7 +5046,7 @@
         method: "PUT", body: JSON.stringify({ countedQty: countedQty })
       });
       openInventorySession(currentInventorySession.id);
-    } catch (e) { showToast(t("msg.error", "Erreur"), "error"); }
+    } catch (e) { showToast(t("msg.error", "Error"), "error"); }
   }
 
   async function toggleInventoryItemFlag(itemId) {
@@ -5038,7 +5057,7 @@
         method: "PUT", body: JSON.stringify({ flagged: !item.flagged })
       });
       openInventorySession(currentInventorySession.id);
-    } catch (e) { showToast(t("msg.error", "Erreur"), "error"); }
+    } catch (e) { showToast(t("msg.error", "Error"), "error"); }
   }
 
   async function setInventoryItemReason(itemId, reason) {
@@ -5046,7 +5065,7 @@
       await authFetch(apiUrl("/inventory/sessions/" + currentInventorySession.id + "/items/" + itemId), {
         method: "PUT", body: JSON.stringify({ reason: reason || null })
       });
-    } catch (e) { showToast(t("msg.error", "Erreur"), "error"); }
+    } catch (e) { showToast(t("msg.error", "Error"), "error"); }
   }
 
   function filterInventoryItems(search) {
@@ -5066,27 +5085,27 @@
   async function duplicateInventorySession(sessionId) {
     try {
       var res = await authFetch(apiUrl("/inventory/sessions/" + sessionId + "/duplicate"), { method: "POST" });
-      if (!res.ok) throw new Error("Erreur");
+      if (!res.ok) throw new Error(t("msg.error", "Error"));
       showToast(t("inventory.sessionDuplicated", "Session dupliquee"), "success");
       loadInventorySessions();
-    } catch (e) { showToast(t("msg.error", "Erreur"), "error"); }
+    } catch (e) { showToast(t("msg.error", "Error"), "error"); }
   }
 
   async function archiveInventorySession(sessionId) {
     if (!confirm(t("inventory.confirmArchive", "Archiver cette session ?"))) return;
     try {
       var res = await authFetch(apiUrl("/inventory/sessions/" + sessionId), { method: "DELETE" });
-      if (!res.ok) throw new Error("Erreur");
+      if (!res.ok) throw new Error(t("msg.error", "Error"));
       showToast(t("inventory.sessionArchived", "Session archivee"), "success");
       loadInventorySessions();
-    } catch (e) { showToast(t("msg.error", "Erreur"), "error"); }
+    } catch (e) { showToast(t("msg.error", "Error"), "error"); }
   }
 
   async function deleteInventorySession(sessionId, sessionName) {
     if (!confirm(t("inventory.confirmDelete", "Supprimer definitivement cette session ?") + "\n\n" + sessionName)) return;
     try {
       var res = await authFetch(apiUrl("/inventory/sessions/" + sessionId + "?permanent=true"), { method: "DELETE" });
-      if (!res.ok) throw new Error("Erreur");
+      if (!res.ok) throw new Error(t("msg.error", "Error"));
       showToast(t("inventory.sessionDeleted", "Session supprimee"), "success");
       
       // Enregistrer l'activite
@@ -5103,7 +5122,7 @@
       } catch (e) { console.warn("Could not log activity"); }
       
       loadInventorySessions();
-    } catch (e) { showToast(t("msg.error", "Erreur"), "error"); }
+    } catch (e) { showToast(t("msg.error", "Error"), "error"); }
   }
 
   // ============================================
@@ -5132,7 +5151,7 @@
       settingsOptions = data.options || {};
       renderSettingsContent();
     } catch (e) {
-      document.getElementById("settingsContent").innerHTML = '<div class="card"><div class="card-body"><p class="text-danger">" + t("msg.error", "Erreur") + ": ' + e.message + '</p></div></div>';
+      document.getElementById("settingsContent").innerHTML = '<div class="card"><div class="card-body"><p class="text-danger">" + t("msg.error", "Error") + ": ' + e.message + '</p></div></div>';
     }
   }
 
@@ -5352,10 +5371,10 @@
         }
       } else {
         var e = await res.json();
-        showToast(e.error || t("msg.error", "Erreur"), "error");
+        showToast(e.error || t("msg.error", "Error"), "error");
       }
     } catch (e) {
-      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
+      showToast(t("msg.error", "Error") + ": " + e.message, "error");
     }
   }
   
@@ -5397,10 +5416,10 @@
         showToast(t("settings.saved", "Parametre enregistre"), "success");
       } else {
         var e = await res.json();
-        showToast(e.error || "Erreur", "error");
+        showToast(e.error || t("msg.error", "Error"), "error");
       }
     } catch (e) {
-      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
+      showToast(t("msg.error", "Error") + ": " + e.message, "error");
     }
   }
 
@@ -5422,6 +5441,44 @@
       showToast(t("msg.exportError", "Erreur export"), "error");
     }
   }
+  
+  async function exportMovementsCSV() {
+    try {
+      var res = await authFetch(apiUrl("/movements.csv"));
+      if (res.ok) {
+        var csvData = await res.text();
+        var blob = new Blob([csvData], { type: "text/csv;charset=utf-8" });
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement("a");
+        a.href = url;
+        a.download = "mouvements-" + new Date().toISOString().slice(0, 10) + ".csv";
+        a.click();
+        URL.revokeObjectURL(url);
+        showToast(t("movements.exported", "Mouvements exportes"), "success");
+      } else {
+        throw new Error(t("msg.error", "Error"));
+      }
+    } catch (e) {
+      showToast(t("msg.exportError", "Erreur export") + ": " + e.message, "error");
+    }
+  }
+  
+  async function cancelPlan() {
+    if (!confirm(t("plan.confirmCancel", "Voulez-vous vraiment annuler votre abonnement ? Vous conserverez l'acces jusqu'a la fin de la periode payee."))) return;
+    
+    try {
+      var res = await authFetch(apiUrl("/plan/cancel"), { method: "POST" });
+      if (res.ok) {
+        showToast(t("plan.cancelled", "Abonnement annule"), "success");
+        loadPlanInfo();
+      } else {
+        var data = await res.json();
+        showToast(data.error || t("msg.error", "Error"), "error");
+      }
+    } catch (e) {
+      showToast(t("msg.error", "Error") + ": " + e.message, "error");
+    }
+  }
 
   async function resetAllSettings() {
     if (!confirm("Reinitialiser tous les parametres aux valeurs par defaut ?")) return;
@@ -5432,7 +5489,7 @@
         loadSettingsData();
       }
     } catch (e) {
-      showToast(t("msg.error", "Erreur"), "error");
+      showToast(t("msg.error", "Error"), "error");
     }
   }
 
@@ -5448,7 +5505,7 @@
       '" role="dialog" aria-modal="true" aria-labelledby="' + modalId + '-title">' +
       '<div class="modal-header"><h2 class="modal-title" id="' + modalId + '-title">' +
       opts.title +
-      '</h2><button class="modal-close" onclick="app.closeModal()" aria-label="' + t("action.close", "Fermer") + '" title="' + t("action.close", "Fermer") + '">&times;</button></div>' +
+      '</h2><button class="modal-close" onclick="app.closeModal()" aria-label="' + t("action.close", "Close") + '" title="' + t("action.close", "Close") + '">&times;</button></div>' +
       '<div class="modal-body" role="document">' +
       opts.content +
       "</div>" +
@@ -5486,7 +5543,7 @@
         '<div style="display:flex;gap:16px"><div class="form-group" style="flex:1"><label class="form-label">' + t("form.stock", "Stock") + ' (' + weightUnit + ')</label><input type="number" class="form-input" id="pStock" value="0"></div>' +
         '<div class="form-group" style="flex:1"><label class="form-label">' + t("form.cost", "Cout") + ' (' + currencySymbol + '/' + weightUnit + ')</label><input type="number" class="form-input" id="pCost" value="0" step="0.01"></div></div>',
       footer:
-        '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.cancel", "Annuler") + '</button><button class="btn btn-primary" onclick="app.saveProduct()">' + t("action.add", "Ajouter") + '</button>',
+        '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.cancel", "Cancel") + '</button><button class="btn btn-primary" onclick="app.saveProduct()">' + t("action.add", "Add") + '</button>',
     });
   }
 
@@ -5528,7 +5585,7 @@
         "</div>";
       document.getElementById("btnImport").disabled = false;
     } catch (e) {
-      ct.innerHTML = '<p class="text-danger">" + t("msg.error", "Erreur") + ": ' + e.message + "</p>";
+      ct.innerHTML = '<p class="text-danger">" + t("msg.error", "Error") + ": ' + e.message + "</p>";
     }
   }
 
@@ -5592,7 +5649,7 @@
         '<div style="display:flex;gap:16px"><div class="form-group" style="flex:1"><label class="form-label">' + t("form.quantity", "Quantite") + ' (' + weightUnit + ')</label><input type="number" class="form-input" id="rQty" placeholder="500"></div>' +
         '<div class="form-group" style="flex:1"><label class="form-label">' + t("form.price", "Prix") + ' (' + currencySymbol + '/' + weightUnit + ')</label><input type="number" class="form-input" id="rPrice" placeholder="4.50" step="0.01"></div></div>',
       footer:
-        '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.cancel", "Annuler") + '</button><button class="btn btn-primary" onclick="app.saveRestock()">' + t("action.validate", "Valider") + '</button>',
+        '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.cancel", "Cancel") + '</button><button class="btn btn-primary" onclick="app.saveRestock()">' + t("action.validate", "Validate") + '</button>',
     });
   }
 
@@ -5621,11 +5678,11 @@
         opts +
         '</select></div>' +
         '<div class="form-group"><label class="form-label">' + t("form.type", "Type") + '</label><div style="display:flex;gap:16px">' +
-        '<label><input type="radio" name="aType" value="add" checked> ' + t("action.add", "Ajouter") + '</label>' +
+        '<label><input type="radio" name="aType" value="add" checked> ' + t("action.add", "Add") + '</label>' +
         '<label><input type="radio" name="aType" value="remove"> ' + t("action.remove", "Retirer") + '</label></div></div>' +
         '<div class="form-group"><label class="form-label">' + t("form.quantity", "Quantite") + ' (' + weightUnit + ')</label><input type="number" class="form-input" id="aQty" placeholder="100"></div>',
       footer:
-        '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.cancel", "Annuler") + '</button><button class="btn btn-primary" onclick="app.saveAdjust()">' + t("action.apply", "Appliquer") + '</button>',
+        '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.cancel", "Cancel") + '</button><button class="btn btn-primary" onclick="app.saveAdjust()">' + t("action.apply", "Apply") + '</button>',
     });
   }
 
@@ -5696,7 +5753,7 @@
       title: t("plans.choosePlan", "Choisir un plan"),
       size: "xl",
       content: '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:20px;padding:8px">' + cards + '</div>',
-      footer: '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.close", "Fermer") + '</button>',
+      footer: '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.close", "Close") + '</button>',
     });
     if (typeof lucide !== "undefined") lucide.createIcons();
   }
@@ -5722,7 +5779,7 @@
         '<p style="color:var(--text-secondary);margin:0">' + t("plans.upgradeToUnlock", "Passez a un plan superieur pour debloquer cette fonctionnalite.") + '</p>' +
         '</div>',
       footer:
-        '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.close", "Fermer") + '</button>' +
+        '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.close", "Close") + '</button>' +
         '<button class="btn btn-primary" onclick="app.closeModal();app.showUpgradeModal()">' + t("plans.upgrade", "Upgrader") + '</button>',
     });
     if (typeof lucide !== "undefined") lucide.createIcons();
@@ -5841,10 +5898,10 @@
         renderTab(state.currentTab);
       } else {
         var e = await res.json();
-        showToast(e.error || "Erreur", "error");
+        showToast(e.error || t("msg.error", "Error"), "error");
       }
     } catch (e) {
-      showToast(t("msg.error", "Erreur"), "error");
+      showToast(t("msg.error", "Error"), "error");
     }
   }
 
@@ -5873,10 +5930,10 @@
         renderTab(state.currentTab);
       } else {
         var e = await res.json();
-        showToast(e.error || "Erreur", "error");
+        showToast(e.error || t("msg.error", "Error"), "error");
       }
     } catch (e) {
-      showToast(t("msg.error", "Erreur"), "error");
+      showToast(t("msg.error", "Error"), "error");
     }
   }
 
@@ -5913,10 +5970,10 @@
         renderTab(state.currentTab);
       } else {
         var e = await res.json();
-        showToast(e.error || "Erreur", "error");
+        showToast(e.error || t("msg.error", "Error"), "error");
       }
     } catch (e) {
-      showToast(t("msg.error", "Erreur"), "error");
+      showToast(t("msg.error", "Error"), "error");
     }
   }
 
@@ -5973,7 +6030,7 @@
         return;
       }
     } catch (e) {
-      showToast(t("msg.error", "Erreur"), "error");
+      showToast(t("msg.error", "Error"), "error");
     }
   }
 
@@ -6256,7 +6313,7 @@
       title: '<i data-lucide="bell"></i> ' + t("notifications.title", "Notifications"),
       size: "md",
       content: '<div id="notificationsModalContent"><div class="text-center py-lg"><div class="spinner"></div></div></div>',
-      footer: '<button class="btn btn-ghost" onclick="app.checkAlerts()">' + t("notifications.refresh", "Actualiser") + '</button><button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.close", "Fermer") + '</button>'
+      footer: '<button class="btn btn-ghost" onclick="app.checkAlerts()">' + t("notifications.refresh", "Actualiser") + '</button><button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.close", "Close") + '</button>'
     });
     if (typeof lucide !== "undefined") lucide.createIcons();
     
@@ -6305,7 +6362,7 @@
       title: '<i data-lucide="bell"></i> ' + t("notifications.title", "Notifications"),
       size: "sm",
       content: '<div class="text-center py-lg"><div class="lock-icon"><i data-lucide="lock"></i></div><h3>' + t("msg.featureLocked", "Fonctionnalite PRO") + '</h3><p class="text-secondary">' + t("notifications.lockedDesc", "Les alertes sont disponibles avec le plan Pro.") + '</p></div>',
-      footer: '<button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.close", "Fermer") + '</button><button class="btn btn-primary" onclick="app.showUpgradeModal()">' + t("plan.upgrade", "Passer a PRO") + '</button>'
+      footer: '<button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.close", "Close") + '</button><button class="btn btn-primary" onclick="app.showUpgradeModal()">' + t("plan.upgrade", "Passer a PRO") + '</button>'
     });
     if (typeof lucide !== "undefined") lucide.createIcons();
   }
@@ -6329,6 +6386,19 @@
     } catch (e) {}
   }
   
+  async function markAllNotificationsRead() {
+    try {
+      var res = await authFetch(apiUrl("/notifications/mark-all-read"), { method: "POST" });
+      if (res.ok) {
+        showToast(t("notifications.allMarkedRead", "Toutes les notifications marquees comme lues"), "success");
+        loadNotifications();
+        loadNotificationsForModal();
+      }
+    } catch (e) {
+      showToast(t("msg.error", "Error"), "error");
+    }
+  }
+  
   async function dismissNotification(id) {
     try {
       await authFetch(apiUrl("/notifications/" + id + "/dismiss"), { method: "POST" });
@@ -6348,7 +6418,7 @@
         loadNotificationsForModal();
       }
     } catch (e) {
-      showToast(t("msg.error", "Erreur"), "error");
+      showToast(t("msg.error", "Error"), "error");
     }
   }
   
@@ -6419,7 +6489,7 @@
       title: '<i data-lucide="users"></i> ' + t("profiles.title", "Profils"),
       size: "md",
       content: '<div id="profilesModalContent"><div class="text-center py-lg"><div class="spinner"></div></div></div>',
-      footer: '<button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.close", "Fermer") + '</button><button class="btn btn-primary" onclick="app.showCreateProfileModal()">' + t("profiles.createNew", "Nouveau profil") + '</button>'
+      footer: '<button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.close", "Close") + '</button><button class="btn btn-primary" onclick="app.showCreateProfileModal()">' + t("profiles.createNew", "Nouveau profil") + '</button>'
     });
     if (typeof lucide !== "undefined") lucide.createIcons();
     loadProfilesForModal();
@@ -6476,7 +6546,7 @@
         content: '<div class="form-group"><label>' + t("profiles.name", "Nom") + ' *</label><input type="text" id="profileName" class="form-input" placeholder="' + t("profiles.namePlaceholder", "Ex: Marie, Pierre...") + '"></div>' +
           '<div class="form-group"><label>' + t("profiles.role", "Role") + '</label><select id="profileRole" class="form-select"><option value="user">' + t("profiles.roleUser", "Utilisateur") + '</option><option value="manager">' + t("profiles.roleManager", "Manager") + '</option><option value="admin">' + t("profiles.roleAdmin", "Administrateur") + '</option></select></div>' +
           '<div class="form-group"><label>' + t("profiles.color", "Couleur") + '</label><div class="color-picker" id="colorPicker">' + colorOptions + '</div><input type="hidden" id="profileColor" value="#6366f1"></div>',
-        footer: '<button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.cancel", "Annuler") + '</button><button class="btn btn-primary" onclick="app.createProfile()">' + t("action.create", "Creer") + '</button>'
+        footer: '<button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.cancel", "Cancel") + '</button><button class="btn btn-primary" onclick="app.createProfile()">' + t("action.create", "Create") + '</button>'
       });
       if (typeof lucide !== "undefined") lucide.createIcons();
       
@@ -6514,10 +6584,10 @@
         loadProfiles();
       } else {
         var err = await res.json();
-        showToast(err.error || t("msg.error", "Erreur"), "error");
+        showToast(err.error || t("msg.error", "Error"), "error");
       }
     } catch (e) {
-      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
+      showToast(t("msg.error", "Error") + ": " + e.message, "error");
     }
   }
   
@@ -6533,7 +6603,7 @@
         if (dropdown) dropdown.classList.remove("show");
       }
     } catch (e) {
-      showToast(t("msg.error", "Erreur"), "error");
+      showToast(t("msg.error", "Error"), "error");
     }
   }
   
@@ -6548,10 +6618,10 @@
         loadProfilesForModal();
       } else {
         var err = await res.json();
-        showToast(err.error || t("msg.error", "Erreur"), "error");
+        showToast(err.error || t("msg.error", "Error"), "error");
       }
     } catch (e) {
-      showToast(t("msg.error", "Erreur"), "error");
+      showToast(t("msg.error", "Error"), "error");
     }
   }
   
@@ -6573,7 +6643,7 @@
   }
 
   // ============================================
-  // aÅ“"¦ FICHE DÃƒ"°TAIL PRODUIT
+  // aÅ“"¦ FICHE D"°TAIL PRODUIT
   // ============================================
   async function openProductDetails(productId) {
     if (!productId) return;
@@ -6596,7 +6666,7 @@
       var data = await res.json();
       renderProductDetails(data);
     } catch (e) {
-      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
+      showToast(t("msg.error", "Error") + ": " + e.message, "error");
       closeModal();
     }
   }
@@ -6679,7 +6749,7 @@
       '<button class="btn btn-secondary btn-sm" onclick="app.closeModal();app.showAdjustModal(\'' + p.productId + '\')"><i data-lucide="sliders"></i> ' + t("action.adjust", "Ajuster") + '</button>' +
       '<button class="btn btn-ghost btn-sm" onclick="app.showEditCMPModal(\'' + p.productId + '\',' + p.averageCostPerGram + ')"><i data-lucide="coins"></i> ' + t("action.editCMP", "Modifier CMP") + '</button>' +
       (hasFeature("hasBatchTracking") ? '<button class="btn btn-ghost btn-sm" onclick="app.closeModal();app.showAddBatchForProduct(\'' + p.productId + '\',\'' + esc(p.name).replace(/'/g, "\\'") + '\')"><i data-lucide="layers"></i> + ' + t("batches.addBatch", "Lot") + '</button>' : '') +
-      '<button class="btn btn-ghost btn-sm btn-danger-text" onclick="app.closeModal();app.confirmDeleteProduct(\'' + p.productId + '\',\'' + esc(p.name).replace(/'/g, "\\'") + '\')"><i data-lucide="trash-2"></i> ' + t("action.delete", "Supprimer") + '</button>' +
+      '<button class="btn btn-ghost btn-sm btn-danger-text" onclick="app.closeModal();app.confirmDeleteProduct(\'' + p.productId + '\',\'' + esc(p.name).replace(/'/g, "\\'") + '\')"><i data-lucide="trash-2"></i> ' + t("action.delete", "Delete") + '</button>' +
       '</div>' +
 
       // Section Lots (si PRO)
@@ -6723,7 +6793,7 @@
       title: t("products.details", "Fiche produit"),
       size: "xl",
       content: content,
-      footer: '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.close", "Fermer") + '</button>',
+      footer: '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.close", "Close") + '</button>',
     });
 
     // Charger les lots du produit si PRO
@@ -6741,7 +6811,7 @@
 
     try {
       var res = await authFetch(apiUrl("/lots?productId=" + productId));
-      if (!res.ok) throw new Error("Erreur");
+      if (!res.ok) throw new Error(t("msg.error", "Error"));
 
       var data = await res.json();
       var lots = data.lots || [];
@@ -6795,7 +6865,7 @@
       if (typeof lucide !== "undefined") lucide.createIcons();
 
     } catch (e) {
-      container.innerHTML = '<p class="text-secondary text-sm">' + t("msg.error", "Erreur") + '</p>';
+      container.innerHTML = '<p class="text-secondary text-sm">' + t("msg.error", "Error") + '</p>';
     }
   }
 
@@ -6831,8 +6901,8 @@
         '<div class="form-group"><label class="form-label">' + t("batches.notes", "Notes") + '</label>' +
         '<textarea class="form-input" id="batchNotes" rows="2" placeholder="Notes optionnelles..."></textarea></div>',
       footer:
-        '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.cancel", "Annuler") + '</button>' +
-        '<button class="btn btn-primary" onclick="app.saveBatch()">' + t("action.save", "Enregistrer") + '</button>'
+        '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.cancel", "Cancel") + '</button>' +
+        '<button class="btn btn-primary" onclick="app.saveBatch()">' + t("action.save", "Save") + '</button>'
     });
   }
 
@@ -6854,8 +6924,8 @@
         '<input type="number" class="form-input" id="newCMP" value="' + displayCMP + '" step="0.01" min="0"></div>' +
         '<p class="form-hint text-warning"><i data-lucide="alert-triangle" style="width:14px;height:14px;vertical-align:middle;margin-right:4px"></i>' + t("products.cmpWarning", "La modification manuelle du CMP ecrase le calcul automatique.") + '</p>',
       footer:
-        '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.cancel", "Annuler") + '</button>' +
-        '<button class="btn btn-primary" onclick="app.saveCMP(\'' + productId + '\')">' + t("action.save", "Enregistrer") + '</button>',
+        '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.cancel", "Cancel") + '</button>' +
+        '<button class="btn btn-primary" onclick="app.saveCMP(\'' + productId + '\')">' + t("action.save", "Save") + '</button>',
     });
     if (typeof lucide !== "undefined") lucide.createIcons();
   }
@@ -6882,10 +6952,10 @@
         renderTab(state.currentTab);
       } else {
         var e = await res.json();
-        showToast(e.error || t("msg.error", "Erreur"), "error");
+        showToast(e.error || t("msg.error", "Error"), "error");
       }
     } catch (e) {
-      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
+      showToast(t("msg.error", "Error") + ": " + e.message, "error");
     }
   }
 
@@ -6969,14 +7039,14 @@
           return;
         }
         document.getElementById("analyticsContent").innerHTML = 
-          '<div class="card"><div class="card-body text-center"><p class="text-danger">" + t("msg.error", "Erreur") + ": ' + (err.error || err.message || "Impossible de charger") + '</p></div></div>';
+          '<div class="card"><div class="card-body text-center"><p class="text-danger">" + t("msg.error", "Error") + ": ' + (err.error || err.message || "Impossible de charger") + '</p></div></div>';
         return;
       }
       analyticsSalesData = await res.json();
       renderSalesAnalytics();
     } catch (e) {
       document.getElementById("analyticsContent").innerHTML = 
-        '<div class="card"><div class="card-body text-center"><p class="text-danger">" + t("msg.error", "Erreur") + ": ' + e.message + '</p></div></div>';
+        '<div class="card"><div class="card-body text-center"><p class="text-danger">" + t("msg.error", "Error") + ": ' + e.message + '</p></div></div>';
     }
   }
 
@@ -7099,14 +7169,14 @@
           return;
         }
         document.getElementById("analyticsContent").innerHTML = 
-          '<div class="card"><div class="card-body text-center"><p class="text-danger">" + t("msg.error", "Erreur") + ": ' + (err.error || "Impossible de charger") + '</p></div></div>';
+          '<div class="card"><div class="card-body text-center"><p class="text-danger">" + t("msg.error", "Error") + ": ' + (err.error || "Impossible de charger") + '</p></div></div>';
         return;
       }
       analyticsData = await res.json();
       renderAnalyticsContent();
     } catch (e) {
       document.getElementById("analyticsContent").innerHTML = 
-        '<div class="card"><div class="card-body text-center"><p class="text-danger">" + t("msg.error", "Erreur") + ": ' + e.message + '</p></div></div>';
+        '<div class="card"><div class="card-body text-center"><p class="text-danger">" + t("msg.error", "Error") + ": ' + e.message + '</p></div></div>';
     }
   }
 
@@ -7459,10 +7529,10 @@
         showCategoriesModal(); // Refresh modal
       } else {
         var e = await res.json();
-        showToast(e.error || "Erreur", "error");
+        showToast(e.error || t("msg.error", "Error"), "error");
       }
     } catch (e) {
-      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
+      showToast(t("msg.error", "Error") + ": " + e.message, "error");
     }
   }
 
@@ -7497,10 +7567,10 @@
         showCategoriesModal();
       } else {
         var e = await res.json();
-        showToast(e.error || "Erreur", "error");
+        showToast(e.error || t("msg.error", "Error"), "error");
       }
     } catch (e) {
-      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
+      showToast(t("msg.error", "Error") + ": " + e.message, "error");
     }
   }
 
@@ -7516,10 +7586,10 @@
         showCategoriesModal();
       } else {
         var e = await res.json();
-        showToast(e.error || "Erreur", "error");
+        showToast(e.error || t("msg.error", "Error"), "error");
       }
     } catch (e) {
-      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
+      showToast(t("msg.error", "Error") + ": " + e.message, "error");
     }
   }
 
@@ -7580,10 +7650,10 @@
         renderTab(state.currentTab);
       } else {
         var e = await res.json();
-        showToast(e.error || "Erreur", "error");
+        showToast(e.error || t("msg.error", "Error"), "error");
       }
     } catch (e) {
-      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
+      showToast(t("msg.error", "Error") + ": " + e.message, "error");
     }
   }
 
@@ -7598,12 +7668,12 @@
       content: 
         '<div class="text-center py-md">' +
         '<p>' + t("products.deleteWarning", "Etes-vous sur de vouloir supprimer ce produit ?") + '</p>' +
-        '<p class="text-lg font-semibold mt-sm">' + esc(productName || "Produit") + '</p>' +
+        '<p class="text-lg font-semibold mt-sm">' + esc(productName || t("products.product", "Product")) + '</p>' +
         '<p class="text-secondary text-sm mt-md">' + t("products.deleteNote", "Cette action est irreversible. Le stock sera perdu.") + '</p>' +
         '</div>',
       footer: 
-        '<button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.cancel", "Annuler") + '</button> ' +
-        '<button class="btn btn-danger" onclick="app.deleteProduct(\'' + esc(productId) + '\')">' + t("action.delete", "Supprimer") + '</button>'
+        '<button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.cancel", "Cancel") + '</button> ' +
+        '<button class="btn btn-danger" onclick="app.deleteProduct(\'' + esc(productId) + '\')">' + t("action.delete", "Delete") + '</button>'
     });
     if (typeof lucide !== "undefined") lucide.createIcons();
   }
@@ -7633,10 +7703,10 @@
         renderTab(state.currentTab);
       } else {
         var e = await res.json();
-        showToast(e.error || t("msg.error", "Erreur"), "error");
+        showToast(e.error || t("msg.error", "Error"), "error");
       }
     } catch (e) {
-      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
+      showToast(t("msg.error", "Error") + ": " + e.message, "error");
     }
   }
 
@@ -7699,6 +7769,7 @@
     saveAdjustBatch: saveAdjustBatch,
     openBatchDetails: openBatchDetails,
     deactivateBatch: deactivateBatch,
+    deleteBatch: deleteBatch,
     markExpiredBatches: markExpiredBatches,
     // Suppliers
     onSupplierSearchChange: onSupplierSearchChange,
@@ -7767,6 +7838,8 @@
     updateSetting: updateSetting,
     updateNestedSetting: updateNestedSetting,
     exportSettings: exportSettings,
+    exportMovementsCSV: exportMovementsCSV,
+    cancelPlan: cancelPlan,
     resetAllSettings: resetAllSettings,
     // Dashboard ameliore
     showLowStockModal: showLowStockModal,
@@ -7796,6 +7869,7 @@
     loadNotifications: loadNotifications,
     showNotificationsModal: showNotificationsModal,
     markNotificationRead: markNotificationRead,
+    markAllNotificationsRead: markAllNotificationsRead,
     dismissNotification: dismissNotification,
     checkAlerts: checkAlerts,
     // Profils
