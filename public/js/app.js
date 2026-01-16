@@ -5166,12 +5166,18 @@
     var currSymbol = getCurrencySymbol();
 
     // Section Plan
-    var max = state.limits.maxProducts;
-    max = max === Infinity || max > 9999 ? t("plan.unlimited", "Illimite") : max;
+    var max = state.limits ? state.limits.maxProducts : null;
+    var isUnlimited = !max || max === Infinity || max > 9999 || max === "null";
+    var maxDisplay = isUnlimited ? t("plan.unlimited", "Illimite") : max;
+    
     var trialInfo = "";
     if (state.trial && state.trial.active) {
       trialInfo = '<div class="setting-trial-info"><span class="badge badge-warning">' + t("plan.trial", "ESSAI") + '</span> ' + state.trial.daysLeft + ' ' + t("plan.daysLeft", "jours restants") + '</div>';
     }
+    
+    var usageText = isUnlimited 
+      ? state.products.length + ' ' + t("plan.products", "produits") 
+      : state.products.length + ' / ' + maxDisplay + ' ' + t("plan.products", "produits");
 
     var planSection = 
       '<div class="settings-section">' +
@@ -5179,8 +5185,8 @@
       '<div class="settings-section-body">' +
       '<div class="setting-plan-card">' +
       '<div class="plan-current"><div class="plan-name-big">' + state.planName + '</div>' + trialInfo +
-      '<div class="plan-usage">' + state.products.length + ' / ' + max + ' ' + t("plan.products", "produits") + '</div></div>' +
-      (state.planId !== "enterprise" ? '<button class="btn btn-upgrade" onclick="app.showUpgradeModal()">' + t("plan.changePlan", "Changer de plan") + '</button>' : '<span class="badge badge-success">ENTERPRISE</span>') +
+      '<div class="plan-usage">' + usageText + '</div></div>' +
+      (state.planId !== "enterprise" && state.planId !== "business" ? '<button class="btn btn-upgrade" onclick="app.showUpgradeModal()">' + t("plan.changePlan", "Changer de plan") + '</button>' : '<span class="badge badge-success"><i data-lucide="check"></i> ' + t("plan.active", "Actif") + '</span>') +
       '</div></div></div>';
 
     // Section Langue & Region
@@ -5536,6 +5542,9 @@
       (opts.footer ? '<div class="modal-footer">' + opts.footer + "</div>" : "") +
       "</div>";
     
+    // Prevent body scroll on mobile when modal is open
+    document.body.classList.add('modal-open');
+    
     // Focus sur le modal pour l'accessibilité
     var modal = ct.querySelector('.modal');
     if (modal) modal.focus();
@@ -5552,6 +5561,7 @@
 
   function closeModal() {
     document.removeEventListener('keydown', handleModalEscape);
+    document.body.classList.remove('modal-open');
     var el = document.getElementById("modalsContainer");
     if (el) el.innerHTML = "";
   }
@@ -6091,23 +6101,38 @@
     // Widget plan sidebar
     var w = document.getElementById("planWidget");
     if (w) {
-      var max = state.limits.maxProducts;
-      max = max === Infinity || max > 9999 ? "INF" : max;
+      var max = state.limits ? state.limits.maxProducts : null;
+      var isUnlimited = !max || max === Infinity || max > 9999 || max === "null";
       
       var trialBadge = "";
       if (state.trial && state.trial.active) {
         trialBadge = '<span class="trial-badge">' + state.trial.daysLeft + 'j</span>';
       }
       
+      // Affichage compact pour plans illimités
+      var usageDisplay = "";
+      if (isUnlimited) {
+        usageDisplay = '<span class="plan-usage">' + state.products.length + ' <i data-lucide="infinity" style="width:14px;height:14px;vertical-align:middle"></i></span>';
+      } else {
+        usageDisplay = '<span class="plan-usage">' + state.products.length + '/' + max + '</span>';
+      }
+      
+      // Pour Business/Enterprise, pas besoin du bouton upgrade
+      var actionBtn = "";
+      if (state.planId === "enterprise") {
+        actionBtn = '<span class="plan-badge-ok"><i data-lucide="check"></i></span>';
+      } else if (state.planId === "business") {
+        actionBtn = '<span class="plan-badge-ok"><i data-lucide="check"></i></span>';
+      } else {
+        actionBtn = '<button class="btn btn-upgrade btn-sm" onclick="app.showUpgradeModal()">Upgrade</button>';
+      }
+      
       w.innerHTML =
         '<div class="plan-info"><span class="plan-name">' +
         state.planName + trialBadge +
-        '</span><span class="plan-usage">' +
-        state.products.length + "/" + max +
-        "</span></div>" +
-        (state.planId !== "enterprise"
-          ? '<button class="btn btn-upgrade btn-sm" onclick="app.showUpgradeModal()">Upgrade</button>'
-          : '<span style="color:var(--success);font-size:11px">ENTERPRISE OK</span>');
+        '</span>' + usageDisplay + '</div>' + actionBtn;
+      
+      if (typeof lucide !== "undefined") lucide.createIcons();
     }
   }
 
