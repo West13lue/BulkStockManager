@@ -5547,14 +5547,22 @@ body {
     align-items: center;
     gap: var(--space-md);
     color: var(--text-secondary);
-    transition: all 0.15s ease;
+    transition: background 0.15s ease, color 0.15s ease;
     cursor: pointer;
-    -webkit-tap-highlight-color: transparent;
+    -webkit-tap-highlight-color: rgba(99, 102, 241, 0.2);
+    touch-action: manipulation;
+    user-select: none;
+    text-decoration: none;
+    position: relative;
+    z-index: 1;
+  }
+  
+  .nav-item * {
+    pointer-events: none;
   }
   
   .nav-item:active {
     background: var(--surface-active);
-    transform: scale(0.98);
   }
   
   .nav-item.active {
@@ -5562,20 +5570,24 @@ body {
     color: var(--accent-primary);
   }
   
+  .nav-item .nav-icon,
   .nav-item i {
     width: 20px;
     height: 20px;
     flex-shrink: 0;
+    pointer-events: none;
   }
   
   .nav-label {
     font-size: 14px;
     font-weight: 500;
+    pointer-events: none;
   }
   
   .nav-badge {
     margin-left: auto;
     font-size: 11px;
+    pointer-events: none;
   }
   
   /* Plan widget mobile */

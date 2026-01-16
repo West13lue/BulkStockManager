@@ -707,16 +707,27 @@
     translateNavigationLabels();
     
     document.querySelectorAll(".nav-item[data-tab]").forEach(function (el) {
-      el.addEventListener("click", function (e) {
+      // Handler pour click et touch
+      var handleNav = function (e) {
         e.preventDefault();
+        e.stopPropagation();
+        
         var tab = el.dataset.tab;
         var feat = el.dataset.feature;
+        
         if (feat && !hasFeature(feat)) {
           showLockedModal(feat);
           return;
         }
+        
         navigateTo(tab);
-      });
+      };
+      
+      // Utiliser click (fonctionne sur desktop et mobile)
+      el.addEventListener("click", handleNav);
+      
+      // Supprimer les anciens handlers si existants (éviter doublons)
+      el.removeAttribute("onclick");
     });
   }
 
