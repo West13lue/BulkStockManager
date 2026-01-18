@@ -5176,7 +5176,7 @@
         settingsData[section][key] = value;
         
         // Si c'est la langue, mettre a jour i18n
-        if (section === "general" && key === "language" && typeof I18N !== "undefined") {
+        if (section === "general" && key === "language" && typeof I18N !== "undefined" && typeof I18N.setLang === "function") {
           I18N.setLang(value);
         }
         

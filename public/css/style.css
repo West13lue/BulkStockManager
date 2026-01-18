@@ -3,6 +3,14 @@
    Modern, Clean, Professional UI
    ===================================================== */
 
+/* Hide Shopify App Bridge skip link */
+a[href="#AppFrameMain"],
+.Polaris-SkipToMain,
+[class*="SkipToMain"],
+a[data-polaris-unstyled][href="#AppFrameMain"] {
+  display: none !important;
+}
+
 /* ============================================
    CSS VARIABLES
    ============================================ */
