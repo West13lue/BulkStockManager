@@ -707,45 +707,25 @@
     translateNavigationLabels();
     
     var navItems = document.querySelectorAll(".nav-item[data-tab]");
-    console.log("[Nav] Setting up", navItems.length, "nav items");
     
     navItems.forEach(function (el) {
       var tab = el.dataset.tab;
       var feat = el.dataset.feature;
       
-      // Forcer le style pointer
-      el.style.cursor = "pointer";
-      
-      // Créer une fonction globale unique pour cet élément
-      var fnName = "nav_" + tab;
-      window[fnName] = function() {
-        console.log("[Nav] Direct call for:", tab);
+      // Méthode ultra-simple : remplacer le href et utiliser onclick inline
+      el.href = "javascript:void(0)";
+      el.onclick = function(e) {
+        if (e) e.preventDefault();
+        
         if (feat && !hasFeature(feat)) {
           showLockedModal(feat);
           return false;
         }
+        
         navigateTo(tab);
         return false;
       };
-      
-      // Ajouter onclick en tant qu'attribut HTML
-      el.setAttribute("onclick", fnName + "(); return false;");
-      
-      // Aussi addEventListener comme backup
-      el.addEventListener("click", function(e) {
-        e.preventDefault();
-        e.stopPropagation();
-        window[fnName]();
-      }, false);
-      
-      // Et touchend pour mobile
-      el.addEventListener("touchend", function(e) {
-        e.preventDefault();
-        window[fnName]();
-      }, { passive: false });
     });
-    
-    console.log("[Nav] Setup complete");
   }
 
   function translateNavigationLabels() {
