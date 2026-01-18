@@ -328,26 +328,65 @@ input, select, textarea {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: var(--space-md);
+  padding: var(--space-sm) var(--space-md);
   background: var(--surface);
   border-radius: var(--radius-md);
   margin-top: var(--space-md);
+  gap: var(--space-sm);
 }
 
 .plan-info {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  align-items: center;
+  gap: var(--space-sm);
+  min-width: 0;
+  flex: 1;
 }
 
 .plan-name {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .plan-usage {
   font-size: 11px;
   color: var(--text-tertiary);
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.plan-badge-ok {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--success-bg);
+  color: var(--success);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.plan-badge-ok i {
+  width: 14px;
+  height: 14px;
+}
+
+.trial-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  background: var(--warning-bg);
+  color: var(--warning);
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 600;
+  margin-left: 4px;
 }
 
 /* ============================================

@@ -1235,9 +1235,9 @@
       (state.products.length ? renderTable(state.products.slice(0, 5)) : renderEmpty()) +
       "</div></div>" +
       
-      // Mouvements rÃ©cents
-      '<div class="card"><div class="card-header"><h3 class="card-title"><i data-lucide="activity"></i> ' + t("dashboard.recentMovements", "Mouvements recents") + '</h3>' +
-      '</div>' +
+      // Mouvements récents
+      '<div class="card"><div class="card-header"><h3 class="card-title"><i data-lucide="activity"></i> ' + t("dashboard.recentMovements", "Recent movements") + '</h3>' +
+      '<button class="btn btn-ghost btn-sm" onclick="app.exportMovementsCSV()" title="' + t("export.movements", "Export CSV") + '"><i data-lucide="download"></i></button></div>' +
       '<div class="card-body" id="dashboardMovements"><div class="text-center py-lg"><div class="spinner"></div></div></div></div>' +
       
       '</div>';
@@ -2079,10 +2079,11 @@
       '<div class="page-header"><div><h1 class="page-title">' + t("products.title", "Produits") + '</h1><p class="page-subtitle">' +
       state.products.length + " " + t("products.productCount", "produit(s)") + "</p></div>" +
       '<div class="page-actions">' +
+      '<button class="btn btn-ghost" onclick="app.exportStockCSV()" title="' + t("export.stock", "Export CSV") + '"><i data-lucide="download"></i></button>' +
       '<button class="btn btn-ghost" onclick="app.showScannerModal()" title="' + t("scanner.title", "Scanner code-barres") + '"><i data-lucide="scan-barcode"></i></button>' +
       '<button class="btn btn-ghost" onclick="app.showCategoriesModal()">' + t("categories.title", "Categories") + '</button>' +
       '<button class="btn btn-secondary" onclick="app.showImportModal()">' + t("products.importShopify", "Import Shopify") + '</button>' +
-      '<button class="btn btn-primary" onclick="app.showAddProductModal()">+ ' + t("action.add", "Ajouter") + '</button></div></div>' +
+      '<button class="btn btn-primary" onclick="app.showAddProductModal()">+ ' + t("action.add", "Add") + '</button></div></div>' +
       
       // Toolbar filtres
       '<div class="toolbar-filters">' +
@@ -2543,9 +2544,10 @@
           
           '</div>',
         footer:
-          '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.close", "Fermer") + '</button>' +
-          '<button class="btn btn-secondary" onclick="app.showAdjustBatchModal(\'' + productId + '\',\'' + lotId + '\')">' + t("batches.adjust", "Ajuster") + '</button>' +
-          (lot.status === "active" ? '<button class="btn btn-danger" onclick="app.deactivateBatch(\'' + productId + '\',\'' + lotId + '\')">' + t("batches.deactivate", "Desactiver") + '</button>' : '')
+          '<button class="btn btn-ghost text-danger" onclick="app.deleteBatch(\'' + productId + '\',\'' + lotId + '\')" title="' + t("action.delete", "Delete") + '"><i data-lucide="trash-2"></i></button>' +
+          '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.close", "Close") + '</button>' +
+          '<button class="btn btn-secondary" onclick="app.showAdjustBatchModal(\'' + productId + '\',\'' + lotId + '\')">' + t("batches.adjust", "Adjust") + '</button>' +
+          (lot.status === "active" ? '<button class="btn btn-danger" onclick="app.deactivateBatch(\'' + productId + '\',\'' + lotId + '\')">' + t("batches.deactivate", "Deactivate") + '</button>' : '')
       });
 
     } catch (e) {
@@ -5257,23 +5259,155 @@
         a.download = "stock-manager-backup-" + new Date().toISOString().slice(0, 10) + ".json";
         a.click();
         URL.revokeObjectURL(url);
-        showToast(t("settings.backupDownloaded", "Backup telecharge"), "success");
+        showToast(t("settings.backupDownloaded", "Backup downloaded"), "success");
       }
     } catch (e) {
-      showToast(t("msg.exportError", "Erreur export"), "error");
+      showToast(t("msg.exportError", "Export error"), "error");
+    }
+  }
+
+  // Export Stock CSV
+  async function exportStockCSV() {
+    try {
+      showToast(t("export.preparing", "Preparing export..."), "info");
+      var res = await authFetch(apiUrl("/stock.csv"));
+      if (res.ok) {
+        var blob = await res.blob();
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement("a");
+        a.href = url;
+        a.download = "stock-" + new Date().toISOString().slice(0, 10) + ".csv";
+        a.click();
+        URL.revokeObjectURL(url);
+        showToast(t("export.success", "Export downloaded"), "success");
+      } else {
+        throw new Error("Export failed");
+      }
+    } catch (e) {
+      showToast(t("msg.exportError", "Export error"), "error");
+    }
+  }
+
+  // Export Movements CSV
+  async function exportMovementsCSV() {
+    try {
+      showToast(t("export.preparing", "Preparing export..."), "info");
+      var res = await authFetch(apiUrl("/movements.csv"));
+      if (res.ok) {
+        var blob = await res.blob();
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement("a");
+        a.href = url;
+        a.download = "movements-" + new Date().toISOString().slice(0, 10) + ".csv";
+        a.click();
+        URL.revokeObjectURL(url);
+        showToast(t("export.success", "Export downloaded"), "success");
+      } else {
+        throw new Error("Export failed");
+      }
+    } catch (e) {
+      showToast(t("msg.exportError", "Export error"), "error");
+    }
+  }
+
+  // Export Analytics CSV
+  async function exportAnalyticsCSV() {
+    try {
+      showToast(t("export.preparing", "Preparing export..."), "info");
+      var period = analyticsPeriod || "30d";
+      var res = await authFetch(apiUrl("/analytics/export.csv?period=" + period));
+      if (res.ok) {
+        var blob = await res.blob();
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement("a");
+        a.href = url;
+        a.download = "analytics-" + new Date().toISOString().slice(0, 10) + ".csv";
+        a.click();
+        URL.revokeObjectURL(url);
+        showToast(t("export.success", "Export downloaded"), "success");
+      } else {
+        throw new Error("Export failed");
+      }
+    } catch (e) {
+      showToast(t("msg.exportError", "Export error"), "error");
+    }
+  }
+
+  // Delete Batch
+  async function deleteBatch(productId, lotId) {
+    if (!confirm(t("batches.confirmDelete", "Delete this batch permanently?"))) return;
+    try {
+      var res = await authFetch(apiUrl("/lots/" + encodeURIComponent(productId) + "/" + encodeURIComponent(lotId)), {
+        method: "DELETE"
+      });
+      if (res.ok) {
+        showToast(t("batches.deleted", "Batch deleted"), "success");
+        closeModal();
+        loadBatchesData();
+      } else {
+        var err = await res.json().catch(function() { return {}; });
+        showToast(err.error || t("msg.error", "Error"), "error");
+      }
+    } catch (e) {
+      showToast(t("msg.error", "Error") + ": " + e.message, "error");
+    }
+  }
+
+  // Mark All Notifications Read
+  async function markAllNotificationsRead() {
+    try {
+      var res = await authFetch(apiUrl("/notifications/mark-all-read"), { method: "POST" });
+      if (res.ok) {
+        showToast(t("notifications.allRead", "All marked as read"), "success");
+        loadNotifications();
+        // Refresh modal if open
+        var modal = document.querySelector(".modal-body .notifications-list");
+        if (modal) {
+          loadNotificationsForModal();
+        }
+      }
+    } catch (e) {
+      showToast(t("msg.error", "Error"), "error");
+    }
+  }
+
+  // Cancel Plan
+  async function cancelPlan() {
+    if (!confirm(t("plan.confirmCancel", "Are you sure you want to cancel your subscription? You will lose access to premium features."))) return;
+    try {
+      var res = await authFetch(apiUrl("/plan/cancel"), { method: "POST" });
+      if (res.ok) {
+        showToast(t("plan.cancelled", "Subscription cancelled"), "success");
+        closeModal();
+        // Reload plan info
+        var planRes = await authFetch(apiUrl("/plan"));
+        if (planRes.ok) {
+          var planData = await planRes.json();
+          state.planId = planData.planId || "free";
+          state.planName = planData.planName || "Free";
+          state.limits = planData.limits || {};
+          state.features = planData.features || {};
+          updateUI();
+        }
+      } else {
+        var err = await res.json().catch(function() { return {}; });
+        showToast(err.error || t("msg.error", "Error"), "error");
+      }
+    } catch (e) {
+      showToast(t("msg.error", "Error") + ": " + e.message, "error");
     }
   }
 
   async function resetAllSettings() {
-    if (!confirm("Reinitialiser tous les parametres aux valeurs par defaut ?")) return;
+    if (!confirm(t("settings.confirmReset", "Reset all settings to default values?"))) return;
     try {
       var res = await authFetch(apiUrl("/settings/reset"), { method: "POST" });
       if (res.ok) {
-        showToast(t("settings.reset", "Parametres reinitialises"), "success");
+        showToast(t("settings.reset", "Settings reset"), "success");
         loadSettingsData();
       }
     } catch (e) {
-      showToast(t("msg.error", "Erreur"), "error");
+      showToast(t("msg.error", "Error"), "error");
     }
   }
 
@@ -5522,11 +5656,16 @@
       );
     }).join("");
     
+    var cancelLink = "";
+    if (state.planId && state.planId !== "free") {
+      cancelLink = '<a href="javascript:void(0)" onclick="app.cancelPlan()" style="color:var(--text-tertiary);font-size:12px;text-decoration:underline">' + t("plan.cancelSubscription", "Cancel subscription") + '</a>';
+    }
+    
     showModal({
-      title: t("plans.choosePlan", "Choisir un plan"),
+      title: t("plans.choosePlan", "Choose a plan"),
       size: "xl",
       content: '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:20px;padding:8px">' + cards + '</div>',
-      footer: '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.close", "Fermer") + '</button>',
+      footer: cancelLink + '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.close", "Close") + '</button>',
     });
     if (typeof lucide !== "undefined") lucide.createIcons();
   }
@@ -5830,23 +5969,38 @@
     // Widget plan sidebar
     var w = document.getElementById("planWidget");
     if (w) {
-      var max = state.limits.maxProducts;
-      max = max === Infinity || max > 9999 ? "INF" : max;
+      var max = state.limits ? state.limits.maxProducts : null;
+      var isUnlimited = !max || max === Infinity || max > 9999 || max === "null";
       
       var trialBadge = "";
       if (state.trial && state.trial.active) {
         trialBadge = '<span class="trial-badge">' + state.trial.daysLeft + 'j</span>';
       }
       
+      // Affichage compact pour plans illimités
+      var usageDisplay = "";
+      if (isUnlimited) {
+        usageDisplay = '<span class="plan-usage">' + state.products.length + ' <i data-lucide="infinity" style="width:14px;height:14px;vertical-align:middle"></i></span>';
+      } else {
+        usageDisplay = '<span class="plan-usage">' + state.products.length + '/' + max + '</span>';
+      }
+      
+      // Pour Business/Enterprise, pas besoin du bouton upgrade
+      var actionBtn = "";
+      if (state.planId === "enterprise") {
+        actionBtn = '<span class="plan-badge-ok"><i data-lucide="check"></i></span>';
+      } else if (state.planId === "business") {
+        actionBtn = '<span class="plan-badge-ok"><i data-lucide="check"></i></span>';
+      } else {
+        actionBtn = '<button class="btn btn-upgrade btn-sm" onclick="app.showUpgradeModal()">Upgrade</button>';
+      }
+      
       w.innerHTML =
         '<div class="plan-info"><span class="plan-name">' +
         state.planName + trialBadge +
-        '</span><span class="plan-usage">' +
-        state.products.length + "/" + max +
-        "</span></div>" +
-        (state.planId !== "enterprise"
-          ? '<button class="btn btn-upgrade btn-sm" onclick="app.showUpgradeModal()">Upgrade</button>'
-          : '<span style="color:var(--success);font-size:11px">ENTERPRISE OK</span>');
+        '</span>' + usageDisplay + '</div>' + actionBtn;
+      
+      if (typeof lucide !== "undefined") lucide.createIcons();
     }
   }
 
@@ -6074,7 +6228,7 @@
       title: '<i data-lucide="bell"></i> ' + t("notifications.title", "Notifications"),
       size: "md",
       content: '<div id="notificationsModalContent"><div class="text-center py-lg"><div class="spinner"></div></div></div>',
-      footer: '<button class="btn btn-ghost" onclick="app.checkAlerts()">' + t("notifications.refresh", "Actualiser") + '</button><button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.close", "Fermer") + '</button>'
+      footer: '<button class="btn btn-ghost" onclick="app.markAllNotificationsRead()"><i data-lucide="check-check"></i> ' + t("notifications.markAllRead", "Mark all read") + '</button><button class="btn btn-ghost" onclick="app.checkAlerts()">' + t("notifications.refresh", "Refresh") + '</button><button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.close", "Close") + '</button>'
     });
     if (typeof lucide !== "undefined") lucide.createIcons();
     
@@ -6720,19 +6874,20 @@
 
     // Afficher loading puis charger les donnees
     c.innerHTML =
-      '<div class="page-header"><div><h1 class="page-title"><i data-lucide="bar-chart-3"></i> ' + t("analytics.title", "Analytics PRO") + '</h1><p class="page-subtitle">' + t("analytics.subtitle", "Ventes, marges et performance") + '</p></div>' +
+      '<div class="page-header"><div><h1 class="page-title"><i data-lucide="bar-chart-3"></i> ' + t("analytics.title", "Analytics PRO") + '</h1><p class="page-subtitle">' + t("analytics.subtitle", "Sales, margins and performance") + '</p></div>' +
       '<div class="page-actions">' +
+      '<button class="btn btn-ghost" onclick="app.exportAnalyticsCSV()" title="' + t("export.analytics", "Export CSV") + '"><i data-lucide="download"></i></button>' +
       '<select class="form-select" id="analyticsPeriod" onchange="app.changeAnalyticsPeriod(this.value)">' +
-      '<option value="7"' + (analyticsPeriod === "7" ? " selected" : "") + '>' + t("analytics.last7days", "7 derniers jours") + '</option>' +
-      '<option value="30"' + (analyticsPeriod === "30" ? " selected" : "") + '>' + t("analytics.last30days", "30 derniers jours") + '</option>' +
-      '<option value="90"' + (analyticsPeriod === "90" ? " selected" : "") + '>' + t("analytics.last90days", "90 derniers jours") + '</option>' +
+      '<option value="7"' + (analyticsPeriod === "7" ? " selected" : "") + '>' + t("analytics.last7days", "Last 7 days") + '</option>' +
+      '<option value="30"' + (analyticsPeriod === "30" ? " selected" : "") + '>' + t("analytics.last30days", "Last 30 days") + '</option>' +
+      '<option value="90"' + (analyticsPeriod === "90" ? " selected" : "") + '>' + t("analytics.last90days", "Last 90 days") + '</option>' +
       '</select>' +
       '<div class="analytics-tabs">' +
-      '<button class="tab-btn active" data-tab="sales" onclick="app.switchAnalyticsTab(\'sales\')">' + t("analytics.sales", "Ventes") + '</button>' +
+      '<button class="tab-btn active" data-tab="sales" onclick="app.switchAnalyticsTab(\'sales\')">' + t("analytics.sales", "Sales") + '</button>' +
       '<button class="tab-btn" data-tab="stock" onclick="app.switchAnalyticsTab(\'stock\')">' + t("analytics.stock", "Stock") + '</button>' +
       '</div>' +
       '</div></div>' +
-      '<div id="analyticsContent"><div class="text-center" style="padding:60px"><div class="spinner"></div><p class="text-secondary mt-md">' + t("analytics.loading", "Chargement des analytics...") + '</p></div></div>';
+      '<div id="analyticsContent"><div class="text-center" style="padding:60px"><div class="spinner"></div><p class="text-secondary mt-md">' + t("analytics.loading", "Loading analytics...") + '</p></div></div>';
 
     analyticsTab = "sales";
     loadAnalyticsSales();
@@ -7421,7 +7576,17 @@
     updateNestedSetting: updateNestedSetting,
     exportSettings: exportSettings,
     resetAllSettings: resetAllSettings,
-    // Dashboard amÃ©liorÃ©
+    // Export CSV
+    exportStockCSV: exportStockCSV,
+    exportMovementsCSV: exportMovementsCSV,
+    exportAnalyticsCSV: exportAnalyticsCSV,
+    // Batch management
+    deleteBatch: deleteBatch,
+    // Notifications
+    markAllNotificationsRead: markAllNotificationsRead,
+    // Plan
+    cancelPlan: cancelPlan,
+    // Dashboard amélioré
     showLowStockModal: showLowStockModal,
     showOutOfStockModal: showOutOfStockModal,
     showQuickRestockModal: showQuickRestockModal,
