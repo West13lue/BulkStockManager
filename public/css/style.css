@@ -5015,25 +5015,373 @@ html, body {
    MOBILE TOUCH FIX - Added for mobile navigation
    ============================================ */
 @media (max-width: 768px) {
-  /* Ensure nav items are touchable */
+  /* === NAVIGATION FIX (DO NOT MODIFY) === */
   .nav-item {
     -webkit-tap-highlight-color: rgba(99, 102, 241, 0.2);
     touch-action: manipulation;
     cursor: pointer;
+    min-height: 48px;
   }
   
-  /* Prevent any child from capturing touch */
   .nav-item > * {
     pointer-events: none;
   }
   
-  /* Ensure sidebar content is scrollable and touchable */
   .sidebar-nav {
     -webkit-overflow-scrolling: touch;
   }
   
-  /* Active state feedback for touch */
   .nav-item:active {
     background: var(--surface-hover);
+  }
+
+  /* === SIDEBAR MOBILE === */
+  .sidebar {
+    width: 260px;
+    left: -270px;
+  }
+  
+  .sidebar.open {
+    left: 0;
+  }
+
+  /* === TOPBAR MOBILE === */
+  .topbar {
+    padding: var(--space-sm) var(--space-md);
+    gap: var(--space-sm);
+  }
+  
+  .search-box {
+    display: none;
+  }
+  
+  .sidebar-toggle {
+    display: flex !important;
+  }
+  
+  .topbar-actions .btn-text {
+    display: none;
+  }
+
+  /* === PAGE HEADER MOBILE === */
+  .page-header {
+    flex-direction: column;
+    align-items: stretch !important;
+    gap: var(--space-md);
+  }
+  
+  .page-title {
+    font-size: 1.25rem;
+  }
+  
+  .page-subtitle {
+    font-size: 0.8rem;
+  }
+  
+  .page-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-xs);
+    width: 100%;
+  }
+  
+  .page-actions .btn {
+    flex: 1;
+    min-width: 0;
+    padding: var(--space-sm) var(--space-md);
+    font-size: 13px;
+    justify-content: center;
+  }
+  
+  .page-actions .btn-ghost {
+    flex: 0 0 auto;
+    padding: var(--space-sm);
+  }
+
+  /* === STATS GRID MOBILE === */
+  .stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: var(--space-sm);
+  }
+  
+  .stat-card {
+    padding: var(--space-md);
+  }
+  
+  .stat-value {
+    font-size: 1.25rem;
+  }
+  
+  .stat-label {
+    font-size: 0.7rem;
+  }
+  
+  .stat-icon {
+    width: 36px;
+    height: 36px;
+  }
+  
+  .stat-icon i {
+    width: 18px;
+    height: 18px;
+  }
+
+  /* === DASHBOARD MOBILE === */
+  .dashboard-grid {
+    grid-template-columns: 1fr;
+    gap: var(--space-md);
+  }
+  
+  .quick-actions {
+    grid-template-columns: repeat(2, 1fr);
+    gap: var(--space-sm);
+  }
+  
+  .quick-action-btn {
+    padding: var(--space-md);
+    font-size: 12px;
+  }
+
+  /* === CARDS MOBILE === */
+  .card {
+    border-radius: var(--radius-md);
+  }
+  
+  .card-header {
+    padding: var(--space-md);
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-sm);
+  }
+  
+  .card-body {
+    padding: var(--space-md);
+  }
+
+  /* === TABLES RESPONSIVE === */
+  .data-table {
+    font-size: 13px;
+  }
+  
+  .data-table th,
+  .data-table td {
+    padding: var(--space-sm) var(--space-md);
+  }
+  
+  .data-table th:nth-child(n+4),
+  .data-table td:nth-child(n+4) {
+    display: none;
+  }
+  
+  .data-table th:last-child,
+  .data-table td:last-child {
+    display: table-cell;
+  }
+  
+  .cell-actions {
+    gap: var(--space-xs);
+  }
+  
+  .cell-actions .btn {
+    padding: var(--space-xs);
+  }
+
+  /* === FILTERS MOBILE === */
+  .toolbar-filters {
+    flex-direction: column;
+    gap: var(--space-sm);
+  }
+  
+  .filter-group {
+    width: 100%;
+    max-width: none;
+  }
+
+  /* === FORMS MOBILE === */
+  .form-input,
+  .form-select,
+  .form-textarea {
+    font-size: 16px !important;
+    padding: var(--space-md);
+    min-height: 48px;
+  }
+
+  /* === BUTTONS MOBILE === */
+  .btn {
+    min-height: 44px;
+  }
+  
+  .btn-sm {
+    min-height: 36px;
+  }
+
+  /* === MODAL MOBILE - SLIDE FROM BOTTOM === */
+  .modal-backdrop {
+    background: rgba(0, 0, 0, 0.6);
+  }
+  
+  .modal {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    top: auto;
+    width: 100%;
+    max-width: 100%;
+    max-height: 85vh;
+    max-height: 85dvh;
+    margin: 0;
+    border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+    transform: translateY(0);
+    animation: slideUp 0.3s ease;
+  }
+  
+  @keyframes slideUp {
+    from {
+      transform: translateY(100%);
+    }
+    to {
+      transform: translateY(0);
+    }
+  }
+  
+  .modal-header {
+    padding: var(--space-md);
+    position: sticky;
+    top: 0;
+    background: var(--bg-secondary);
+    z-index: 1;
+    border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+  }
+  
+  .modal-title {
+    font-size: 16px;
+  }
+  
+  .modal-body {
+    padding: var(--space-md);
+    max-height: calc(85vh - 140px);
+    max-height: calc(85dvh - 140px);
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  
+  .modal-footer {
+    padding: var(--space-md);
+    position: sticky;
+    bottom: 0;
+    background: var(--bg-tertiary);
+    z-index: 1;
+    gap: var(--space-sm);
+  }
+  
+  .modal-footer .btn {
+    flex: 1;
+  }
+
+  /* === BADGES MOBILE === */
+  .stock-badge {
+    font-size: 10px;
+    padding: 2px 6px;
+  }
+
+  /* === EMPTY STATE MOBILE === */
+  .empty-state {
+    padding: var(--space-xl) var(--space-md);
+  }
+  
+  .empty-state-icon,
+  .empty-icon {
+    width: 48px;
+    height: 48px;
+  }
+  
+  .empty-state h3 {
+    font-size: 16px;
+  }
+
+  /* === NOTIFICATIONS MOBILE === */
+  .notification-item {
+    padding: var(--space-md);
+  }
+
+  /* === SETTINGS MOBILE === */
+  .setting-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-sm);
+  }
+
+  /* === TOASTS MOBILE === */
+  .toasts-container {
+    bottom: var(--space-md);
+    left: var(--space-md);
+    right: var(--space-md);
+  }
+  
+  .toast {
+    width: 100%;
+  }
+
+  /* === PLAN WIDGET MOBILE === */
+  .plan-widget {
+    padding: var(--space-xs) var(--space-sm);
+  }
+  
+  .plan-name {
+    font-size: 11px;
+  }
+  
+  .plan-usage {
+    font-size: 10px;
+  }
+
+  /* === UTILITY CLASSES MOBILE === */
+  .hide-mobile {
+    display: none !important;
+  }
+}
+
+/* === SMALL MOBILE (< 480px) === */
+@media (max-width: 480px) {
+  .stats-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .quick-actions {
+    grid-template-columns: 1fr;
+  }
+  
+  .page-actions .btn {
+    font-size: 12px;
+  }
+  
+  .modal-footer {
+    flex-direction: column;
+  }
+  
+  .modal-footer .btn {
+    width: 100%;
+  }
+}
+
+/* === iOS SAFE AREAS === */
+@supports (padding-top: env(safe-area-inset-top)) {
+  @media (max-width: 768px) {
+    .topbar {
+      padding-top: calc(var(--space-sm) + env(safe-area-inset-top));
+    }
+    
+    .sidebar {
+      padding-top: env(safe-area-inset-top);
+    }
+    
+    .modal-footer {
+      padding-bottom: calc(var(--space-md) + env(safe-area-inset-bottom));
+    }
+    
+    .toasts-container {
+      bottom: calc(var(--space-md) + env(safe-area-inset-bottom));
+    }
   }
 }
