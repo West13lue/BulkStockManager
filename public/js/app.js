@@ -5182,9 +5182,9 @@
         
         // Pour les parametres d'affichage importants, proposer un reload
         if (section === "general" && key === "language") {
-          showReloadNotification(t("settings.languageChanged", "Langue modifiee. Rechargez pour appliquer completement."));
+          showReloadNotification(t("settings.languageChanged", "Language changed. Reload to fully apply."));
         } else if (section === "currency" || section === "units") {
-          showToast(t("settings.saved", "Parametre enregistre"), "success");
+          showToast(t("settings.saved", "Setting saved"), "success");
           // Re-render la page courante pour appliquer les nouveaux formats
           renderTab(state.currentTab);
         } else {
@@ -5302,14 +5302,22 @@
   }
 
   function showAddProductModal() {
+    var weightUnit = getWeightUnit();
+    var currSymbol = getCurrencySymbol();
+    
     showModal({
-      title: t("products.add", "Ajouter un produit"),
+      title: t("products.add", "Add product"),
       content:
-        '<div class="form-group"><label class="form-label">Nom</label><input class="form-input" id="pName" placeholder="CBD Premium"></div>' +
-        '<div style="display:flex;gap:16px"><div class="form-group" style="flex:1"><label class="form-label">Stock (" + getWeightUnit() + ")</label><input type="number" class="form-input" id="pStock" value="0"></div>' +
-        '<div class="form-group" style="flex:1"><label class="form-label">Cout (" + getCurrencySymbol() + "/" + getWeightUnit() + ")</label><input type="number" class="form-input" id="pCost" value="0" step="0.01"></div></div>',
+        '<div class="form-group"><label class="form-label">' + t("products.name", "Name") + '</label><input class="form-input" id="pName" placeholder="CBD Premium"></div>' +
+        '<div class="alert alert-info mb-md" style="font-size:12px;padding:12px;border-radius:8px;background:var(--info-bg);border:1px solid var(--info)">' +
+        '<strong>' + t("products.manualProductInfo", "Manual product") + '</strong><br>' +
+        t("products.manualProductDesc", "This product has no Shopify variant and won't sync automatically with purchases.") +
+        '</div>' +
+        '<div class="form-row-mobile">' +
+        '<div class="form-group" style="flex:1"><label class="form-label">' + t("products.stock", "Stock") + ' (' + weightUnit + ')</label><input type="number" class="form-input" id="pStock" value="0" min="0"></div>' +
+        '<div class="form-group" style="flex:1"><label class="form-label">' + t("products.cost", "Cost") + ' (' + currSymbol + '/' + weightUnit + ')</label><input type="number" class="form-input" id="pCost" value="0" step="0.01" min="0"></div></div>',
       footer:
-        '<button class="btn btn-ghost" onclick="app.closeModal()">Annuler</button><button class="btn btn-primary" onclick="app.saveProduct()">Ajouter</button>',
+        '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.cancel", "Cancel") + '</button><button class="btn btn-primary" onclick="app.saveProduct()">' + t("action.add", "Add") + '</button>',
     });
   }
 
@@ -5403,16 +5411,19 @@
         );
       })
       .join("");
+    var weightUnit = getWeightUnit();
+    var currSymbol = getCurrencySymbol();
     showModal({
-      title: t("products.restock", "Reapprovisionner"),
+      title: t("products.restock", "Restock"),
       content:
-        '<div class="form-group"><label class="form-label">Produit</label><select class="form-select" id="rProd">' +
+        '<div class="form-group"><label class="form-label">' + t("products.product", "Product") + '</label><select class="form-select" id="rProd">' +
         opts +
         '</select></div>' +
-        '<div style="display:flex;gap:16px"><div class="form-group" style="flex:1"><label class="form-label">Quantite (" + getWeightUnit() + ")</label><input type="number" class="form-input" id="rQty" placeholder="500"></div>' +
-        '<div class="form-group" style="flex:1"><label class="form-label">Prix (" + getCurrencySymbol() + "/" + getWeightUnit() + ")</label><input type="number" class="form-input" id="rPrice" placeholder="4.50" step="0.01"></div></div>',
+        '<div class="form-row-mobile">' +
+        '<div class="form-group" style="flex:1"><label class="form-label">' + t("products.quantity", "Quantity") + ' (' + weightUnit + ')</label><input type="number" class="form-input" id="rQty" placeholder="500"></div>' +
+        '<div class="form-group" style="flex:1"><label class="form-label">' + t("products.price", "Price") + ' (' + currSymbol + '/' + weightUnit + ')</label><input type="number" class="form-input" id="rPrice" placeholder="4.50" step="0.01"></div></div>',
       footer:
-        '<button class="btn btn-ghost" onclick="app.closeModal()">Annuler</button><button class="btn btn-primary" onclick="app.saveRestock()">Valider</button>',
+        '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.cancel", "Cancel") + '</button><button class="btn btn-primary" onclick="app.saveRestock()">' + t("action.validate", "Validate") + '</button>',
     });
   }
 
@@ -5432,18 +5443,19 @@
         );
       })
       .join("");
+    var weightUnit = getWeightUnit();
     showModal({
-      title: t("products.adjustStock", "Ajuster le stock"),
+      title: t("products.adjustStock", "Adjust stock"),
       content:
-        '<div class="form-group"><label class="form-label">Produit</label><select class="form-select" id="aProd">' +
+        '<div class="form-group"><label class="form-label">' + t("products.product", "Product") + '</label><select class="form-select" id="aProd">' +
         opts +
         '</select></div>' +
-        '<div class="form-group"><label class="form-label">Type</label><div style="display:flex;gap:16px">' +
-        '<label><input type="radio" name="aType" value="add" checked> Ajouter</label>' +
-        '<label><input type="radio" name="aType" value="remove"> Retirer</label></div></div>' +
-        '<div class="form-group"><label class="form-label">Quantite (" + getWeightUnit() + ")</label><input type="number" class="form-input" id="aQty" placeholder="100"></div>',
+        '<div class="form-group"><label class="form-label">' + t("products.type", "Type") + '</label><div style="display:flex;gap:16px">' +
+        '<label><input type="radio" name="aType" value="add" checked> ' + t("action.add", "Add") + '</label>' +
+        '<label><input type="radio" name="aType" value="remove"> ' + t("action.remove", "Remove") + '</label></div></div>' +
+        '<div class="form-group"><label class="form-label">' + t("products.quantity", "Quantity") + ' (' + weightUnit + ')</label><input type="number" class="form-input" id="aQty" placeholder="100"></div>',
       footer:
-        '<button class="btn btn-ghost" onclick="app.closeModal()">Annuler</button><button class="btn btn-primary" onclick="app.saveAdjust()">Appliquer</button>',
+        '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.cancel", "Cancel") + '</button><button class="btn btn-primary" onclick="app.saveAdjust()">' + t("action.apply", "Apply") + '</button>',
     });
   }
 
@@ -6642,17 +6654,19 @@
   }
 
   function showEditCMPModal(productId, currentCMP) {
+    var weightUnit = getWeightUnit();
+    var currSymbol = getCurrencySymbol();
     closeModal();
     showModal({
-      title: t("products.editCMP", "Modifier le cout moyen (CMP)"),
+      title: t("products.editCMP", "Edit average cost (CMP)"),
       content:
-        '<p class="text-secondary mb-md">Le CMP actuel est de <strong>' + formatPricePerUnit(currentCMP) + '</strong>.</p>' +
-        '<div class="form-group"><label class="form-label">Nouveau CMP (" + getCurrencySymbol() + "/" + getWeightUnit() + ")</label>' +
+        '<p class="text-secondary mb-md">' + t("products.currentCMP", "Current CMP is") + ' <strong>' + formatPricePerUnit(currentCMP) + '</strong>.</p>' +
+        '<div class="form-group"><label class="form-label">' + t("products.newCMP", "New CMP") + ' (' + currSymbol + '/' + weightUnit + ')</label>' +
         '<input type="number" class="form-input" id="newCMP" value="' + currentCMP + '" step="0.01" min="0"></div>' +
-        '<p class="form-hint">Ã¢Å¡Â Ã¯Â¸Â La modification manuelle du CMP ecrase le calcul automatique.</p>',
+        '<p class="form-hint">' + t("products.cmpWarning", "Manual CMP change overrides automatic calculation.") + '</p>',
       footer:
-        '<button class="btn btn-ghost" onclick="app.closeModal()">Annuler</button>' +
-        '<button class="btn btn-primary" onclick="app.saveCMP(\'' + productId + '\')">Enregistrer</button>',
+        '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.cancel", "Cancel") + '</button>' +
+        '<button class="btn btn-primary" onclick="app.saveCMP(\'' + productId + '\')">' + t("action.save", "Save") + '</button>',
     });
   }
 
@@ -6660,7 +6674,7 @@
     var input = document.getElementById("newCMP");
     var newCMP = parseFloat(input ? input.value : 0);
     if (!Number.isFinite(newCMP) || newCMP < 0) {
-      showToast("Valeur invalide", "error");
+      showToast(t("msg.invalidValue", "Invalid value"), "error");
       return;
     }
     try {
@@ -6669,16 +6683,16 @@
         body: JSON.stringify({ averageCostPerGram: newCMP }),
       });
       if (res.ok) {
-        showToast("CMP mis a jour", "success");
+        showToast(t("products.cmpUpdated", "CMP updated"), "success");
         closeModal();
         await loadProducts();
         renderTab(state.currentTab);
       } else {
         var e = await res.json();
-        showToast(e.error || "Erreur", "error");
+        showToast(e.error || t("msg.error", "Error"), "error");
       }
     } catch (e) {
-      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
+      showToast(t("msg.error", "Error") + ": " + e.message, "error");
     }
   }
 

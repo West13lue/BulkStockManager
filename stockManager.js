@@ -452,14 +452,14 @@ function upsertImportedProductConfig(arg1, arg2, arg3, arg4, arg5, arg6) {
   }
 
   const productId = payload?.productId;
-  if (!productId) throw new Error("Import: productId manquant");
+  if (!productId) throw new Error("Import: productId missing");
 
   const pid = String(productId);
   const store = getStore(sh);
 
   const safeVariants = normalizeVariants(payload?.variants);
   if (!Object.keys(safeVariants).length) {
-    throw new Error("Import: aucune variante valide");
+    throw new Error("Import: no valid variant found");
   }
 
   if (!store[pid]) {
@@ -563,62 +563,6 @@ function getProductSnapshot(shop, productId) {
   };
 }
 
-// NOUVEAU: getProductStock - retourne le stock en grammes d'un produit
-function getProductStock(shop, productId) {
-  const sh = String(shop || "default");
-  const pid = String(productId || "");
-  
-  const store = getStore(sh);
-  const cfg = store[pid];
-  
-  if (!cfg) return 0;
-  return clampMin0(cfg.totalGrams);
-}
-
-// NOUVEAU: adjustStock - ajuste le stock d'un produit (positif ou négatif)
-async function adjustStock(shop, productId, gramsDelta, options = {}) {
-  const sh = String(shop || "default");
-  const pid = String(productId || "");
-  const delta = toNum(gramsDelta, 0);
-  
-  return enqueue(() => {
-    const store = getStore(sh);
-    const cfg = store[pid];
-    if (!cfg) return null;
-    
-    const oldStock = clampMin0(cfg.totalGrams);
-    cfg.totalGrams = clampMin0(oldStock + delta);
-    
-    persistState(sh);
-    
-    // Enregistrer le mouvement si movementStore est disponible
-    const movementStore = options.movementStore;
-    if (movementStore && typeof movementStore.recordMovement === "function") {
-      movementStore.recordMovement(sh, {
-        productId: pid,
-        productName: cfg.name || pid,
-        type: options.source || "adjustment",
-        gramsDelta: delta,
-        previousStock: oldStock,
-        newStock: cfg.totalGrams,
-        reason: options.reason || "",
-        kitId: options.kitId || null,
-      });
-    }
-    
-    logEvent("stock_adjusted", {
-      shop: sh,
-      productId: pid,
-      delta,
-      oldStock,
-      newStock: cfg.totalGrams,
-      source: options.source || "adjustment",
-    });
-    
-    return snapshotProduct(sh, pid);
-  });
-}
-
 module.exports = {
   PRODUCT_CONFIG_BY_SHOP,
   applyOrderToProduct,
@@ -637,8 +581,4 @@ module.exports = {
   // a... NOUVEAU pour Analytics
   getProductCMPSnapshot,
   getProductSnapshot,
-  
-  // NOUVEAU pour Kits
-  getProductStock,
-  adjustStock,
 };
