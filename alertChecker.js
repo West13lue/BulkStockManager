@@ -12,13 +12,30 @@ try {
   console.log("[AlertChecker] Notification dispatcher not available");
 }
 
+// Charger le planManager pour vérifier les limites
+let planManager;
+try {
+  planManager = require("./planManager");
+} catch (e) {
+  console.log("[AlertChecker] Plan manager not available");
+}
+
 /**
- * Envoyer une notification externe si configuré
+ * Envoyer une notification externe si configuré ET si le plan le permet
  */
 async function dispatchNotification(shopId, alert) {
   if (!notificationDispatcher || !alert) return;
   
   try {
+    // Vérifier le plan PRO avant d'envoyer des notifications externes
+    if (planManager) {
+      const check = planManager.checkLimit(shopId, "external_notifications");
+      if (!check.allowed) {
+        // Plan Free ou Starter - pas de notifications externes
+        return;
+      }
+    }
+    
     const settings = settingsStore.loadSettings(shopId);
     const channels = settings.notificationChannels || {};
     
