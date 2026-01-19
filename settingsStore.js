@@ -55,6 +55,32 @@ const DEFAULT_SETTINGS = {
     webhookUrl: "",
   },
   
+  // Canaux de notification externes (Discord, Slack, Telegram, Ntfy)
+  notificationChannels: {
+    discord: {
+      enabled: false,
+      webhookUrl: "",
+      updatedAt: null
+    },
+    slack: {
+      enabled: false,
+      webhookUrl: "",
+      updatedAt: null
+    },
+    telegram: {
+      enabled: false,
+      botToken: "",
+      chatId: "",
+      updatedAt: null
+    },
+    ntfy: {
+      enabled: false,
+      topic: "",
+      server: "https://ntfy.sh",
+      updatedAt: null
+    }
+  },
+  
   // Avance (PRO/BUSINESS)
   advanced: {
     valuationMethod: "cmp",
@@ -293,6 +319,45 @@ function updateNotificationSettings(shop, notifSettings) {
 }
 
 // ============================================
+// NOTIFICATION CHANNELS (External: Discord, Slack, Telegram, Ntfy)
+// ============================================
+
+function getNotificationChannels(shop) {
+  return getSetting(shop, "notificationChannels", DEFAULT_SETTINGS.notificationChannels);
+}
+
+function updateNotificationChannel(shop, channelId, config) {
+  const channels = getNotificationChannels(shop);
+  channels[channelId] = {
+    ...channels[channelId],
+    ...config,
+    updatedAt: new Date().toISOString()
+  };
+  return setSetting(shop, "notificationChannels", channels);
+}
+
+function removeNotificationChannel(shop, channelId) {
+  const channels = getNotificationChannels(shop);
+  if (channels[channelId]) {
+    channels[channelId] = {
+      enabled: false,
+      updatedAt: new Date().toISOString()
+    };
+    // Réinitialiser selon le type
+    if (channelId === "discord" || channelId === "slack") {
+      channels[channelId].webhookUrl = "";
+    } else if (channelId === "telegram") {
+      channels[channelId].botToken = "";
+      channels[channelId].chatId = "";
+    } else if (channelId === "ntfy") {
+      channels[channelId].topic = "";
+      channels[channelId].server = "https://ntfy.sh";
+    }
+  }
+  return setSetting(shop, "notificationChannels", channels);
+}
+
+// ============================================
 // EXPORTS
 // ============================================
 
@@ -325,4 +390,9 @@ module.exports = {
   setTheme,
   getNotificationSettings,
   updateNotificationSettings,
+  
+  // Notification Channels (External)
+  getNotificationChannels,
+  updateNotificationChannel,
+  removeNotificationChannel,
 };

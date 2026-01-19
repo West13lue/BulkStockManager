@@ -41,6 +41,7 @@
     'showQuickAdjustModal', 'doQuickAdjust', 'showScannerModal', 'startCamera', 'stopScanner', 'searchBarcode',
     'showKeyboardShortcutsHelp', 'closeTutorial', 'showAllTutorials', 'showSpecificTutorial', 'resetAllTutorials',
     'loadNotifications', 'showNotificationsModal', 'markNotificationRead', 'dismissNotification', 'checkAlerts',
+    'showNotificationChannelModal', 'saveNotificationChannel', 'testNotificationChannel', 'testAllNotificationChannels',
     'loadProfiles', 'showProfilesModal', 'showCreateProfileModal', 'selectProfileColor', 'createProfile', 'switchProfile', 'deleteProfile',
     'openSODetails', 'showReceivePOModal', 'receivePO', 'showLinkProductModal', 'linkProduct',
     'showFullActivityLog'
@@ -5101,14 +5102,74 @@
     // Section Notifications (PRO)
     var notifSection = '';
     if (hasFeature('hasNotifications')) {
+      // Récupérer les canaux configurés
+      var channels = s.notificationChannels || {};
+      var discordEnabled = channels.discord && channels.discord.enabled;
+      var slackEnabled = channels.slack && channels.slack.enabled;
+      var telegramEnabled = channels.telegram && channels.telegram.enabled;
+      var ntfyEnabled = channels.ntfy && channels.ntfy.enabled;
+      
       notifSection = 
         '<div class="settings-section">' +
-        '<div class="settings-section-header"><h3>' + t("settings.notifications", "Notifications") + '</h3><span class="badge badge-pro">PRO</span><p class="text-secondary">' + t("settings.notificationsDesc", "Configurez vos alertes") + '</p></div>' +
+        '<div class="settings-section-header"><h3>' + t("settings.notifications", "Notifications") + '</h3><span class="badge badge-pro">PRO</span><p class="text-secondary">' + t("settings.notificationsDesc", "Configurez vos alertes internes et externes") + '</p></div>' +
         '<div class="settings-section-body">' +
+        
+        // Notifications internes
+        '<div class="setting-group-title">' + t("settings.inAppNotifications", "Notifications internes") + '</div>' +
         '<div class="setting-row"><label class="setting-label">' + t("settings.notificationsEnabled", "Notifications activees") + '</label>' +
         '<label class="toggle"><input type="checkbox" ' + (s.notifications && s.notifications.enabled ? 'checked' : '') + ' onchange="app.updateSetting(\'notifications\',\'enabled\',this.checked)"><span class="toggle-slider"></span></label></div>' +
         '<div class="setting-row"><label class="setting-label">' + t("settings.lowStockAlert", "Alerte stock bas") + '</label>' +
         '<label class="toggle"><input type="checkbox" ' + (s.notifications && s.notifications.triggers && s.notifications.triggers.lowStock ? 'checked' : '') + ' onchange="app.updateNestedSetting(\'notifications\',\'triggers\',\'lowStock\',this.checked)"><span class="toggle-slider"></span></label></div>' +
+        
+        // Canaux externes
+        '<div class="setting-group-title" style="margin-top:var(--space-lg)">' + t("settings.externalChannels", "Canaux externes") + '</div>' +
+        '<p class="text-secondary text-sm" style="margin-bottom:var(--space-md)">' + t("settings.externalChannelsDesc", "Recevez les alertes sur vos applications favorites") + '</p>' +
+        
+        // Discord
+        '<div class="notification-channel-card">' +
+        '<div class="channel-header">' +
+        '<div class="channel-info"><span class="channel-icon">💬</span><span class="channel-name">Discord</span>' +
+        (discordEnabled ? '<span class="badge badge-success badge-sm">Active</span>' : '') + '</div>' +
+        '<button class="btn btn-ghost btn-sm" onclick="app.showNotificationChannelModal(\'discord\')">' +
+        '<i data-lucide="settings" style="width:16px;height:16px"></i></button></div>' +
+        (channels.discord && channels.discord.webhookUrl ? '<div class="channel-status text-success"><i data-lucide="check-circle" style="width:14px;height:14px"></i> ' + t("settings.configured", "Configure") + '</div>' : '<div class="channel-status text-secondary">' + t("settings.notConfigured", "Non configure") + '</div>') +
+        '</div>' +
+        
+        // Slack
+        '<div class="notification-channel-card">' +
+        '<div class="channel-header">' +
+        '<div class="channel-info"><span class="channel-icon">📢</span><span class="channel-name">Slack</span>' +
+        (slackEnabled ? '<span class="badge badge-success badge-sm">Active</span>' : '') + '</div>' +
+        '<button class="btn btn-ghost btn-sm" onclick="app.showNotificationChannelModal(\'slack\')">' +
+        '<i data-lucide="settings" style="width:16px;height:16px"></i></button></div>' +
+        (channels.slack && channels.slack.webhookUrl ? '<div class="channel-status text-success"><i data-lucide="check-circle" style="width:14px;height:14px"></i> ' + t("settings.configured", "Configure") + '</div>' : '<div class="channel-status text-secondary">' + t("settings.notConfigured", "Non configure") + '</div>') +
+        '</div>' +
+        
+        // Telegram
+        '<div class="notification-channel-card">' +
+        '<div class="channel-header">' +
+        '<div class="channel-info"><span class="channel-icon">📱</span><span class="channel-name">Telegram</span>' +
+        (telegramEnabled ? '<span class="badge badge-success badge-sm">Active</span>' : '') + '</div>' +
+        '<button class="btn btn-ghost btn-sm" onclick="app.showNotificationChannelModal(\'telegram\')">' +
+        '<i data-lucide="settings" style="width:16px;height:16px"></i></button></div>' +
+        (channels.telegram && channels.telegram.botToken && channels.telegram.chatId ? '<div class="channel-status text-success"><i data-lucide="check-circle" style="width:14px;height:14px"></i> ' + t("settings.configured", "Configure") + '</div>' : '<div class="channel-status text-secondary">' + t("settings.notConfigured", "Non configure") + '</div>') +
+        '</div>' +
+        
+        // Ntfy
+        '<div class="notification-channel-card">' +
+        '<div class="channel-header">' +
+        '<div class="channel-info"><span class="channel-icon">🔔</span><span class="channel-name">Ntfy.sh</span>' +
+        (ntfyEnabled ? '<span class="badge badge-success badge-sm">Active</span>' : '') + '</div>' +
+        '<button class="btn btn-ghost btn-sm" onclick="app.showNotificationChannelModal(\'ntfy\')">' +
+        '<i data-lucide="settings" style="width:16px;height:16px"></i></button></div>' +
+        (channels.ntfy && channels.ntfy.topic ? '<div class="channel-status text-success"><i data-lucide="check-circle" style="width:14px;height:14px"></i> ' + t("settings.configured", "Configure") + '</div>' : '<div class="channel-status text-secondary">' + t("settings.notConfigured", "Non configure") + '</div>') +
+        '</div>' +
+        
+        // Test button
+        '<div style="margin-top:var(--space-lg);text-align:center">' +
+        '<button class="btn btn-secondary" onclick="app.testAllNotificationChannels()">' +
+        '<i data-lucide="bell-ring" style="width:16px;height:16px;margin-right:8px"></i>' + t("settings.testNotifications", "Tester les notifications") + '</button></div>' +
+        
         '</div></div>';
     } else {
       notifSection = 
@@ -5241,6 +5302,248 @@
       } else {
         var e = await res.json();
         showToast(e.error || "Erreur", "error");
+      }
+    } catch (e) {
+      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
+    }
+  }
+
+  // ============================================
+  // NOTIFICATION CHANNELS (Discord, Slack, Telegram, Ntfy)
+  // ============================================
+
+  function showNotificationChannelModal(channelId) {
+    var channels = (settingsData && settingsData.notificationChannels) || {};
+    var config = channels[channelId] || {};
+    
+    var title = '';
+    var content = '';
+    
+    switch (channelId) {
+      case 'discord':
+        title = '💬 Discord Webhook';
+        content = 
+          '<div class="form-group">' +
+          '<label class="form-label">' + t("settings.webhookUrl", "URL du Webhook") + '</label>' +
+          '<input type="url" class="form-input" id="channelWebhookUrl" placeholder="https://discord.com/api/webhooks/..." value="' + (config.webhookUrl || '') + '">' +
+          '<p class="form-help">' + t("settings.discordHelp", "Créez un webhook dans les paramètres de votre canal Discord > Intégrations > Webhooks") + '</p>' +
+          '</div>' +
+          '<div class="form-group">' +
+          '<label class="form-label">' + t("settings.enabled", "Activer") + '</label>' +
+          '<label class="toggle"><input type="checkbox" id="channelEnabled" ' + (config.enabled ? 'checked' : '') + '><span class="toggle-slider"></span></label>' +
+          '</div>';
+        break;
+        
+      case 'slack':
+        title = '📢 Slack Webhook';
+        content = 
+          '<div class="form-group">' +
+          '<label class="form-label">' + t("settings.webhookUrl", "URL du Webhook") + '</label>' +
+          '<input type="url" class="form-input" id="channelWebhookUrl" placeholder="https://hooks.slack.com/services/..." value="' + (config.webhookUrl || '') + '">' +
+          '<p class="form-help">' + t("settings.slackHelp", "Créez une app Slack puis ajoutez un Incoming Webhook") + '</p>' +
+          '</div>' +
+          '<div class="form-group">' +
+          '<label class="form-label">' + t("settings.enabled", "Activer") + '</label>' +
+          '<label class="toggle"><input type="checkbox" id="channelEnabled" ' + (config.enabled ? 'checked' : '') + '><span class="toggle-slider"></span></label>' +
+          '</div>';
+        break;
+        
+      case 'telegram':
+        title = '📱 Telegram Bot';
+        content = 
+          '<div class="form-group">' +
+          '<label class="form-label">' + t("settings.botToken", "Token du Bot") + '</label>' +
+          '<input type="text" class="form-input" id="channelBotToken" placeholder="123456789:ABC..." value="' + (config.botToken || '') + '">' +
+          '<p class="form-help">' + t("settings.telegramBotHelp", "Créez un bot avec @BotFather sur Telegram") + '</p>' +
+          '</div>' +
+          '<div class="form-group">' +
+          '<label class="form-label">' + t("settings.chatId", "Chat ID") + '</label>' +
+          '<input type="text" class="form-input" id="channelChatId" placeholder="-1001234567890" value="' + (config.chatId || '') + '">' +
+          '<p class="form-help">' + t("settings.telegramChatHelp", "Utilisez @userinfobot pour obtenir votre Chat ID") + '</p>' +
+          '</div>' +
+          '<div class="form-group">' +
+          '<label class="form-label">' + t("settings.enabled", "Activer") + '</label>' +
+          '<label class="toggle"><input type="checkbox" id="channelEnabled" ' + (config.enabled ? 'checked' : '') + '><span class="toggle-slider"></span></label>' +
+          '</div>';
+        break;
+        
+      case 'ntfy':
+        title = '🔔 Ntfy.sh (Push mobile)';
+        content = 
+          '<div class="form-group">' +
+          '<label class="form-label">' + t("settings.topic", "Topic") + '</label>' +
+          '<input type="text" class="form-input" id="channelTopic" placeholder="my-stock-alerts" value="' + (config.topic || '') + '">' +
+          '<p class="form-help">' + t("settings.ntfyHelp", "Choisissez un nom unique. Installez l\'app Ntfy et abonnez-vous au même topic.") + '</p>' +
+          '</div>' +
+          '<div class="form-group">' +
+          '<label class="form-label">' + t("settings.server", "Serveur") + ' (' + t("settings.optional", "optionnel") + ')</label>' +
+          '<input type="url" class="form-input" id="channelServer" placeholder="https://ntfy.sh" value="' + (config.server || 'https://ntfy.sh') + '">' +
+          '</div>' +
+          '<div class="form-group">' +
+          '<label class="form-label">' + t("settings.enabled", "Activer") + '</label>' +
+          '<label class="toggle"><input type="checkbox" id="channelEnabled" ' + (config.enabled ? 'checked' : '') + '><span class="toggle-slider"></span></label>' +
+          '</div>';
+        break;
+        
+      default:
+        showToast(t("msg.unknownChannel", "Canal inconnu"), "error");
+        return;
+    }
+    
+    var html = 
+      '<div class="modal-header"><h2>' + title + '</h2></div>' +
+      '<div class="modal-body">' + content + '</div>' +
+      '<div class="modal-footer">' +
+      '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.cancel", "Annuler") + '</button>' +
+      '<button class="btn btn-secondary" onclick="app.testNotificationChannel(\'' + channelId + '\')">' +
+      '<i data-lucide="bell-ring" style="width:16px;height:16px;margin-right:6px"></i>' + t("action.test", "Tester") + '</button>' +
+      '<button class="btn btn-primary" onclick="app.saveNotificationChannel(\'' + channelId + '\')">' + t("action.save", "Enregistrer") + '</button>' +
+      '</div>';
+    
+    showModal(html);
+  }
+
+  async function saveNotificationChannel(channelId) {
+    var config = { enabled: document.getElementById('channelEnabled').checked };
+    
+    switch (channelId) {
+      case 'discord':
+      case 'slack':
+        config.webhookUrl = document.getElementById('channelWebhookUrl').value.trim();
+        if (config.enabled && !config.webhookUrl) {
+          showToast(t("msg.webhookRequired", "URL du webhook requise"), "error");
+          return;
+        }
+        break;
+        
+      case 'telegram':
+        config.botToken = document.getElementById('channelBotToken').value.trim();
+        config.chatId = document.getElementById('channelChatId').value.trim();
+        if (config.enabled && (!config.botToken || !config.chatId)) {
+          showToast(t("msg.telegramConfigRequired", "Token et Chat ID requis"), "error");
+          return;
+        }
+        break;
+        
+      case 'ntfy':
+        config.topic = document.getElementById('channelTopic').value.trim();
+        config.server = document.getElementById('channelServer').value.trim() || 'https://ntfy.sh';
+        if (config.enabled && !config.topic) {
+          showToast(t("msg.topicRequired", "Topic requis"), "error");
+          return;
+        }
+        break;
+    }
+    
+    try {
+      var res = await authFetch(apiUrl("/notifications/channels/" + channelId), {
+        method: "PUT",
+        body: JSON.stringify(config)
+      });
+      
+      if (res.ok) {
+        var data = await res.json();
+        // Mettre à jour le cache local
+        if (!settingsData.notificationChannels) settingsData.notificationChannels = {};
+        settingsData.notificationChannels[channelId] = config;
+        
+        showToast(t("settings.channelSaved", "Canal configuré"), "success");
+        closeModal();
+        renderSettingsContent();
+      } else {
+        var e = await res.json();
+        showToast(e.error || t("msg.error", "Erreur"), "error");
+      }
+    } catch (e) {
+      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
+    }
+  }
+
+  async function testNotificationChannel(channelId) {
+    // Récupérer la config actuelle du formulaire
+    var config = { enabled: true };
+    
+    switch (channelId) {
+      case 'discord':
+      case 'slack':
+        config.webhookUrl = document.getElementById('channelWebhookUrl').value.trim();
+        if (!config.webhookUrl) {
+          showToast(t("msg.webhookRequired", "URL du webhook requise"), "error");
+          return;
+        }
+        break;
+        
+      case 'telegram':
+        config.botToken = document.getElementById('channelBotToken').value.trim();
+        config.chatId = document.getElementById('channelChatId').value.trim();
+        if (!config.botToken || !config.chatId) {
+          showToast(t("msg.telegramConfigRequired", "Token et Chat ID requis"), "error");
+          return;
+        }
+        break;
+        
+      case 'ntfy':
+        config.topic = document.getElementById('channelTopic').value.trim();
+        config.server = document.getElementById('channelServer').value.trim() || 'https://ntfy.sh';
+        if (!config.topic) {
+          showToast(t("msg.topicRequired", "Topic requis"), "error");
+          return;
+        }
+        break;
+    }
+    
+    showToast(t("settings.sendingTest", "Envoi du test..."), "info");
+    
+    try {
+      var res = await authFetch(apiUrl("/notifications/channels/" + channelId + "/test"), {
+        method: "POST",
+        body: JSON.stringify(config)
+      });
+      
+      var data = await res.json();
+      
+      if (data.success) {
+        showToast(t("settings.testSuccess", "Test envoyé avec succès!"), "success");
+      } else {
+        showToast(t("settings.testFailed", "Échec du test") + ": " + (data.error || "Erreur inconnue"), "error");
+      }
+    } catch (e) {
+      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
+    }
+  }
+
+  async function testAllNotificationChannels() {
+    var channels = (settingsData && settingsData.notificationChannels) || {};
+    var activeChannels = Object.keys(channels).filter(function(ch) {
+      return channels[ch] && channels[ch].enabled;
+    });
+    
+    if (activeChannels.length === 0) {
+      showToast(t("settings.noActiveChannels", "Aucun canal actif à tester"), "warning");
+      return;
+    }
+    
+    showToast(t("settings.testingChannels", "Test de " + activeChannels.length + " canal(s)..."), "info");
+    
+    try {
+      var res = await authFetch(apiUrl("/notifications/dispatch"), {
+        method: "POST",
+        body: JSON.stringify({
+          title: "🧪 Test Notification",
+          message: "Ceci est un test des notifications Stock Manager. Si vous voyez ce message, tout fonctionne!",
+          priority: "normal",
+          productName: "Test Product"
+        })
+      });
+      
+      var data = await res.json();
+      
+      if (data.success && data.dispatched && data.dispatched.length > 0) {
+        showToast(t("settings.testSentTo", "Test envoyé à") + ": " + data.dispatched.join(", "), "success");
+      } else if (data.errors && data.errors.length > 0) {
+        showToast(t("settings.testPartialFail", "Certains tests ont échoué"), "warning");
+      } else {
+        showToast(t("settings.testFailed", "Échec du test"), "error");
       }
     } catch (e) {
       showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
@@ -7615,6 +7918,11 @@
     markNotificationRead: markNotificationRead,
     dismissNotification: dismissNotification,
     checkAlerts: checkAlerts,
+    // Notification Channels (External)
+    showNotificationChannelModal: showNotificationChannelModal,
+    saveNotificationChannel: saveNotificationChannel,
+    testNotificationChannel: testNotificationChannel,
+    testAllNotificationChannels: testAllNotificationChannels,
     // Profils
     loadProfiles: loadProfiles,
     showProfilesModal: showProfilesModal,

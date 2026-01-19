@@ -61,6 +61,14 @@ const catalogStore = require("./catalogStore");
 const movementStore = require("./movementStore");
 const notificationStore = require("./notificationStore");
 
+// --- Notification Dispatcher (external channels: Discord, Slack, Telegram, Ntfy)
+let notificationDispatcher = null;
+try {
+  notificationDispatcher = require("./notificationDispatcher");
+} catch (e) {
+  // NotificationDispatcher optionnel non charge
+}
+
 // --- Batch/Lots tracking (multi-shop) - PRO
 let batchStore = null;
 try {
@@ -124,9 +132,20 @@ let settingsStore = null;
 try {
   settingsStore = require("./settingsStore");
 } catch (e) {
+  // Fallback minimal pour settingsStore
+  const _settingsCache = new Map();
   settingsStore = {
-    loadSettings: () => ({}),
-    setLocationId: (_shop, locationId) => ({ locationId }),
+    loadSettings: (shop) => _settingsCache.get(shop) || {},
+    saveSettings: (shop, settings) => {
+      _settingsCache.set(shop, settings);
+      return settings;
+    },
+    setLocationId: (shop, locationId) => {
+      const settings = _settingsCache.get(shop) || {};
+      settings.locationId = locationId;
+      _settingsCache.set(shop, settings);
+      return settings;
+    },
   };
 }
 
@@ -3882,6 +3901,258 @@ router.put("/api/notifications/settings", (req, res) => {
     notificationStore.saveNotifications(shop, data);
     
     res.json({ success: true, settings: data.settings });
+  });
+});
+
+// ============================================
+// NOTIFICATION CHANNELS (External: Discord, Slack, Telegram, Ntfy)
+// ============================================
+
+// Liste des canaux disponibles
+router.get("/api/notifications/channels", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+
+    if (!notificationDispatcher) {
+      return res.json({ 
+        channels: [],
+        configured: {},
+        available: false,
+        message: "Notification dispatcher not available"
+      });
+    }
+
+    // Récupérer les canaux disponibles
+    const availableChannels = notificationDispatcher.getAvailableChannels();
+
+    // Récupérer la config actuelle depuis settingsStore
+    const settings = settingsStore.loadSettings ? settingsStore.loadSettings(shop) : {};
+    const configured = settings.notificationChannels || {};
+
+    // Enrichir avec le statut de configuration
+    const channels = availableChannels.map(ch => ({
+      ...ch,
+      enabled: configured[ch.id]?.enabled || false,
+      configured: isChannelConfigured(ch.id, configured[ch.id])
+    }));
+
+    res.json({ 
+      channels, 
+      configured,
+      available: true 
+    });
+  });
+});
+
+// Helper pour vérifier si un canal est configuré
+function isChannelConfigured(channelId, config) {
+  if (!config) return false;
+  switch (channelId) {
+    case "discord":
+    case "slack":
+      return Boolean(config.webhookUrl);
+    case "telegram":
+      return Boolean(config.botToken && config.chatId);
+    case "ntfy":
+      return Boolean(config.topic);
+    default:
+      return false;
+  }
+}
+
+// Récupérer la config d'un canal spécifique
+router.get("/api/notifications/channels/:channelId", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+
+    const channelId = req.params.channelId;
+    const settings = settingsStore.loadSettings ? settingsStore.loadSettings(shop) : {};
+    const channels = settings.notificationChannels || {};
+    const channelConfig = channels[channelId] || {};
+
+    // Masquer les tokens/secrets partiellement pour la sécurité
+    const safeConfig = { ...channelConfig };
+    if (safeConfig.webhookUrl) {
+      safeConfig.webhookUrlPreview = maskSecret(safeConfig.webhookUrl);
+    }
+    if (safeConfig.botToken) {
+      safeConfig.botTokenPreview = maskSecret(safeConfig.botToken);
+    }
+
+    res.json({ 
+      channelId, 
+      config: safeConfig,
+      configured: isChannelConfigured(channelId, channelConfig)
+    });
+  });
+});
+
+// Helper pour masquer les secrets
+function maskSecret(secret) {
+  if (!secret || secret.length < 10) return "****";
+  return secret.substring(0, 8) + "..." + secret.substring(secret.length - 4);
+}
+
+// Configurer un canal
+router.put("/api/notifications/channels/:channelId", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+
+    if (!notificationDispatcher) {
+      return apiError(res, 500, "Notification dispatcher not available");
+    }
+
+    const channelId = req.params.channelId;
+    const config = req.body || {};
+
+    // Valider la configuration
+    const validation = notificationDispatcher.validateChannelConfig(channelId, config);
+    if (!validation.valid) {
+      return apiError(res, 400, validation.error);
+    }
+
+    // Charger les settings actuels
+    const settings = settingsStore.loadSettings ? settingsStore.loadSettings(shop) : {};
+    if (!settings.notificationChannels) {
+      settings.notificationChannels = {};
+    }
+
+    // Mettre à jour la config du canal
+    settings.notificationChannels[channelId] = {
+      ...settings.notificationChannels[channelId],
+      ...config,
+      updatedAt: new Date().toISOString()
+    };
+
+    // Sauvegarder
+    if (settingsStore.saveSettings) {
+      settingsStore.saveSettings(shop, settings);
+    }
+
+    logEvent("notification_channel_configured", { shop, channelId, enabled: config.enabled }, "info");
+
+    res.json({ 
+      success: true, 
+      channelId,
+      configured: isChannelConfigured(channelId, settings.notificationChannels[channelId]),
+      enabled: settings.notificationChannels[channelId]?.enabled || false
+    });
+  });
+});
+
+// Supprimer la config d'un canal
+router.delete("/api/notifications/channels/:channelId", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+
+    const channelId = req.params.channelId;
+
+    // Charger les settings actuels
+    const settings = settingsStore.loadSettings ? settingsStore.loadSettings(shop) : {};
+    if (settings.notificationChannels && settings.notificationChannels[channelId]) {
+      delete settings.notificationChannels[channelId];
+      
+      if (settingsStore.saveSettings) {
+        settingsStore.saveSettings(shop, settings);
+      }
+    }
+
+    logEvent("notification_channel_removed", { shop, channelId }, "info");
+
+    res.json({ success: true, channelId });
+  });
+});
+
+// Tester un canal
+router.post("/api/notifications/channels/:channelId/test", (req, res) => {
+  safeJson(req, res, async () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+
+    if (!notificationDispatcher) {
+      return apiError(res, 500, "Notification dispatcher not available");
+    }
+
+    const channelId = req.params.channelId;
+    
+    // Utiliser la config fournie dans le body OU la config sauvegardée
+    let config = req.body;
+    if (!config || Object.keys(config).length === 0) {
+      const settings = settingsStore.loadSettings ? settingsStore.loadSettings(shop) : {};
+      config = settings.notificationChannels?.[channelId] || {};
+    }
+
+    try {
+      const result = await notificationDispatcher.testChannel(shop, channelId, config);
+      
+      if (result.success) {
+        logEvent("notification_test_success", { shop, channelId }, "info");
+        res.json({ 
+          success: true, 
+          channel: channelId,
+          message: "Test notification sent successfully!" 
+        });
+      } else {
+        logEvent("notification_test_failed", { shop, channelId, error: result.error }, "warn");
+        res.json({ 
+          success: false, 
+          channel: channelId,
+          error: result.error 
+        });
+      }
+    } catch (e) {
+      logEvent("notification_test_error", { shop, channelId, error: e.message }, "error");
+      return apiError(res, 500, "Test failed: " + e.message);
+    }
+  });
+});
+
+// Envoyer une notification manuelle (pour debug/test)
+router.post("/api/notifications/dispatch", (req, res) => {
+  safeJson(req, res, async () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+
+    if (!notificationDispatcher) {
+      return apiError(res, 500, "Notification dispatcher not available");
+    }
+
+    const { title, message, priority, productName } = req.body;
+    if (!title || !message) {
+      return apiError(res, 400, "title and message are required");
+    }
+
+    const alert = {
+      type: "manual",
+      priority: priority || "normal",
+      title,
+      message,
+      productName: productName || "N/A",
+      data: {}
+    };
+
+    try {
+      const result = await notificationDispatcher.dispatch(shop, alert);
+      
+      logEvent("notification_manual_dispatch", { 
+        shop, 
+        dispatched: result.dispatched,
+        errors: result.errors.length 
+      }, "info");
+
+      res.json({ 
+        success: result.success,
+        dispatched: result.dispatched,
+        errors: result.errors
+      });
+    } catch (e) {
+      logEvent("notification_dispatch_error", { shop, error: e.message }, "error");
+      return apiError(res, 500, "Dispatch failed: " + e.message);
+    }
   });
 });
 
