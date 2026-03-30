@@ -2,11 +2,11 @@
 (function () {
   "use strict";
 
-  // Queue pour stocker les appels avant que les fonctions soient prÃªtes
+  // Queue pour stocker les appels avant que les fonctions soient prÃƒÂªtes
   var pendingCalls = [];
   var appReady = false;
   
-  // CrÃ©er un proxy qui queue les appels si l'app n'est pas prÃªte
+  // CrÃƒÂ©er un proxy qui queue les appels si l'app n'est pas prÃƒÂªte
   function createProxy(fnName) {
     return function() {
       var args = Array.prototype.slice.call(arguments);
@@ -18,7 +18,7 @@
     };
   }
   
-  // Liste des fonctions qui seront exposÃ©es
+  // Liste des fonctions qui seront exposÃƒÂ©es
   var fnNames = [
     'init', 'navigateTo', 'toggleSidebar', 'toggleNotifications', 'toggleUserMenu',
     'showModal', 'closeModal', 'showAddProductModal', 'showImportModal', 'doImport',
@@ -26,34 +26,58 @@
     'saveProduct', 'saveRestock', 'saveAdjust', 'syncShopify', 'upgradeTo',
     'showToast', 'hasFeature', 'openProductDetails', 'showEditCMPModal', 'saveCMP',
     'onSearchChange', 'onCategoryChange', 'onSortChange', 'showCategoriesModal',
-    'createCategory', 'deleteCategory', 'addSupplier', 'editSupplier', 'deleteSupplier',
+    'createCategory', 'deleteCategory', 'renameCategory', 'showRenameCategoryModal',
+    'showAssignCategoriesModal', 'saveProductCategories',
+    'addSupplier', 'editSupplier', 'deleteSupplier',
     'saveSupplier', 'selectMainTab', 'loadSupplierProducts', 'linkProductToSupplier',
     'unlinkProduct', 'addOrder', 'showOrderDetails', 'updateOrderStatus', 'receiveOrder',
     'deleteOrder', 'savePurchaseOrder', 'startTrial', 'showSuppliersModal', 'confirmDeleteSupplier',
+    'openSupplierDetails', 'switchSupplierTab', 'showEditSupplierModal', 'updateSupplier',
+    'showAddSupplierModal', 'onSupplierSearchChange', 'onSupplierStatusChange',
     'showForecast', 'showKitModal', 'assembleKit', 'disassembleKit', 'saveKit', 'deleteKit',
+    'openKitDetails', 'showCreateKitModal', 'showAddKitItemModal', 'saveKitItem', 'removeKitItem',
+    'showAssembleKitModal', 'runKitSimulation', 'activateKit',
+    'onKitFilterChange', 'onKitSearchChange',
     'showCreateBatchModal', 'createBatch', 'updateBatchStatus', 'showBatchDetails', 'adjustBatchQuantity',
     'applyBatchFilters', 'deleteBatch', 'resetBatchFilters',
-    'loadInventorySessions', 'showCreateInventoryModal', 'createInventorySession',
-    'openInventorySession', 'backToInventoryList', 'updateInventoryCount',
+    'openBatchDetails', 'showAdjustBatchModal', 'deactivateBatch', 'showAddBatchModal',
+    'showAddBatchForProduct', 'markExpiredBatches', 'saveAdjustBatch', 'saveBatch',
+    'onBatchProductChange', 'onBatchStatusChange', 'onBatchExpiringChange',
+    'loadInventorySessions', 'showCreateInventoryModal', 'showCreateInventorySessionModal', 'createInventorySession',
+    'openInventorySession', 'backToInventoryList', 'updateInventoryCount', 'updateInventoryItem',
     'validateInventorySession', 'applyInventorySession', 'archiveInventorySession', 'deleteInventorySession',
+    'startInventorySession', 'reviewInventorySession', 'switchInventoryTab',
+    'filterInventoryByStatus', 'filterInventoryItems', 'duplicateInventorySession',
+    'toggleInventoryItemFlag', 'setInventoryItemReason', 'onInvScopeTypeChange',
+    'openForecastDetails', 'onForecastCategoryChange', 'onForecastStatusChange', 'onForecastWindowChange',
     'updateSetting', 'updateNestedSetting', 'exportSettings', 'resetAllSettings',
+    'createSnapshot', 'showSnapshotsModal', 'rollbackToSnapshot', 'deleteSnapshot', 'resetAllData', 'downloadFullBackup',
     'showLowStockModal', 'showOutOfStockModal', 'showQuickRestockModal', 'doQuickRestock',
     'showQuickAdjustModal', 'doQuickAdjust', 'showScannerModal', 'startCamera', 'stopScanner', 'searchBarcode',
     'showKeyboardShortcutsHelp', 'closeTutorial', 'showAllTutorials', 'showSpecificTutorial', 'resetAllTutorials',
+    'showLockedFeatureTutorial',
     'loadNotifications', 'showNotificationsModal', 'markNotificationRead', 'dismissNotification', 'checkAlerts',
-    'showNotificationChannelModal', 'saveNotificationChannel', 'testNotificationChannel', 'testAllNotificationChannels',
+    'markAllNotificationsRead',
     'loadProfiles', 'showProfilesModal', 'showCreateProfileModal', 'selectProfileColor', 'createProfile', 'switchProfile', 'deleteProfile',
     'openSODetails', 'showReceivePOModal', 'receivePO', 'showLinkProductModal', 'linkProduct',
-    'showFullActivityLog'
+    'showFullActivityLog', 'deleteProduct',
+    'exportStockCSV', 'exportMovementsCSV', 'exportAnalyticsCSV',
+    'cancelPlan', 'changeAnalyticsPeriod', 'switchAnalyticsTab',
+    'switchOrdersTab', 'onOrderStatusChange', 'onOrderPeriodChange', 'onOrderSourceChange',
+    'importShopifyOrders',
+    'showCreatePOModal', 'savePO', 'openPODetails', 'confirmPO', 'sendPO',
+    'addPOLine', 'removePOLine', 'updatePOTotal', 'onPOSupplierChange',
+    'updateQuickRestockCMP', 'updateQuickRestockTotal',
+    'selectSearchResultByIndex', 'toggleSection'
   ];
   
-  // CrÃ©er window.app avec des proxies pour toutes les fonctions
+  // CrÃƒÂ©er window.app avec des proxies pour toutes les fonctions
   window.app = {};
   fnNames.forEach(function(name) {
     window.app[name] = createProxy(name);
   });
   
-  // Fonction pour marquer l'app comme prÃªte et exÃ©cuter les appels en attente
+  // Fonction pour marquer l'app comme prÃƒÂªte et exÃƒÂ©cuter les appels en attente
   function markAppReady() {
     appReady = true;
     pendingCalls.forEach(function(call) {
@@ -105,7 +129,7 @@
     console.log("[Shop]", CURRENT_SHOP);
   }
 
-  // ÃƒÂ¢Ã…â€œÃ¢â‚¬Â¦ IMPORTANT: API calls should NOT include ?shop=... in an embedded app.
+  // ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ IMPORTANT: API calls should NOT include ?shop=... in an embedded app.
   // The server should resolve shop from the Session Token (JWT) for security + Shopify review.
   function apiUrl(endpoint) {
     return API_BASE + endpoint;
@@ -124,12 +148,12 @@
   async function initAppBridge() {
     var host = getHostFromUrl();
     
-    // App Bridge v4 - shopify global est auto-initialisÃ© par le CDN
+    // App Bridge v4 - shopify global est auto-initialisÃƒÂ© par le CDN
     if (typeof shopify !== "undefined") {
       appBridgeApp = shopify;
       console.log("[AppBridge v4] OK - shopify global disponible");
       
-      // Attendre que App Bridge soit prÃªt
+      // Attendre que App Bridge soit prÃƒÂªt
       try {
         if (typeof shopify.ready === "function") {
           await shopify.ready();
@@ -142,10 +166,10 @@
       return true;
     }
     
-    // Si shopify global n'existe pas, on est peut-Ãªtre en dehors de l'admin Shopify
+    // Si shopify global n'existe pas, on est peut-ÃƒÂªtre en dehors de l'admin Shopify
     console.warn("[AppBridge] shopify global non disponible - app non embedded?");
     
-    // Fallback : essayer App Bridge v3 si chargÃ©
+    // Fallback : essayer App Bridge v3 si chargÃƒÂ©
     if (!host) {
       console.warn("[AppBridge] host manquant");
       return false;
@@ -169,7 +193,7 @@
   }
 
   async function getSessionToken() {
-    // Ne pas cacher le token trop longtemps - App Bridge v4 gÃ¨re le refresh
+    // Ne pas cacher le token trop longtemps - App Bridge v4 gÃƒÂ¨re le refresh
     
     // App Bridge v4 - utilise shopify.idToken()
     if (typeof shopify !== "undefined" && typeof shopify.idToken === "function") {
@@ -203,7 +227,7 @@
     sessionToken = null;
   }
 
-  // ÃƒÂ¢Ã…â€œÃ¢â‚¬Â¦ authFetch correctly closed + sends Session Token
+  // ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ authFetch correctly closed + sends Session Token
   async function authFetch(url, options) {
     options = options || {};
     var token = await getSessionToken();
@@ -226,7 +250,7 @@
       res = await doFetch();
     }
 
-    // ÃƒÂ°Ã…Â¸Ã¢â‚¬ÂÃ‚Â OAuth AUTO if token missing/revoked
+    // ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒâ€šÃ‚Â OAuth AUTO if token missing/revoked
     if (res.status === 401) {
       var data = null;
       try {
@@ -302,7 +326,7 @@
     try {
       var token = await getSessionToken();
       if (!token) {
-        console.warn("[OAuth] Aucun session token ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ redirection");
+        console.warn("[OAuth] Aucun session token ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ redirection");
         var shop = CURRENT_SHOP;
         if (!shop) throw new Error("Shop manquant");
         var url = "/api/auth/start?shop=" + encodeURIComponent(shop);
@@ -312,7 +336,7 @@
       }
       return true;
     } catch (e) {
-      console.warn("[OAuth] Erreur session ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ redirection", e);
+      console.warn("[OAuth] Erreur session ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ redirection", e);
       var shop2 = CURRENT_SHOP;
       if (shop2) {
         var url2 = "/api/auth/start?shop=" + encodeURIComponent(shop2);
@@ -379,7 +403,7 @@
     document.addEventListener('keydown', function(e) {
       // Ignorer si on tape dans un input
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') {
-        // Escape ferme les modals mÃªme dans un input
+        // Escape ferme les modals mÃƒÂªme dans un input
         if (e.key === 'Escape') {
           closeModal();
         }
@@ -399,7 +423,7 @@
         showAddProductModal();
       }
       
-      // R = RÃ©appro rapide
+      // R = RÃƒÂ©appro rapide
       if (e.key === 'r' && !e.ctrlKey && !e.metaKey) {
         e.preventDefault();
         showQuickRestockModal();
@@ -573,7 +597,7 @@
     });
     
     html += '<div class="search-shortcut-hint">' +
-      '<span><kbd>â†‘â†“</kbd> ' + t("search.navigate", "Naviguer") + '</span>' +
+      '<span><kbd>Ã¢â€ â€˜Ã¢â€ â€œ</kbd> ' + t("search.navigate", "Naviguer") + '</span>' +
       '<span><kbd>Enter</kbd> ' + t("search.select", "Selectionner") + '</span>' +
       '<span><kbd>Esc</kbd> ' + t("search.close", "Fermer") + '</span>' +
       '</div>';
@@ -607,7 +631,7 @@
     globalSearchResults.forEach(function(g) { allItems = allItems.concat(g.items); });
     if (allItems.length === 0) return;
     
-    // Retirer la sÃ©lection actuelle
+    // Retirer la sÃƒÂ©lection actuelle
     var items = document.querySelectorAll(".search-result-item");
     items.forEach(function(el) { el.classList.remove("selected"); });
     
@@ -616,7 +640,7 @@
     if (selectedSearchIndex < 0) selectedSearchIndex = allItems.length - 1;
     if (selectedSearchIndex >= allItems.length) selectedSearchIndex = 0;
     
-    // Appliquer la nouvelle sÃ©lection
+    // Appliquer la nouvelle sÃƒÂ©lection
     var selected = document.querySelector('.search-result-item[data-index="' + selectedSearchIndex + '"]');
     if (selected) {
       selected.classList.add("selected");
@@ -655,11 +679,11 @@
       content: '<div class="shortcuts-list">' +
         '<div class="shortcut-item"><kbd>/</kbd> ou <kbd>Ctrl+K</kbd><span>' + t("shortcuts.search", "Rechercher") + '</span></div>' +
         '<div class="shortcut-item"><kbd>N</kbd><span>' + t("shortcuts.newProduct", "Nouveau produit") + '</span></div>' +
-        '<div class="shortcut-item"><kbd>R</kbd><span>' + t("shortcuts.quickRestock", "RÃ©appro rapide") + '</span></div>' +
+        '<div class="shortcut-item"><kbd>R</kbd><span>' + t("shortcuts.quickRestock", "RÃƒÂ©appro rapide") + '</span></div>' +
         '<div class="shortcut-item"><kbd>S</kbd><span>' + t("shortcuts.scanner", "Scanner code-barres") + '</span></div>' +
         '<div class="shortcut-item"><kbd>D</kbd><span>' + t("shortcuts.dashboard", "Dashboard") + '</span></div>' +
         '<div class="shortcut-item"><kbd>P</kbd><span>' + t("shortcuts.products", "Produits") + '</span></div>' +
-        '<div class="shortcut-item"><kbd>Esc</kbd><span>' + t("shortcuts.closeModal", "Fermer fenÃªtre") + '</span></div>' +
+        '<div class="shortcut-item"><kbd>Esc</kbd><span>' + t("shortcuts.closeModal", "Fermer fenÃƒÂªtre") + '</span></div>' +
         '<div class="shortcut-item"><kbd>?</kbd><span>' + t("shortcuts.help", "Afficher cette aide") + '</span></div>' +
         '</div>',
       footer: '<button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.close", "Fermer") + '</button>'
@@ -884,12 +908,12 @@
     // Refresh Lucide icons after rendering
     if (typeof lucide !== "undefined") lucide.createIcons();
     
-    // Afficher tutoriel si premiÃ¨re visite de cet onglet
+    // Afficher tutoriel si premiÃƒÂ¨re visite de cet onglet
     setTimeout(function() { showTabTutorialIfNeeded(tab); }, 500);
   }
 
   // ============================================
-  // SYSTÃˆME DE TUTORIEL CONTEXTUEL
+  // SYSTÃƒË†ME DE TUTORIEL CONTEXTUEL
   // ============================================
   
   var tutorialsSeen = {};
@@ -915,20 +939,20 @@
   function resetAllTutorials() {
     tutorialsSeen = {};
     saveTutorialState();
-    showToast(t("tutorial.reset", "Tutoriels rÃ©initialisÃ©s"), "success");
+    showToast(t("tutorial.reset", "Tutoriels rÃƒÂ©initialisÃƒÂ©s"), "success");
   }
 
-  // DÃ©finition des tutoriels par onglet (fonction pour Ã©viter appel t() au chargement)
+  // DÃƒÂ©finition des tutoriels par onglet (fonction pour ÃƒÂ©viter appel t() au chargement)
   function getTabTutorial(tab) {
     var tutorials = {
       dashboard: {
         title: t("tutorial.dashboard.title", "Bienvenue sur le Dashboard !"),
         icon: "layout-dashboard",
         steps: [
-          { icon: "boxes", text: t("tutorial.dashboard.step1", "Visualisez vos statistiques clÃ©s : nombre de produits, stock total et valeur.") },
+          { icon: "boxes", text: t("tutorial.dashboard.step1", "Visualisez vos statistiques clÃƒÂ©s : nombre de produits, stock total et valeur.") },
           { icon: "alert-triangle", text: t("tutorial.dashboard.step2", "Les alertes vous signalent les produits en stock bas ou en rupture.") },
-          { icon: "zap", text: t("tutorial.dashboard.step3", "Utilisez les actions rapides pour rÃ©appro, scanner ou ajuster le stock.") },
-          { icon: "activity", text: t("tutorial.dashboard.step4", "Les mouvements rÃ©cents montrent l'activitÃ© de votre stock.") }
+          { icon: "zap", text: t("tutorial.dashboard.step3", "Utilisez les actions rapides pour rÃƒÂ©appro, scanner ou ajuster le stock.") },
+          { icon: "activity", text: t("tutorial.dashboard.step4", "Les mouvements rÃƒÂ©cents montrent l'activitÃƒÂ© de votre stock.") }
         ],
         tip: t("tutorial.dashboard.tip", "Astuce : Appuyez sur ? pour voir tous les raccourcis clavier !")
       },
@@ -937,58 +961,58 @@
         icon: "boxes",
         steps: [
           { icon: "search", text: t("tutorial.products.step1", "Recherchez vos produits par nom, SKU ou code-barres.") },
-          { icon: "filter", text: t("tutorial.products.step2", "Filtrez par catÃ©gorie et triez selon vos besoins.") },
+          { icon: "filter", text: t("tutorial.products.step2", "Filtrez par catÃƒÂ©gorie et triez selon vos besoins.") },
           { icon: "scan-barcode", text: t("tutorial.products.step3", "Utilisez le scanner pour trouver un produit rapidement.") },
-          { icon: "mouse-pointer-click", text: t("tutorial.products.step4", "Cliquez sur un produit pour voir ses dÃ©tails et ajuster le stock.") }
+          { icon: "mouse-pointer-click", text: t("tutorial.products.step4", "Cliquez sur un produit pour voir ses dÃƒÂ©tails et ajuster le stock.") }
         ],
-        tip: t("tutorial.products.tip", "Astuce : Raccourci N pour ajouter un produit, R pour rÃ©appro rapide !")
+        tip: t("tutorial.products.tip", "Astuce : Raccourci N pour ajouter un produit, R pour rÃƒÂ©appro rapide !")
       },
       batches: {
         title: t("tutorial.batches.title", "Lots et DLC"),
         icon: "tags",
         steps: [
-          { icon: "calendar", text: t("tutorial.batches.step1", "GÃ©rez les dates de pÃ©remption de vos produits.") },
-          { icon: "alert-circle", text: t("tutorial.batches.step2", "Recevez des alertes pour les lots qui arrivent Ã  expiration.") },
-          { icon: "package", text: t("tutorial.batches.step3", "Suivez la traÃ§abilitÃ© de chaque lot entrant.") }
+          { icon: "calendar", text: t("tutorial.batches.step1", "GÃƒÂ©rez les dates de pÃƒÂ©remption de vos produits.") },
+          { icon: "alert-circle", text: t("tutorial.batches.step2", "Recevez des alertes pour les lots qui arrivent ÃƒÂ  expiration.") },
+          { icon: "package", text: t("tutorial.batches.step3", "Suivez la traÃƒÂ§abilitÃƒÂ© de chaque lot entrant.") }
         ],
-        tip: t("tutorial.batches.tip", "Astuce : Les lots expirÃ©s sont automatiquement signalÃ©s en rouge.")
+        tip: t("tutorial.batches.tip", "Astuce : Les lots expirÃƒÂ©s sont automatiquement signalÃƒÂ©s en rouge.")
       },
       suppliers: {
         title: t("tutorial.suppliers.title", "Gestion Fournisseurs"),
         icon: "factory",
         steps: [
           { icon: "users", text: t("tutorial.suppliers.step1", "Centralisez les informations de vos fournisseurs.") },
-          { icon: "phone", text: t("tutorial.suppliers.step2", "Gardez leurs contacts et conditions Ã  portÃ©e de main.") },
-          { icon: "link", text: t("tutorial.suppliers.step3", "Associez les produits Ã  leurs fournisseurs pour un suivi optimal.") }
+          { icon: "phone", text: t("tutorial.suppliers.step2", "Gardez leurs contacts et conditions ÃƒÂ  portÃƒÂ©e de main.") },
+          { icon: "link", text: t("tutorial.suppliers.step3", "Associez les produits ÃƒÂ  leurs fournisseurs pour un suivi optimal.") }
         ],
-        tip: t("tutorial.suppliers.tip", "Astuce : Ajoutez les dÃ©lais de livraison pour anticiper vos commandes.")
+        tip: t("tutorial.suppliers.tip", "Astuce : Ajoutez les dÃƒÂ©lais de livraison pour anticiper vos commandes.")
       },
       orders: {
         title: t("tutorial.orders.title", "Commandes"),
         icon: "clipboard-list",
         steps: [
-          { icon: "shopping-cart", text: t("tutorial.orders.step1", "CrÃ©ez des bons de commande vers vos fournisseurs.") },
-          { icon: "truck", text: t("tutorial.orders.step2", "Suivez l'Ã©tat de vos commandes en cours.") },
-          { icon: "check-circle", text: t("tutorial.orders.step3", "RÃ©ceptionnez les commandes pour mettre Ã  jour le stock automatiquement.") }
+          { icon: "shopping-cart", text: t("tutorial.orders.step1", "CrÃƒÂ©ez des bons de commande vers vos fournisseurs.") },
+          { icon: "truck", text: t("tutorial.orders.step2", "Suivez l'ÃƒÂ©tat de vos commandes en cours.") },
+          { icon: "check-circle", text: t("tutorial.orders.step3", "RÃƒÂ©ceptionnez les commandes pour mettre ÃƒÂ  jour le stock automatiquement.") }
         ],
         tip: t("tutorial.orders.tip", "Astuce : Importez vos commandes Shopify pour un suivi complet.")
       },
       forecast: {
-        title: t("tutorial.forecast.title", "PrÃ©visions"),
+        title: t("tutorial.forecast.title", "PrÃƒÂ©visions"),
         icon: "trending-up",
         steps: [
           { icon: "bar-chart", text: t("tutorial.forecast.step1", "Analysez les tendances de ventes de vos produits.") },
-          { icon: "calendar", text: t("tutorial.forecast.step2", "Anticipez les ruptures grÃ¢ce aux prÃ©visions.") },
-          { icon: "shopping-bag", text: t("tutorial.forecast.step3", "Recevez des suggestions de rÃ©approvisionnement.") }
+          { icon: "calendar", text: t("tutorial.forecast.step2", "Anticipez les ruptures grÃƒÂ¢ce aux prÃƒÂ©visions.") },
+          { icon: "shopping-bag", text: t("tutorial.forecast.step3", "Recevez des suggestions de rÃƒÂ©approvisionnement.") }
         ],
-        tip: t("tutorial.forecast.tip", "Astuce : Plus vous avez d'historique, plus les prÃ©visions sont prÃ©cises.")
+        tip: t("tutorial.forecast.tip", "Astuce : Plus vous avez d'historique, plus les prÃƒÂ©visions sont prÃƒÂ©cises.")
       },
       kits: {
         title: t("tutorial.kits.title", "Kits et Bundles"),
         icon: "puzzle",
         steps: [
-          { icon: "package", text: t("tutorial.kits.step1", "CrÃ©ez des kits composÃ©s de plusieurs produits.") },
-          { icon: "layers", text: t("tutorial.kits.step2", "Le stock des composants est automatiquement dÃ©duit.") },
+          { icon: "package", text: t("tutorial.kits.step1", "CrÃƒÂ©ez des kits composÃƒÂ©s de plusieurs produits.") },
+          { icon: "layers", text: t("tutorial.kits.step2", "Le stock des composants est automatiquement dÃƒÂ©duit.") },
           { icon: "calculator", text: t("tutorial.kits.step3", "Simulez l'assemblage avant de valider.") }
         ],
         tip: t("tutorial.kits.tip", "Astuce : Utilisez les kits pour vos coffrets cadeaux ou packs promo.")
@@ -997,8 +1021,8 @@
         title: t("tutorial.analytics.title", "Analytics"),
         icon: "bar-chart-3",
         steps: [
-          { icon: "pie-chart", text: t("tutorial.analytics.step1", "Visualisez la rÃ©partition de votre stock par catÃ©gorie.") },
-          { icon: "trending-up", text: t("tutorial.analytics.step2", "Suivez l'Ã©volution de la valeur de votre inventaire.") },
+          { icon: "pie-chart", text: t("tutorial.analytics.step1", "Visualisez la rÃƒÂ©partition de votre stock par catÃƒÂ©gorie.") },
+          { icon: "trending-up", text: t("tutorial.analytics.step2", "Suivez l'ÃƒÂ©volution de la valeur de votre inventaire.") },
           { icon: "activity", text: t("tutorial.analytics.step3", "Analysez les mouvements pour optimiser votre gestion.") }
         ],
         tip: t("tutorial.analytics.tip", "Astuce : Exportez vos rapports en PDF ou Excel.")
@@ -1007,21 +1031,21 @@
         title: t("tutorial.inventory.title", "Inventaire"),
         icon: "clipboard-check",
         steps: [
-          { icon: "list-checks", text: t("tutorial.inventory.step1", "CrÃ©ez des sessions d'inventaire complet ou partiel.") },
+          { icon: "list-checks", text: t("tutorial.inventory.step1", "CrÃƒÂ©ez des sessions d'inventaire complet ou partiel.") },
           { icon: "scan-barcode", text: t("tutorial.inventory.step2", "Utilisez le scanner pour compter plus rapidement.") },
-          { icon: "git-compare", text: t("tutorial.inventory.step3", "Comparez le stock thÃ©orique vs rÃ©el et validez les Ã©carts.") }
+          { icon: "git-compare", text: t("tutorial.inventory.step3", "Comparez le stock thÃƒÂ©orique vs rÃƒÂ©el et validez les ÃƒÂ©carts.") }
         ],
-        tip: t("tutorial.inventory.tip", "Astuce : Planifiez des inventaires rÃ©guliers pour une meilleure prÃ©cision.")
+        tip: t("tutorial.inventory.tip", "Astuce : Planifiez des inventaires rÃƒÂ©guliers pour une meilleure prÃƒÂ©cision.")
       },
       settings: {
-        title: t("tutorial.settings.title", "ParamÃ¨tres"),
+        title: t("tutorial.settings.title", "ParamÃƒÂ¨tres"),
         icon: "settings",
         steps: [
-          { icon: "globe", text: t("tutorial.settings.step1", "Configurez la langue et les unitÃ©s de mesure.") },
+          { icon: "globe", text: t("tutorial.settings.step1", "Configurez la langue et les unitÃƒÂ©s de mesure.") },
           { icon: "bell", text: t("tutorial.settings.step2", "Personnalisez vos seuils d'alerte de stock.") },
-          { icon: "palette", text: t("tutorial.settings.step3", "Adaptez l'interface Ã  vos prÃ©fÃ©rences.") }
+          { icon: "palette", text: t("tutorial.settings.step3", "Adaptez l'interface ÃƒÂ  vos prÃƒÂ©fÃƒÂ©rences.") }
         ],
-        tip: t("tutorial.settings.tip", "Astuce : Sauvegardez vos paramÃ¨tres pour les restaurer facilement.")
+        tip: t("tutorial.settings.tip", "Astuce : Sauvegardez vos paramÃƒÂ¨tres pour les restaurer facilement.")
       }
     };
     return tutorials[tab] || null;
@@ -1034,10 +1058,10 @@
   function showTabTutorialIfNeeded(tab) {
     loadTutorialState();
     
-    // Ne pas afficher si dÃ©jÃ  vu
+    // Ne pas afficher si dÃƒÂ©jÃƒÂ  vu
     if (tutorialsSeen[tab]) return;
     
-    // Ne pas afficher si pas de tutoriel dÃ©fini
+    // Ne pas afficher si pas de tutoriel dÃƒÂ©fini
     var tutorial = getTabTutorial(tab);
     if (!tutorial) return;
     
@@ -1119,7 +1143,7 @@
       title: '<i data-lucide="book-open"></i> ' + t("tutorial.allTutorials", "Tous les tutoriels"),
       size: "md",
       content: '<div class="tutorial-list">' + listHtml + '</div>',
-      footer: '<button class="btn btn-ghost" onclick="app.resetAllTutorials();app.closeModal()">' + t("tutorial.resetAll", "RÃ©initialiser tout") + '</button>' +
+      footer: '<button class="btn btn-ghost" onclick="app.resetAllTutorials();app.closeModal()">' + t("tutorial.resetAll", "RÃƒÂ©initialiser tout") + '</button>' +
         '<button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.close", "Fermer") + '</button>'
     });
     
@@ -1206,7 +1230,7 @@
       '<div class="quick-actions-bar">' +
       '<div class="quick-actions-title"><i data-lucide="zap"></i> ' + t("dashboard.quickActions", "Actions rapides") + '</div>' +
       '<div class="quick-actions-buttons">' +
-      '<button class="btn btn-ghost btn-sm" onclick="app.showQuickRestockModal()"><i data-lucide="package-plus"></i> ' + t("dashboard.quickRestock", "RÃ©appro rapide") + '</button>' +
+      '<button class="btn btn-ghost btn-sm" onclick="app.showQuickRestockModal()"><i data-lucide="package-plus"></i> ' + t("dashboard.quickRestock", "RÃƒÂ©appro rapide") + '</button>' +
       '<button class="btn btn-ghost btn-sm" onclick="app.showScannerModal()"><i data-lucide="scan-barcode"></i> ' + t("dashboard.scanBarcode", "Scanner") + '</button>' +
       '<button class="btn btn-ghost btn-sm" onclick="app.showQuickAdjustModal()"><i data-lucide="sliders"></i> ' + t("dashboard.quickAdjust", "Ajustement") + '</button>' +
       (hasFeature("hasInventoryCount") ? '<button class="btn btn-ghost btn-sm" onclick="app.navigateTo(\'inventory\')"><i data-lucide="clipboard-check"></i> ' + t("dashboard.inventory", "Inventaire") + '</button>' : '') +
@@ -1223,7 +1247,7 @@
         (lowStockProducts.length > 0 ? '<div class="alert-item alert-warning" onclick="app.showLowStockModal()"><span class="alert-icon"><i data-lucide="alert-triangle"></i></span><span class="alert-text">' + lowStockProducts.length + ' ' + t("dashboard.lowStockAlert", "produit(s) stock bas") + '</span><span class="alert-action"><i data-lucide="chevron-right"></i></span></div>' : '') +
         '</div></div>' : '') +
       
-      // ActivitÃ© rÃ©cente (nouveau!)
+      // ActivitÃƒÂ© rÃƒÂ©cente (nouveau!)
       '<div class="card card-activity">' +
       '<div class="card-header"><h3 class="card-title"><i data-lucide="history"></i> ' + t("dashboard.activityLog", "Activite recente") + '</h3>' +
       '<button class="btn btn-ghost btn-sm" onclick="app.showFullActivityLog()">' + t("dashboard.viewAll", "Voir tout") + '</button></div>' +
@@ -1236,7 +1260,7 @@
       (state.products.length ? renderTable(state.products.slice(0, 5)) : renderEmpty()) +
       "</div></div>" +
       
-      // Mouvements récents
+      // Mouvements rÃ©cents
       '<div class="card"><div class="card-header"><h3 class="card-title"><i data-lucide="activity"></i> ' + t("dashboard.recentMovements", "Recent movements") + '</h3>' +
       '<button class="btn btn-ghost btn-sm" onclick="app.exportMovementsCSV()" title="' + t("export.movements", "Export CSV") + '"><i data-lucide="download"></i></button></div>' +
       '<div class="card-body" id="dashboardMovements"><div class="text-center py-lg"><div class="spinner"></div></div></div></div>' +
@@ -1265,7 +1289,7 @@
         '<div class="low-stock-name">' + esc(p.title || p.name) + '</div>' +
         '<div class="low-stock-stock">' + formatWeight(p.totalGrams || 0) + ' ' + t("dashboard.remaining", "restant") + '</div>' +
         '</div>' +
-        '<button class="btn btn-primary btn-sm" onclick="app.showRestockModal(\'' + p.id + '\')">' + t("action.restock", "RÃ©appro") + '</button>' +
+        '<button class="btn btn-primary btn-sm" onclick="app.showRestockModal(\'' + p.id + '\')">' + t("action.restock", "RÃƒÂ©appro") + '</button>' +
         '</div>';
     }).join('') + '</div>';
     
@@ -1295,7 +1319,7 @@
         '<div class="low-stock-name">' + esc(p.title || p.name) + '</div>' +
         '<div class="low-stock-stock text-danger">' + t("status.outOfStock", "Rupture de stock") + '</div>' +
         '</div>' +
-        '<button class="btn btn-primary btn-sm" onclick="app.showRestockModal(\'' + p.id + '\')">' + t("action.restock", "RÃ©appro") + '</button>' +
+        '<button class="btn btn-primary btn-sm" onclick="app.showRestockModal(\'' + p.id + '\')">' + t("action.restock", "RÃƒÂ©appro") + '</button>' +
         '</div>';
     }).join('') + '</div>';
     
@@ -1308,7 +1332,7 @@
     if (typeof lucide !== "undefined") lucide.createIcons();
   }
 
-  // RÃ©appro rapide (sÃ©lection produit)
+  // RÃƒÂ©appro rapide (sÃƒÂ©lection produit)
   function showQuickRestockModal() {
     var productOptions = state.products.map(function(p) {
       return '<option value="' + p.id + '" data-cmp="' + (p.averageCostPerGram || 0) + '">' + esc(p.title || p.name) + ' (' + formatWeight(p.totalGrams || 0) + ')</option>';
@@ -1318,20 +1342,20 @@
     var weightUnit = getWeightUnit();
     
     showModal({
-      title: '<i data-lucide="package-plus"></i> ' + t("dashboard.quickRestock", "RÃ©appro rapide"),
+      title: '<i data-lucide="package-plus"></i> ' + t("dashboard.quickRestock", "RÃƒÂ©appro rapide"),
       size: "sm",
       content: '<div class="form-group"><label>' + t("products.product", "Produit") + '</label>' +
         '<select id="quickRestockProduct" class="form-select" onchange="app.updateQuickRestockCMP()">' +
-        '<option value="">' + t("action.selectProduct", "SÃ©lectionner...") + '</option>' + productOptions + '</select></div>' +
+        '<option value="">' + t("action.selectProduct", "SÃƒÂ©lectionner...") + '</option>' + productOptions + '</select></div>' +
         '<div class="form-row" style="display:flex;gap:12px">' +
-        '<div class="form-group" style="flex:1"><label>' + t("products.quantity", "QuantitÃ©") + ' (' + weightUnit + ')</label>' +
+        '<div class="form-group" style="flex:1"><label>' + t("products.quantity", "QuantitÃƒÂ©") + ' (' + weightUnit + ')</label>' +
         '<input type="number" id="quickRestockQty" class="form-input" placeholder="0" min="0" step="0.1" onchange="app.updateQuickRestockTotal()"></div>' +
         '<div class="form-group" style="flex:1"><label>' + t("products.purchasePrice", "Prix d\'achat") + ' (' + currencySymbol + '/' + weightUnit + ')</label>' +
         '<input type="number" id="quickRestockPrice" class="form-input" placeholder="0.00" min="0" step="0.01" onchange="app.updateQuickRestockTotal()"></div>' +
         '</div>' +
         '<div class="form-group" id="quickRestockTotalContainer" style="display:none">' +
         '<div class="quick-restock-summary" style="background:var(--bg-tertiary);padding:12px;border-radius:var(--radius-md)">' +
-        '<div style="display:flex;justify-content:space-between;margin-bottom:4px"><span class="text-secondary">' + t("products.totalCost", "CoÃ»t total") + '</span><span id="quickRestockTotalCost" style="font-weight:600">0.00 ' + currencySymbol + '</span></div>' +
+        '<div style="display:flex;justify-content:space-between;margin-bottom:4px"><span class="text-secondary">' + t("products.totalCost", "CoÃƒÂ»t total") + '</span><span id="quickRestockTotalCost" style="font-weight:600">0.00 ' + currencySymbol + '</span></div>' +
         '<div style="display:flex;justify-content:space-between"><span class="text-secondary">' + t("products.currentCMP", "CMP actuel") + '</span><span id="quickRestockCurrentCMP">-</span></div>' +
         '</div></div>' +
         '<div class="form-group"><label>' + t("products.note", "Note") + ' (' + t("products.optional", "optionnel") + ')</label>' +
@@ -1352,7 +1376,7 @@
     if (cmpDisplay) {
       cmpDisplay.textContent = cmp > 0 ? formatPricePerUnit(cmp) : '-';
     }
-    // PrÃ©-remplir avec le CMP actuel si pas de prix saisi
+    // PrÃƒÂ©-remplir avec le CMP actuel si pas de prix saisi
     if (priceInput && !priceInput.value && cmp > 0) {
       priceInput.value = cmp.toFixed(2);
     }
@@ -1380,19 +1404,19 @@
     var price = parseFloat(document.getElementById('quickRestockPrice').value) || 0;
     var note = document.getElementById('quickRestockNote').value || '';
     
-    if (!productId) { showToast(t("msg.selectProduct", "SÃ©lectionnez un produit"), "error"); return; }
-    if (qty <= 0) { showToast(t("msg.invalidQty", "QuantitÃ© invalide"), "error"); return; }
+    if (!productId) { showToast(t("msg.selectProduct", "SÃƒÂ©lectionnez un produit"), "error"); return; }
+    if (qty <= 0) { showToast(t("msg.invalidQty", "QuantitÃƒÂ© invalide"), "error"); return; }
     
-    // Convertir en grammes si nÃ©cessaire
+    // Convertir en grammes si nÃƒÂ©cessaire
     var qtyInGrams = toGrams(qty);
     
-    // PrÃ©parer les donnÃ©es avec le profil actif
+    // PrÃƒÂ©parer les donnÃƒÂ©es avec le profil actif
     var data = { 
       grams: qtyInGrams, 
       note: note 
     };
     
-    // Ajouter le prix d'achat si spÃ©cifiÃ©
+    // Ajouter le prix d'achat si spÃƒÂ©cifiÃƒÂ©
     if (price > 0) {
       data.purchasePricePerGram = price;
     }
@@ -1409,7 +1433,7 @@
       body: JSON.stringify(data)
     }).then(function(res) {
       if (res.ok) {
-        showToast(t("msg.restockSuccess", "RÃ©appro effectuÃ©e"), "success");
+        showToast(t("msg.restockSuccess", "RÃƒÂ©appro effectuÃƒÂ©e"), "success");
         closeModal();
         loadProducts(true).then(function() { renderTab(state.currentTab); });
       } else {
@@ -1428,13 +1452,13 @@
       title: '<i data-lucide="sliders"></i> ' + t("dashboard.quickAdjust", "Ajustement rapide"),
       size: "sm",
       content: '<div class="form-group"><label>' + t("products.product", "Produit") + '</label>' +
-        '<select id="quickAdjustProduct" class="form-select"><option value="">' + t("action.selectProduct", "SÃ©lectionner...") + '</option>' + productOptions + '</select></div>' +
+        '<select id="quickAdjustProduct" class="form-select"><option value="">' + t("action.selectProduct", "SÃƒÂ©lectionner...") + '</option>' + productOptions + '</select></div>' +
         '<div class="form-group"><label>' + t("products.newStock", "Nouveau stock") + ' (g)</label>' +
         '<input type="number" id="quickAdjustQty" class="form-input" placeholder="0" min="0" step="0.1"></div>' +
         '<div class="form-group"><label>' + t("products.reason", "Raison") + '</label>' +
         '<select id="quickAdjustReason" class="form-select">' +
         '<option value="count">' + t("reason.count", "Comptage inventaire") + '</option>' +
-        '<option value="damage">' + t("reason.damage", "Produit endommagÃ©") + '</option>' +
+        '<option value="damage">' + t("reason.damage", "Produit endommagÃƒÂ©") + '</option>' +
         '<option value="theft">' + t("reason.theft", "Vol/Perte") + '</option>' +
         '<option value="correction">' + t("reason.correction", "Correction erreur") + '</option>' +
         '</select></div>',
@@ -1449,15 +1473,15 @@
     var qty = parseFloat(document.getElementById('quickAdjustQty').value);
     var reason = document.getElementById('quickAdjustReason').value || 'count';
     
-    if (!productId) { showToast(t("msg.selectProduct", "SÃ©lectionnez un produit"), "error"); return; }
-    if (isNaN(qty) || qty < 0) { showToast(t("msg.invalidQty", "QuantitÃ© invalide"), "error"); return; }
+    if (!productId) { showToast(t("msg.selectProduct", "SÃƒÂ©lectionnez un produit"), "error"); return; }
+    if (isNaN(qty) || qty < 0) { showToast(t("msg.invalidQty", "QuantitÃƒÂ© invalide"), "error"); return; }
     
     authFetch(apiUrl("/products/" + productId + "/adjust"), {
       method: "POST",
       body: JSON.stringify({ newGrams: qty, reason: reason })
     }).then(function(res) {
       if (res.ok) {
-        showToast(t("msg.adjustSuccess", "Ajustement effectuÃ©"), "success");
+        showToast(t("msg.adjustSuccess", "Ajustement effectuÃƒÂ©"), "success");
         closeModal();
         loadProducts(true).then(function() { renderTab(state.currentTab); });
       } else {
@@ -1489,7 +1513,7 @@
     });
     if (typeof lucide !== "undefined") lucide.createIcons();
     
-    // Sur desktop, dÃ©marrer automatiquement
+    // Sur desktop, dÃƒÂ©marrer automatiquement
     if (window.innerWidth > 768) {
       setTimeout(function() { startCamera(); }, 300);
     }
@@ -1505,7 +1529,7 @@
     
     if (!video || !status) return;
     
-    // VÃ©rifier si dans une iframe (Shopify Admin)
+    // VÃƒÂ©rifier si dans une iframe (Shopify Admin)
     var inIframe = false;
     try {
       inIframe = window.self !== window.top;
@@ -1513,26 +1537,26 @@
       inIframe = true;
     }
     
-    // VÃ©rifier si HTTPS ou localhost
+    // VÃƒÂ©rifier si HTTPS ou localhost
     var isSecure = location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1';
     if (!isSecure) {
       status.innerHTML = '<span class="text-warning"><i data-lucide="alert-triangle"></i> ' + 
-        t("scanner.httpsRequired", "HTTPS requis pour accÃ©der Ã  la camÃ©ra") + '</span>';
+        t("scanner.httpsRequired", "HTTPS requis pour accÃƒÂ©der ÃƒÂ  la camÃƒÂ©ra") + '</span>';
       if (typeof lucide !== "undefined") lucide.createIcons();
       return;
     }
     
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       status.innerHTML = '<span class="text-warning"><i data-lucide="alert-triangle"></i> ' + 
-        t("scanner.notSupported", "CamÃ©ra non supportÃ©e sur ce navigateur") + '</span>';
+        t("scanner.notSupported", "CamÃƒÂ©ra non supportÃƒÂ©e sur ce navigateur") + '</span>';
       if (typeof lucide !== "undefined") lucide.createIcons();
       return;
     }
     
     // Afficher loading
-    status.innerHTML = '<div class="spinner"></div> ' + t("scanner.requesting", "Demande d\'accÃ¨s Ã  la camÃ©ra...");
+    status.innerHTML = '<div class="spinner"></div> ' + t("scanner.requesting", "Demande d\'accÃƒÂ¨s ÃƒÂ  la camÃƒÂ©ra...");
     
-    // Contraintes optimisÃ©es pour mobile
+    // Contraintes optimisÃƒÂ©es pour mobile
     var constraints = {
       video: {
         facingMode: { ideal: "environment" },
@@ -1557,16 +1581,16 @@
         if (playPromise !== undefined) {
           playPromise.then(function() {
             status.innerHTML = '<span class="text-success"><i data-lucide="check-circle"></i> ' + 
-              t("scanner.ready", "CamÃ©ra prÃªte - PrÃ©sentez un code-barres") + '</span>';
+              t("scanner.ready", "CamÃƒÂ©ra prÃƒÂªte - PrÃƒÂ©sentez un code-barres") + '</span>';
             if (typeof lucide !== "undefined") lucide.createIcons();
             startBarcodeDetection(video, status);
           }).catch(function(err) {
             console.warn("[Scanner] Play error:", err);
-            status.innerHTML = '<span class="text-warning">' + t("scanner.tapToStart", "Touchez la vidÃ©o pour dÃ©marrer") + '</span>';
+            status.innerHTML = '<span class="text-warning">' + t("scanner.tapToStart", "Touchez la vidÃƒÂ©o pour dÃƒÂ©marrer") + '</span>';
             video.onclick = function() {
               video.play();
               video.onclick = null;
-              status.innerHTML = '<span class="text-success"><i data-lucide="check-circle"></i> ' + t("scanner.ready", "CamÃ©ra prÃªte") + '</span>';
+              status.innerHTML = '<span class="text-success"><i data-lucide="check-circle"></i> ' + t("scanner.ready", "CamÃƒÂ©ra prÃƒÂªte") + '</span>';
               if (typeof lucide !== "undefined") lucide.createIcons();
               startBarcodeDetection(video, status);
             };
@@ -1575,23 +1599,23 @@
       })
       .catch(function(err) {
         console.error("[Scanner] Camera error:", err.name, err.message);
-        var errorMsg = t("scanner.cameraError", "Erreur camÃ©ra");
+        var errorMsg = t("scanner.cameraError", "Erreur camÃƒÂ©ra");
         var showHelp = false;
         
         if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-          // VÃ©rifier si c'est un problÃ¨me d'iframe/permissions
+          // VÃƒÂ©rifier si c'est un problÃƒÂ¨me d'iframe/permissions
           if (err.message.includes('not allowed by the user agent') || err.message.includes('platform') || err.message.includes('Permissions')) {
-            errorMsg = t("scanner.iframeBlocked", "La camÃ©ra est bloquÃ©e par le navigateur.");
+            errorMsg = t("scanner.iframeBlocked", "La camÃƒÂ©ra est bloquÃƒÂ©e par le navigateur.");
           } else {
-            errorMsg = t("scanner.permissionDenied", "AccÃ¨s camÃ©ra refusÃ©.");
+            errorMsg = t("scanner.permissionDenied", "AccÃƒÂ¨s camÃƒÂ©ra refusÃƒÂ©.");
           }
           showHelp = true;
         } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
-          errorMsg = t("scanner.noCameraFound", "Aucune camÃ©ra dÃ©tectÃ©e sur cet appareil.");
+          errorMsg = t("scanner.noCameraFound", "Aucune camÃƒÂ©ra dÃƒÂ©tectÃƒÂ©e sur cet appareil.");
         } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
-          errorMsg = t("scanner.cameraInUse", "La camÃ©ra est utilisÃ©e par une autre application.");
+          errorMsg = t("scanner.cameraInUse", "La camÃƒÂ©ra est utilisÃƒÂ©e par une autre application.");
         } else if (err.name === 'SecurityError') {
-          errorMsg = t("scanner.securityError", "AccÃ¨s camÃ©ra bloquÃ© par les paramÃ¨tres de sÃ©curitÃ©.");
+          errorMsg = t("scanner.securityError", "AccÃƒÂ¨s camÃƒÂ©ra bloquÃƒÂ© par les paramÃƒÂ¨tres de sÃƒÂ©curitÃƒÂ©.");
           showHelp = true;
         } else {
           showHelp = true;
@@ -1600,17 +1624,17 @@
         var helpHtml = '';
         if (showHelp) {
           helpHtml = '<div style="text-align:left;background:var(--surface-secondary);padding:12px;border-radius:8px;margin-top:12px;font-size:13px">' +
-            '<strong>' + t("scanner.howToEnable", "Comment activer la camÃ©ra :") + '</strong><br>' +
+            '<strong>' + t("scanner.howToEnable", "Comment activer la camÃƒÂ©ra :") + '</strong><br>' +
             '<ol style="margin:8px 0 0 16px;padding:0">' +
-            '<li>' + t("scanner.step1", "Cliquez sur l'icÃ´ne camÃ©ra/cadenas dans la barre d'adresse") + '</li>' +
-            '<li>' + t("scanner.step2", "Autorisez l'accÃ¨s Ã  la camÃ©ra pour ce site") + '</li>' +
-            '<li>' + t("scanner.step3", "Rechargez la page si nÃ©cessaire") + '</li>' +
+            '<li>' + t("scanner.step1", "Cliquez sur l'icÃƒÂ´ne camÃƒÂ©ra/cadenas dans la barre d'adresse") + '</li>' +
+            '<li>' + t("scanner.step2", "Autorisez l'accÃƒÂ¨s ÃƒÂ  la camÃƒÂ©ra pour ce site") + '</li>' +
+            '<li>' + t("scanner.step3", "Rechargez la page si nÃƒÂ©cessaire") + '</li>' +
             '</ol></div>';
         }
         
         var buttonsHtml = '<div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:12px">' +
           '<button class="btn btn-sm btn-secondary" onclick="app.startCamera()">' + 
-          '<i data-lucide="refresh-cw"></i> ' + t("action.retry", "RÃ©essayer") + '</button>' +
+          '<i data-lucide="refresh-cw"></i> ' + t("action.retry", "RÃƒÂ©essayer") + '</button>' +
           '<button class="btn btn-sm btn-ghost" onclick="location.reload()">' + 
           '<i data-lucide="rotate-cw"></i> ' + t("action.reload", "Recharger") + '</button>' +
           '</div>';
@@ -1621,7 +1645,7 @@
   }
   
   function startBarcodeDetection(video, status) {
-    // DÃ©tection via BarcodeDetector API (Chrome, Edge, Android)
+    // DÃƒÂ©tection via BarcodeDetector API (Chrome, Edge, Android)
     if ('BarcodeDetector' in window) {
       var detector = new BarcodeDetector({ 
         formats: ['ean_13', 'ean_8', 'code_128', 'code_39', 'upc_a', 'upc_e', 'qr_code', 'codabar'] 
@@ -1647,9 +1671,9 @@
       }
       scanFrame();
     } else {
-      // BarcodeDetector non supportÃ© (Safari, Firefox)
+      // BarcodeDetector non supportÃƒÂ© (Safari, Firefox)
       status.innerHTML += '<br><span class="text-muted text-sm">' + 
-        t("scanner.manualOnly", "DÃ©tection auto non supportÃ©e - utilisez la saisie manuelle") + '</span>';
+        t("scanner.manualOnly", "DÃƒÂ©tection auto non supportÃƒÂ©e - utilisez la saisie manuelle") + '</span>';
     }
   }
 
@@ -1687,15 +1711,15 @@
     closeModal();
     
     if (product) {
-      showToast(t("scanner.productFound", "Produit trouvÃ©!"), "success");
+      showToast(t("scanner.productFound", "Produit trouvÃƒÂ©!"), "success");
       openProductDetails(product.id);
     } else {
       showModal({
-        title: '<i data-lucide="search-x"></i> ' + t("scanner.notFound", "Produit non trouvÃ©"),
-        content: '<div class="text-center py-lg"><p>' + t("scanner.notFoundMsg", "Aucun produit trouvÃ© avec le code") + ' <strong>' + esc(code) + '</strong></p>' +
-          '<p class="text-muted">' + t("scanner.notFoundHint", "VÃ©rifiez que le code-barres est configurÃ© sur le produit dans Shopify.") + '</p></div>',
+        title: '<i data-lucide="search-x"></i> ' + t("scanner.notFound", "Produit non trouvÃƒÂ©"),
+        content: '<div class="text-center py-lg"><p>' + t("scanner.notFoundMsg", "Aucun produit trouvÃƒÂ© avec le code") + ' <strong>' + esc(code) + '</strong></p>' +
+          '<p class="text-muted">' + t("scanner.notFoundHint", "VÃƒÂ©rifiez que le code-barres est configurÃƒÂ© sur le produit dans Shopify.") + '</p></div>',
         footer: '<button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.close", "Fermer") + '</button>' +
-          '<button class="btn btn-primary" onclick="app.closeModal();app.showScannerModal()">' + t("scanner.scanAgain", "Scanner Ã  nouveau") + '</button>'
+          '<button class="btn btn-primary" onclick="app.closeModal();app.showScannerModal()">' + t("scanner.scanAgain", "Scanner ÃƒÂ  nouveau") + '</button>'
       });
       if (typeof lucide !== "undefined") lucide.createIcons();
     }
@@ -1721,7 +1745,7 @@
         return;
       }
       
-      // Container scrollable limitÃ© Ã  5 Ã©lÃ©ments (~250px)
+      // Container scrollable limitÃƒÂ© ÃƒÂ  5 ÃƒÂ©lÃƒÂ©ments (~250px)
       var html = '<div class="movements-list" style="max-height:250px;overflow-y:auto">';
       movements.forEach(function(m) {
         var mType = m.type || m.source || 'adjustment';
@@ -1754,7 +1778,7 @@
     }
   }
 
-  // ActivitÃ© rÃ©cente avec profils
+  // ActivitÃƒÂ© rÃƒÂ©cente avec profils
   async function loadDashboardActivity() {
     try {
       var res = await authFetch(apiUrl("/movements?limit=20"));
@@ -1775,7 +1799,7 @@
         return;
       }
       
-      // Container scrollable limitÃ© Ã  5 Ã©lÃ©ments (~280px)
+      // Container scrollable limitÃƒÂ© ÃƒÂ  5 ÃƒÂ©lÃƒÂ©ments (~280px)
       var html = '<div class="activity-list" style="max-height:280px;overflow-y:auto">';
       movements.forEach(function(m) {
         var mType = m.type || m.source || 'adjustment';
@@ -2992,6 +3016,7 @@
         size: "xl",
         content: content,
         footer:
+          '<button class="btn btn-ghost text-danger" onclick="app.deleteSupplier(\'' + supplierId + '\')" style="margin-right:auto"><i data-lucide="trash-2"></i> ' + t("action.delete", "Supprimer") + '</button>' +
           '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.close", "Fermer") + '</button>' +
           '<button class="btn btn-secondary" onclick="app.showEditSupplierModal(\'' + supplierId + '\')">' + t("action.edit", "Modifier") + '</button>'
       });
@@ -3243,7 +3268,7 @@
     document.getElementById("ordersContent").innerHTML =
       '<div class="card"><div class="card-body" style="padding:0">' +
       '<table class="data-table"><thead><tr>' +
-      '<th>' + t("orders.number", "NÃ‚Â°") + '</th>' +
+      '<th>' + t("orders.number", "NÃƒâ€šÃ‚Â°") + '</th>' +
       '<th>' + t("orders.supplier", "Fournisseur") + '</th>' +
       '<th>' + t("orders.lines", "Lignes") + '</th>' +
       '<th>' + t("orders.total", "Total") + '</th>' +
@@ -3369,6 +3394,14 @@
 
     var totalEl = document.getElementById("poTotalValue");
     if (totalEl) totalEl.textContent = formatCurrency(total);
+  }
+
+  function onPOSupplierChange(selectEl) {
+    // Update supplier name data when selection changes
+    var selected = selectEl.selectedOptions ? selectEl.selectedOptions[0] : null;
+    if (selected) {
+      selectEl.dataset.name = selected.textContent || "";
+    }
   }
 
   async function savePO() {
@@ -3633,7 +3666,7 @@
     document.getElementById("ordersContent").innerHTML =
       '<div class="card"><div class="card-body" style="padding:0">' +
       '<table class="data-table"><thead><tr>' +
-      '<th>' + t("orders.number", "NÃ‚Â°") + '</th>' +
+      '<th>' + t("orders.number", "NÃƒâ€šÃ‚Â°") + '</th>' +
       '<th>' + t("orders.source", "Source") + '</th>' +
       '<th>' + t("orders.revenue", "CA") + '</th>' +
       '<th>' + t("orders.cost", "Cout") + '</th>' +
@@ -3658,7 +3691,7 @@
     }
   }
 
-  // DÃ©tails d'une commande de vente
+  // DÃƒÂ©tails d'une commande de vente
   async function openSODetails(orderId) {
     try {
       var res = await authFetch(apiUrl("/sales-orders/" + orderId));
@@ -3756,7 +3789,7 @@
     }
   }
 
-  // Modal pour lier un produit Ã  un fournisseur
+  // Modal pour lier un produit ÃƒÂ  un fournisseur
   function showLinkProductModal(supplierId) {
     var productOptions = (state.products || []).map(function(p) {
       return '<option value="' + p.productId + '">' + esc(p.name) + '</option>';
@@ -3807,7 +3840,7 @@
       
       showToast(t("suppliers.productLinked", "Produit lie"), "success");
       closeModal();
-      // Recharger les dÃ©tails du fournisseur
+      // Recharger les dÃƒÂ©tails du fournisseur
       if (typeof loadSupplierDetails === "function") {
         loadSupplierDetails(supplierId);
       }
@@ -3863,7 +3896,8 @@
           '<td class="cell-actions" onclick="event.stopPropagation()">' +
           '<button class="btn btn-ghost btn-xs" onclick="app.showRestockModal(\'' + p.productId + '\')">+</button>' +
           '<button class="btn btn-ghost btn-xs" onclick="app.showAdjustModal(\'' + p.productId + '\')">' + t("action.edit", "Edit") + '</button>' +
-          '<button class="btn btn-ghost btn-xs" onclick="app.openProductDetails(\'' + p.productId + '\')">' + t("action.details", "Details") + '</button></td></tr>'
+          '<button class="btn btn-ghost btn-xs" onclick="app.openProductDetails(\'' + p.productId + '\')">' + t("action.details", "Details") + '</button>' +
+          '<button class="btn btn-ghost btn-xs text-danger" onclick="app.deleteProduct(\'' + p.productId + '\')" title="' + t("action.delete", "Supprimer") + '"><i data-lucide="trash-2" style="width:12px;height:12px"></i></button></td></tr>'
         );
       })
       .join("");
@@ -4023,7 +4057,7 @@
 
     var rows = filtered.map(function(f) {
       var statusBadge = getForecastStatusBadge(f.status);
-      var daysDisplay = f.daysOfStock === Infinity ? "âˆž" : (f.daysOfStock !== null ? f.daysOfStock.toFixed(0) + "j" : "-");
+      var daysDisplay = f.daysOfStock === Infinity ? "Ã¢Ë†Å¾" : (f.daysOfStock !== null ? f.daysOfStock.toFixed(0) + "j" : "-");
       var stockoutDisplay = f.stockoutDate || "-";
       var reorderDisplay = f.reorderQty > 0 ? formatWeight(f.reorderQty) : "-";
 
@@ -4093,16 +4127,16 @@
         sparklineHtml = '<div class="sparkline-container">' + bars + '</div>';
       }
 
-      // ScÃƒÂ©narios
+      // ScÃƒÆ’Ã‚Â©narios
       var scenariosHtml = '';
       if (data.scenarios) {
         scenariosHtml = '<div class="scenarios-grid">' +
           '<div class="scenario pessimistic"><div class="scenario-label">Pessimiste</div><div class="scenario-value">' + 
-          (data.scenarios.pessimistic.daysOfStock === Infinity ? "Ã¢Ë†Å¾" : data.scenarios.pessimistic.daysOfStock.toFixed(0) + "j") + '</div></div>' +
+          (data.scenarios.pessimistic.daysOfStock === Infinity ? "ÃƒÂ¢Ã‹â€ Ã…Â¾" : data.scenarios.pessimistic.daysOfStock.toFixed(0) + "j") + '</div></div>' +
           '<div class="scenario normal"><div class="scenario-label">Normal</div><div class="scenario-value">' + 
-          (data.scenarios.normal.daysOfStock === Infinity ? "Ã¢Ë†Å¾" : data.scenarios.normal.daysOfStock.toFixed(0) + "j") + '</div></div>' +
+          (data.scenarios.normal.daysOfStock === Infinity ? "ÃƒÂ¢Ã‹â€ Ã…Â¾" : data.scenarios.normal.daysOfStock.toFixed(0) + "j") + '</div></div>' +
           '<div class="scenario optimistic"><div class="scenario-label">Optimiste</div><div class="scenario-value">' + 
-          (data.scenarios.optimistic.daysOfStock === Infinity ? "Ã¢Ë†Å¾" : data.scenarios.optimistic.daysOfStock.toFixed(0) + "j") + '</div></div>' +
+          (data.scenarios.optimistic.daysOfStock === Infinity ? "ÃƒÂ¢Ã‹â€ Ã…Â¾" : data.scenarios.optimistic.daysOfStock.toFixed(0) + "j") + '</div></div>' +
           '</div>';
       }
 
@@ -5102,74 +5136,14 @@
     // Section Notifications (PRO)
     var notifSection = '';
     if (hasFeature('hasNotifications')) {
-      // Récupérer les canaux configurés
-      var channels = s.notificationChannels || {};
-      var discordEnabled = channels.discord && channels.discord.enabled;
-      var slackEnabled = channels.slack && channels.slack.enabled;
-      var telegramEnabled = channels.telegram && channels.telegram.enabled;
-      var ntfyEnabled = channels.ntfy && channels.ntfy.enabled;
-      
       notifSection = 
         '<div class="settings-section">' +
-        '<div class="settings-section-header"><h3>' + t("settings.notifications", "Notifications") + '</h3><span class="badge badge-pro">PRO</span><p class="text-secondary">' + t("settings.notificationsDesc", "Configurez vos alertes internes et externes") + '</p></div>' +
+        '<div class="settings-section-header"><h3>' + t("settings.notifications", "Notifications") + '</h3><span class="badge badge-pro">PRO</span><p class="text-secondary">' + t("settings.notificationsDesc", "Configurez vos alertes") + '</p></div>' +
         '<div class="settings-section-body">' +
-        
-        // Notifications internes
-        '<div class="setting-group-title">' + t("settings.inAppNotifications", "Notifications internes") + '</div>' +
         '<div class="setting-row"><label class="setting-label">' + t("settings.notificationsEnabled", "Notifications activees") + '</label>' +
         '<label class="toggle"><input type="checkbox" ' + (s.notifications && s.notifications.enabled ? 'checked' : '') + ' onchange="app.updateSetting(\'notifications\',\'enabled\',this.checked)"><span class="toggle-slider"></span></label></div>' +
         '<div class="setting-row"><label class="setting-label">' + t("settings.lowStockAlert", "Alerte stock bas") + '</label>' +
         '<label class="toggle"><input type="checkbox" ' + (s.notifications && s.notifications.triggers && s.notifications.triggers.lowStock ? 'checked' : '') + ' onchange="app.updateNestedSetting(\'notifications\',\'triggers\',\'lowStock\',this.checked)"><span class="toggle-slider"></span></label></div>' +
-        
-        // Canaux externes
-        '<div class="setting-group-title" style="margin-top:var(--space-lg)">' + t("settings.externalChannels", "Canaux externes") + '</div>' +
-        '<p class="text-secondary text-sm" style="margin-bottom:var(--space-md)">' + t("settings.externalChannelsDesc", "Recevez les alertes sur vos applications favorites") + '</p>' +
-        
-        // Discord
-        '<div class="notification-channel-card">' +
-        '<div class="channel-header">' +
-        '<div class="channel-info"><span class="channel-icon">💬</span><span class="channel-name">Discord</span>' +
-        (discordEnabled ? '<span class="badge badge-success badge-sm">Active</span>' : '') + '</div>' +
-        '<button class="btn btn-ghost btn-sm" onclick="app.showNotificationChannelModal(\'discord\')">' +
-        '<i data-lucide="settings" style="width:16px;height:16px"></i></button></div>' +
-        (channels.discord && channels.discord.webhookUrl ? '<div class="channel-status text-success"><i data-lucide="check-circle" style="width:14px;height:14px"></i> ' + t("settings.configured", "Configure") + '</div>' : '<div class="channel-status text-secondary">' + t("settings.notConfigured", "Non configure") + '</div>') +
-        '</div>' +
-        
-        // Slack
-        '<div class="notification-channel-card">' +
-        '<div class="channel-header">' +
-        '<div class="channel-info"><span class="channel-icon">📢</span><span class="channel-name">Slack</span>' +
-        (slackEnabled ? '<span class="badge badge-success badge-sm">Active</span>' : '') + '</div>' +
-        '<button class="btn btn-ghost btn-sm" onclick="app.showNotificationChannelModal(\'slack\')">' +
-        '<i data-lucide="settings" style="width:16px;height:16px"></i></button></div>' +
-        (channels.slack && channels.slack.webhookUrl ? '<div class="channel-status text-success"><i data-lucide="check-circle" style="width:14px;height:14px"></i> ' + t("settings.configured", "Configure") + '</div>' : '<div class="channel-status text-secondary">' + t("settings.notConfigured", "Non configure") + '</div>') +
-        '</div>' +
-        
-        // Telegram
-        '<div class="notification-channel-card">' +
-        '<div class="channel-header">' +
-        '<div class="channel-info"><span class="channel-icon">📱</span><span class="channel-name">Telegram</span>' +
-        (telegramEnabled ? '<span class="badge badge-success badge-sm">Active</span>' : '') + '</div>' +
-        '<button class="btn btn-ghost btn-sm" onclick="app.showNotificationChannelModal(\'telegram\')">' +
-        '<i data-lucide="settings" style="width:16px;height:16px"></i></button></div>' +
-        (channels.telegram && channels.telegram.botToken && channels.telegram.chatId ? '<div class="channel-status text-success"><i data-lucide="check-circle" style="width:14px;height:14px"></i> ' + t("settings.configured", "Configure") + '</div>' : '<div class="channel-status text-secondary">' + t("settings.notConfigured", "Non configure") + '</div>') +
-        '</div>' +
-        
-        // Ntfy
-        '<div class="notification-channel-card">' +
-        '<div class="channel-header">' +
-        '<div class="channel-info"><span class="channel-icon">🔔</span><span class="channel-name">Ntfy.sh</span>' +
-        (ntfyEnabled ? '<span class="badge badge-success badge-sm">Active</span>' : '') + '</div>' +
-        '<button class="btn btn-ghost btn-sm" onclick="app.showNotificationChannelModal(\'ntfy\')">' +
-        '<i data-lucide="settings" style="width:16px;height:16px"></i></button></div>' +
-        (channels.ntfy && channels.ntfy.topic ? '<div class="channel-status text-success"><i data-lucide="check-circle" style="width:14px;height:14px"></i> ' + t("settings.configured", "Configure") + '</div>' : '<div class="channel-status text-secondary">' + t("settings.notConfigured", "Non configure") + '</div>') +
-        '</div>' +
-        
-        // Test button
-        '<div style="margin-top:var(--space-lg);text-align:center">' +
-        '<button class="btn btn-secondary" onclick="app.testAllNotificationChannels()">' +
-        '<i data-lucide="bell-ring" style="width:16px;height:16px;margin-right:8px"></i>' + t("settings.testNotifications", "Tester les notifications") + '</button></div>' +
-        
         '</div></div>';
     } else {
       notifSection = 
@@ -5202,10 +5176,32 @@
       '<div class="settings-section-body">' +
       '<div class="setting-row"><label class="setting-label">' + t("settings.readOnlyMode", "Mode lecture seule") + '</label>' +
       '<label class="toggle"><input type="checkbox" ' + (s.security && s.security.readOnlyMode ? 'checked' : '') + ' onchange="app.updateSetting(\'security\',\'readOnlyMode\',this.checked)"><span class="toggle-slider"></span></label></div>' +
-      '<div class="setting-row"><label class="setting-label">' + t("settings.exportData", "Exporter les donnees") + '</label>' +
-      '<button class="btn btn-secondary btn-sm" onclick="app.exportSettings()">' + t("settings.downloadBackup", "Telecharger backup") + '</button></div>' +
+
+      // Backup & Export
+      '<div class="setting-row"><label class="setting-label"><i data-lucide="download" class="setting-icon"></i> ' + t("settings.exportData", "Exporter les donnees") + '</label>' +
+      '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
+      '<button class="btn btn-secondary btn-sm" onclick="app.exportSettings()">' + t("settings.downloadBackup", "Backup config") + '</button>' +
+      '<button class="btn btn-secondary btn-sm" onclick="app.downloadFullBackup()"><i data-lucide="database" style="width:14px;height:14px"></i> ' + t("settings.fullBackup", "Backup complet") + '</button>' +
+      '</div></div>' +
+
+      // Snapshots
+      '<div class="setting-row"><label class="setting-label"><i data-lucide="camera" class="setting-icon"></i> ' + t("settings.snapshots", "Points de restauration") + '</label>' +
+      '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
+      '<button class="btn btn-secondary btn-sm" onclick="app.createSnapshot()">' + t("settings.createSnapshot", "Creer un point") + '</button>' +
+      '<button class="btn btn-secondary btn-sm" onclick="app.showSnapshotsModal()">' + t("settings.viewSnapshots", "Voir / Restaurer") + '</button>' +
+      '</div></div>' +
+
+      // Reset
       '<div class="setting-row"><label class="setting-label">' + t("settings.resetSettings", "Reinitialiser les parametres") + '</label>' +
       '<button class="btn btn-ghost btn-sm text-danger" onclick="app.resetAllSettings()">' + t("action.reset", "Reinitialiser") + '</button></div>' +
+
+      // Danger zone
+      '<div style="margin-top:16px;padding:16px;border:1px solid var(--danger);border-radius:8px;background:rgba(239,68,68,0.05)">' +
+      '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><i data-lucide="alert-triangle" style="color:var(--danger);width:18px;height:18px"></i> <strong style="color:var(--danger)">' + t("settings.dangerZone", "Zone dangereuse") + '</strong></div>' +
+      '<p style="font-size:13px;color:var(--text-secondary);margin-bottom:12px">' + t("settings.dangerZoneDesc", "Ces actions sont irreversibles et supprimeront definitivement vos donnees.") + '</p>' +
+      '<button class="btn btn-sm" style="background:var(--danger);color:white;border:none" onclick="app.resetAllData()"><i data-lucide="trash-2" style="width:14px;height:14px"></i> ' + t("settings.resetAllData", "Reinitialiser toutes les donnees") + '</button>' +
+      '</div>' +
+
       '</div></div>';
 
     // Section Aide & Support
@@ -5302,253 +5298,6 @@
       } else {
         var e = await res.json();
         showToast(e.error || "Erreur", "error");
-      }
-    } catch (e) {
-      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
-    }
-  }
-
-  // ============================================
-  // NOTIFICATION CHANNELS (Discord, Slack, Telegram, Ntfy)
-  // ============================================
-
-  function showNotificationChannelModal(channelId) {
-    var channels = (settingsData && settingsData.notificationChannels) || {};
-    var config = channels[channelId] || {};
-    
-    var title = '';
-    var content = '';
-    
-    switch (channelId) {
-      case 'discord':
-        title = '💬 Discord Webhook';
-        content = 
-          '<div class="form-group">' +
-          '<label class="form-label">' + t("settings.webhookUrl", "URL du Webhook") + '</label>' +
-          '<input type="url" class="form-input" id="channelWebhookUrl" placeholder="https://discord.com/api/webhooks/..." value="' + (config.webhookUrl || '') + '">' +
-          '<p class="form-help">' + t("settings.discordHelp", "Creez un webhook dans les parametres de votre canal Discord > Integrations > Webhooks") + '</p>' +
-          '</div>' +
-          '<div class="form-group">' +
-          '<label class="form-label">' + t("settings.enabled", "Activer") + '</label>' +
-          '<label class="toggle"><input type="checkbox" id="channelEnabled" ' + (config.enabled ? 'checked' : '') + '><span class="toggle-slider"></span></label>' +
-          '</div>';
-        break;
-        
-      case 'slack':
-        title = '📢 Slack Webhook';
-        content = 
-          '<div class="form-group">' +
-          '<label class="form-label">' + t("settings.webhookUrl", "URL du Webhook") + '</label>' +
-          '<input type="url" class="form-input" id="channelWebhookUrl" placeholder="https://hooks.slack.com/services/..." value="' + (config.webhookUrl || '') + '">' +
-          '<p class="form-help">' + t("settings.slackHelp", "Creez une app Slack puis ajoutez un Incoming Webhook") + '</p>' +
-          '</div>' +
-          '<div class="form-group">' +
-          '<label class="form-label">' + t("settings.enabled", "Activer") + '</label>' +
-          '<label class="toggle"><input type="checkbox" id="channelEnabled" ' + (config.enabled ? 'checked' : '') + '><span class="toggle-slider"></span></label>' +
-          '</div>';
-        break;
-        
-      case 'telegram':
-        title = '📱 Telegram Bot';
-        content = 
-          '<div class="form-group">' +
-          '<label class="form-label">' + t("settings.botToken", "Token du Bot") + '</label>' +
-          '<input type="text" class="form-input" id="channelBotToken" placeholder="123456789:ABC..." value="' + (config.botToken || '') + '">' +
-          '<p class="form-help">' + t("settings.telegramBotHelp", "Creez un bot avec @BotFather sur Telegram") + '</p>' +
-          '</div>' +
-          '<div class="form-group">' +
-          '<label class="form-label">' + t("settings.chatId", "Chat ID") + '</label>' +
-          '<input type="text" class="form-input" id="channelChatId" placeholder="-1001234567890" value="' + (config.chatId || '') + '">' +
-          '<p class="form-help">' + t("settings.telegramChatHelp", "Utilisez @userinfobot pour obtenir votre Chat ID") + '</p>' +
-          '</div>' +
-          '<div class="form-group">' +
-          '<label class="form-label">' + t("settings.enabled", "Activer") + '</label>' +
-          '<label class="toggle"><input type="checkbox" id="channelEnabled" ' + (config.enabled ? 'checked' : '') + '><span class="toggle-slider"></span></label>' +
-          '</div>';
-        break;
-        
-      case 'ntfy':
-        title = '🔔 Ntfy.sh (Push mobile)';
-        content = 
-          '<div class="form-group">' +
-          '<label class="form-label">' + t("settings.topic", "Topic") + '</label>' +
-          '<input type="text" class="form-input" id="channelTopic" placeholder="my-stock-alerts" value="' + (config.topic || '') + '">' +
-          '<p class="form-help">' + t("settings.ntfyHelp", "Choisissez un nom unique. Installez l\'app Ntfy et abonnez-vous au meme topic.") + '</p>' +
-          '</div>' +
-          '<div class="form-group">' +
-          '<label class="form-label">' + t("settings.server", "Serveur") + ' (' + t("settings.optional", "optionnel") + ')</label>' +
-          '<input type="url" class="form-input" id="channelServer" placeholder="https://ntfy.sh" value="' + (config.server || 'https://ntfy.sh') + '">' +
-          '</div>' +
-          '<div class="form-group">' +
-          '<label class="form-label">' + t("settings.enabled", "Activer") + '</label>' +
-          '<label class="toggle"><input type="checkbox" id="channelEnabled" ' + (config.enabled ? 'checked' : '') + '><span class="toggle-slider"></span></label>' +
-          '</div>';
-        break;
-        
-      default:
-        showToast(t("msg.unknownChannel", "Canal inconnu"), "error");
-        return;
-    }
-    
-    var footer = 
-      '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.cancel", "Annuler") + '</button>' +
-      '<button class="btn btn-secondary" onclick="app.testNotificationChannel(\'' + channelId + '\')">' +
-      '<i data-lucide="bell-ring" style="width:16px;height:16px;margin-right:6px"></i>' + t("action.test", "Tester") + '</button>' +
-      '<button class="btn btn-primary" onclick="app.saveNotificationChannel(\'' + channelId + '\')">' + t("action.save", "Enregistrer") + '</button>';
-    
-    showModal({
-      title: title,
-      content: content,
-      footer: footer
-    });
-    
-    // Réinitialiser les icônes Lucide après l'ouverture du modal
-    if (typeof lucide !== 'undefined' && lucide.createIcons) {
-      setTimeout(function() { lucide.createIcons(); }, 50);
-    }
-  }
-
-  async function saveNotificationChannel(channelId) {
-    var config = { enabled: document.getElementById('channelEnabled').checked };
-    
-    switch (channelId) {
-      case 'discord':
-      case 'slack':
-        config.webhookUrl = document.getElementById('channelWebhookUrl').value.trim();
-        if (config.enabled && !config.webhookUrl) {
-          showToast(t("msg.webhookRequired", "URL du webhook requise"), "error");
-          return;
-        }
-        break;
-        
-      case 'telegram':
-        config.botToken = document.getElementById('channelBotToken').value.trim();
-        config.chatId = document.getElementById('channelChatId').value.trim();
-        if (config.enabled && (!config.botToken || !config.chatId)) {
-          showToast(t("msg.telegramConfigRequired", "Token et Chat ID requis"), "error");
-          return;
-        }
-        break;
-        
-      case 'ntfy':
-        config.topic = document.getElementById('channelTopic').value.trim();
-        config.server = document.getElementById('channelServer').value.trim() || 'https://ntfy.sh';
-        if (config.enabled && !config.topic) {
-          showToast(t("msg.topicRequired", "Topic requis"), "error");
-          return;
-        }
-        break;
-    }
-    
-    try {
-      var res = await authFetch(apiUrl("/notifications/channels/" + channelId), {
-        method: "PUT",
-        body: JSON.stringify(config)
-      });
-      
-      if (res.ok) {
-        var data = await res.json();
-        // Mettre à jour le cache local
-        if (!settingsData.notificationChannels) settingsData.notificationChannels = {};
-        settingsData.notificationChannels[channelId] = config;
-        
-        showToast(t("settings.channelSaved", "Canal configuré"), "success");
-        closeModal();
-        renderSettingsContent();
-      } else {
-        var e = await res.json();
-        showToast(e.error || t("msg.error", "Erreur"), "error");
-      }
-    } catch (e) {
-      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
-    }
-  }
-
-  async function testNotificationChannel(channelId) {
-    // Récupérer la config actuelle du formulaire
-    var config = { enabled: true };
-    
-    switch (channelId) {
-      case 'discord':
-      case 'slack':
-        config.webhookUrl = document.getElementById('channelWebhookUrl').value.trim();
-        if (!config.webhookUrl) {
-          showToast(t("msg.webhookRequired", "URL du webhook requise"), "error");
-          return;
-        }
-        break;
-        
-      case 'telegram':
-        config.botToken = document.getElementById('channelBotToken').value.trim();
-        config.chatId = document.getElementById('channelChatId').value.trim();
-        if (!config.botToken || !config.chatId) {
-          showToast(t("msg.telegramConfigRequired", "Token et Chat ID requis"), "error");
-          return;
-        }
-        break;
-        
-      case 'ntfy':
-        config.topic = document.getElementById('channelTopic').value.trim();
-        config.server = document.getElementById('channelServer').value.trim() || 'https://ntfy.sh';
-        if (!config.topic) {
-          showToast(t("msg.topicRequired", "Topic requis"), "error");
-          return;
-        }
-        break;
-    }
-    
-    showToast(t("settings.sendingTest", "Envoi du test..."), "info");
-    
-    try {
-      var res = await authFetch(apiUrl("/notifications/channels/" + channelId + "/test"), {
-        method: "POST",
-        body: JSON.stringify(config)
-      });
-      
-      var data = await res.json();
-      
-      if (data.success) {
-        showToast(t("settings.testSuccess", "Test envoyé avec succès!"), "success");
-      } else {
-        showToast(t("settings.testFailed", "Échec du test") + ": " + (data.error || "Erreur inconnue"), "error");
-      }
-    } catch (e) {
-      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
-    }
-  }
-
-  async function testAllNotificationChannels() {
-    var channels = (settingsData && settingsData.notificationChannels) || {};
-    var activeChannels = Object.keys(channels).filter(function(ch) {
-      return channels[ch] && channels[ch].enabled;
-    });
-    
-    if (activeChannels.length === 0) {
-      showToast(t("settings.noActiveChannels", "Aucun canal actif à tester"), "warning");
-      return;
-    }
-    
-    showToast(t("settings.testingChannels", "Test de " + activeChannels.length + " canal(s)..."), "info");
-    
-    try {
-      var res = await authFetch(apiUrl("/notifications/dispatch"), {
-        method: "POST",
-        body: JSON.stringify({
-          title: "🧪 Test Notification",
-          message: "Ceci est un test des notifications Stock Manager. Si vous voyez ce message, tout fonctionne!",
-          priority: "normal",
-          productName: "Test Product"
-        })
-      });
-      
-      var data = await res.json();
-      
-      if (data.success && data.dispatched && data.dispatched.length > 0) {
-        showToast(t("settings.testSentTo", "Test envoyé à") + ": " + data.dispatched.join(", "), "success");
-      } else if (data.errors && data.errors.length > 0) {
-        showToast(t("settings.testPartialFail", "Certains tests ont échoué"), "warning");
-      } else {
-        showToast(t("settings.testFailed", "Échec du test"), "error");
       }
     } catch (e) {
       showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
@@ -5716,6 +5465,187 @@
       }
     } catch (e) {
       showToast(t("msg.error", "Error"), "error");
+    }
+  }
+
+  // ============================================
+  // DATA MANAGEMENT: Snapshots, Rollback, Reset
+  // ============================================
+
+  async function createSnapshot() {
+    var label = prompt(t("settings.snapshotLabel", "Nom du point de restauration (optionnel) :"), "");
+    if (label === null) return;
+    try {
+      showToast(t("settings.creatingSnapshot", "Creation du point..."), "info");
+      var res = await authFetch(apiUrl("/data/snapshot"), {
+        method: "POST",
+        body: JSON.stringify({ label: label || "" }),
+      });
+      if (res.ok) {
+        var data = await res.json();
+        showToast(t("settings.snapshotCreated", "Point de restauration cree !"), "success");
+      } else {
+        var err = await res.json().catch(function() { return {}; });
+        showToast(err.error || t("msg.error", "Erreur"), "error");
+      }
+    } catch (e) {
+      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
+    }
+  }
+
+  async function showSnapshotsModal() {
+    showModal({
+      title: '<i data-lucide="history"></i> ' + t("settings.snapshots", "Points de restauration"),
+      size: "lg",
+      content: '<div id="snapshotsContent"><div class="text-center py-lg"><div class="spinner"></div></div></div>',
+      footer: '<button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.close", "Fermer") + '</button>'
+    });
+    if (typeof lucide !== "undefined") lucide.createIcons();
+    loadSnapshotsList();
+  }
+
+  async function loadSnapshotsList() {
+    try {
+      var res = await authFetch(apiUrl("/data/snapshots"));
+      var container = document.getElementById("snapshotsContent");
+      if (!container) return;
+
+      if (!res.ok) {
+        container.innerHTML = '<p class="text-danger text-center">' + t("msg.error", "Erreur") + '</p>';
+        return;
+      }
+
+      var data = await res.json();
+      var snapshots = data.snapshots || [];
+
+      if (snapshots.length === 0) {
+        container.innerHTML =
+          '<div class="text-center py-lg">' +
+          '<i data-lucide="camera-off" style="width:48px;height:48px;color:var(--text-secondary);margin-bottom:12px"></i>' +
+          '<p class="text-secondary">' + t("settings.noSnapshots", "Aucun point de restauration disponible.") + '</p>' +
+          '<p class="text-secondary" style="font-size:13px">' + t("settings.noSnapshotsHint", "Creez un point pour pouvoir revenir en arriere.") + '</p>' +
+          '</div>';
+        if (typeof lucide !== "undefined") lucide.createIcons();
+        return;
+      }
+
+      var html = '<div style="display:flex;flex-direction:column;gap:8px">';
+      snapshots.forEach(function(snap) {
+        var date = new Date(snap.createdAt);
+        var dateStr = date.toLocaleDateString() + " " + date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+        var sizeStr = snap.fileSize ? (snap.fileSize / 1024).toFixed(1) + " KB" : "";
+        var isAuto = snap.id.startsWith("pre-");
+
+        html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border:1px solid var(--border-color);border-radius:8px;background:var(--bg-secondary)">' +
+          '<div style="flex:1;min-width:0">' +
+            '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">' +
+              (isAuto ? '<span style="background:var(--warning);color:#fff;font-size:10px;padding:2px 6px;border-radius:4px">AUTO</span>' : '') +
+              '<strong style="font-size:14px">' + (snap.label || snap.id) + '</strong>' +
+            '</div>' +
+            '<div style="font-size:12px;color:var(--text-secondary);display:flex;gap:12px;flex-wrap:wrap">' +
+              '<span><i data-lucide="clock" style="width:12px;height:12px;vertical-align:middle"></i> ' + dateStr + '</span>' +
+              '<span><i data-lucide="package" style="width:12px;height:12px;vertical-align:middle"></i> ' + snap.productCount + ' produits</span>' +
+              '<span><i data-lucide="activity" style="width:12px;height:12px;vertical-align:middle"></i> ' + snap.movementCount + ' mouvements</span>' +
+              (sizeStr ? '<span>' + sizeStr + '</span>' : '') +
+            '</div>' +
+          '</div>' +
+          '<div style="display:flex;gap:6px;flex-shrink:0;margin-left:12px">' +
+            '<button class="btn btn-sm btn-primary" onclick="app.rollbackToSnapshot(\'' + snap.id + '\', \'' + (snap.label || snap.id).replace(/'/g, "\\'") + '\')" title="' + t("settings.restoreSnapshot", "Restaurer") + '"><i data-lucide="rotate-ccw" style="width:14px;height:14px"></i></button>' +
+            '<button class="btn btn-sm btn-ghost text-danger" onclick="app.deleteSnapshot(\'' + snap.id + '\')" title="' + t("action.delete", "Supprimer") + '"><i data-lucide="trash-2" style="width:14px;height:14px"></i></button>' +
+          '</div>' +
+        '</div>';
+      });
+      html += '</div>';
+
+      container.innerHTML = html;
+      if (typeof lucide !== "undefined") lucide.createIcons();
+    } catch (e) {
+      var container2 = document.getElementById("snapshotsContent");
+      if (container2) container2.innerHTML = '<p class="text-danger text-center">' + t("msg.error", "Erreur") + ": " + e.message + '</p>';
+    }
+  }
+
+  async function rollbackToSnapshot(snapshotId, label) {
+    if (!confirm(t("settings.confirmRollback", "Restaurer les donnees au point :") + "\n\n" + label + "\n\n" + t("settings.confirmRollbackWarn", "Un point de sauvegarde automatique sera cree avant la restauration. Continuer ?"))) return;
+    try {
+      showToast(t("settings.rollingBack", "Restauration en cours..."), "info");
+      var res = await authFetch(apiUrl("/data/rollback"), {
+        method: "POST",
+        body: JSON.stringify({ snapshotId: snapshotId }),
+      });
+      if (res.ok) {
+        var data = await res.json();
+        showToast(t("settings.rollbackSuccess", "Donnees restaurees avec succes !"), "success");
+        closeModal();
+        // Reload everything
+        setTimeout(function() { location.reload(); }, 1500);
+      } else {
+        var err = await res.json().catch(function() { return {}; });
+        showToast(err.error || t("msg.error", "Erreur"), "error");
+      }
+    } catch (e) {
+      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
+    }
+  }
+
+  async function deleteSnapshot(snapshotId) {
+    if (!confirm(t("settings.confirmDeleteSnapshot", "Supprimer ce point de restauration ?"))) return;
+    try {
+      var res = await authFetch(apiUrl("/data/snapshots/" + encodeURIComponent(snapshotId)), { method: "DELETE" });
+      if (res.ok) {
+        showToast(t("settings.snapshotDeleted", "Point supprime"), "success");
+        loadSnapshotsList();
+      } else {
+        showToast(t("msg.error", "Erreur"), "error");
+      }
+    } catch (e) {
+      showToast(t("msg.error", "Erreur"), "error");
+    }
+  }
+
+  async function resetAllData() {
+    if (!confirm(t("settings.confirmResetAll1", "ATTENTION : Cette action va supprimer TOUTES vos donnees (produits, stock, mouvements, parametres).\n\nUn point de restauration automatique sera cree avant la suppression.\n\nEtes-vous sur ?"))) return;
+    var code = prompt(t("settings.confirmResetAll2", "Pour confirmer, tapez RESET en majuscules :"));
+    if (code !== "RESET") {
+      showToast(t("settings.resetCancelled", "Reinitialisation annulee"), "info");
+      return;
+    }
+    try {
+      showToast(t("settings.resettingAll", "Reinitialisation en cours..."), "info");
+      var res = await authFetch(apiUrl("/data/reset"), {
+        method: "POST",
+        body: JSON.stringify({ confirm: "RESET" }),
+      });
+      if (res.ok) {
+        showToast(t("settings.resetAllSuccess", "Toutes les donnees ont ete reinitialisees"), "success");
+        setTimeout(function() { location.reload(); }, 2000);
+      } else {
+        var err = await res.json().catch(function() { return {}; });
+        showToast(err.error || t("msg.error", "Erreur"), "error");
+      }
+    } catch (e) {
+      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
+    }
+  }
+
+  async function downloadFullBackup() {
+    try {
+      showToast(t("export.preparing", "Preparation de l\'export..."), "info");
+      var res = await authFetch(apiUrl("/data/full-backup"));
+      if (res.ok) {
+        var blob = await res.blob();
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement("a");
+        a.href = url;
+        a.download = "full-backup-" + new Date().toISOString().slice(0, 10) + ".json";
+        a.click();
+        URL.revokeObjectURL(url);
+        showToast(t("settings.backupDownloaded", "Backup telecharge"), "success");
+      } else {
+        throw new Error("Export failed");
+      }
+    } catch (e) {
+      showToast(t("msg.exportError", "Erreur export"), "error");
     }
   }
 
@@ -6285,7 +6215,7 @@
         trialBadge = '<span class="trial-badge">' + state.trial.daysLeft + 'j</span>';
       }
       
-      // Affichage compact pour plans illimités
+      // Affichage compact pour plans illimitÃ©s
       var usageDisplay = "";
       if (isUnlimited) {
         usageDisplay = '<span class="plan-usage">' + state.products.length + ' <i data-lucide="infinity" style="width:14px;height:14px;vertical-align:middle"></i></span>';
@@ -6853,7 +6783,7 @@
   }
 
   // ============================================
-  // Ã¢Å“â€¦ FICHE DÃƒâ€°TAIL PRODUIT
+  // ÃƒÂ¢Ã…â€œÃ¢â‚¬Â¦ FICHE DÃƒÆ’Ã¢â‚¬Â°TAIL PRODUIT
   // ============================================
   async function openProductDetails(productId) {
     if (!productId) return;
@@ -7002,7 +6932,8 @@
       title: t("products.details", "Fiche produit"),
       size: "xl",
       content: content,
-      footer: '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.close", "Fermer") + '</button>',
+      footer: '<button class="btn btn-ghost text-danger" onclick="app.deleteProduct(\'' + esc(p.productId).replace(/'/g, "\\'") + '\')" style="margin-right:auto"><i data-lucide="trash-2"></i> ' + t("action.delete", "Supprimer") + '</button>' +
+        '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.close", "Fermer") + '</button>',
     });
 
     // Charger les lots du produit si PRO
@@ -7078,8 +7009,34 @@
     }
   }
 
+  async function deleteProduct(productId) {
+    if (!productId) return;
+    var productName = "";
+    try {
+      var prod = (state.products || []).find(function(p) { return p.productId === productId || p.id === productId; });
+      productName = prod ? prod.name : productId;
+    } catch(e) {}
+
+    if (!confirm(t("products.confirmDelete", "Supprimer definitivement ce produit du stock ?") + "\n\n" + productName + "\n\n" + t("products.confirmDeleteWarn", "Cette action est irreversible. L'historique des mouvements sera conserve."))) return;
+
+    try {
+      var res = await authFetch(apiUrl("/products/" + encodeURIComponent(productId)), { method: "DELETE" });
+      if (res.ok) {
+        closeModal();
+        showToast(t("products.deleted", "Produit supprime du stock"), "success");
+        // Refresh product list
+        navigateTo("products");
+      } else {
+        var err = await res.json().catch(function() { return {}; });
+        showToast(err.error || t("msg.error", "Erreur"), "error");
+      }
+    } catch (e) {
+      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
+    }
+  }
+
   function showAddBatchForProduct(productId, productName) {
-    // Ouvrir le modal de crÃƒÂ©ation de lot avec le produit prÃƒÂ©-sÃƒÂ©lectionnÃƒÂ©
+    // Ouvrir le modal de crÃƒÆ’Ã‚Â©ation de lot avec le produit prÃƒÆ’Ã‚Â©-sÃƒÆ’Ã‚Â©lectionnÃƒÆ’Ã‚Â©
     showModal({
       title: t("batches.addBatchFor", "Nouveau lot pour") + ' ' + (productName || 'ce produit'),
       size: "md",
@@ -7761,7 +7718,7 @@
     }
   }
 
-  // DÃ©finir toutes les vraies fonctions
+  // DÃƒÂ©finir toutes les vraies fonctions
   var realFunctions = {
     init: init,
     navigateTo: navigateTo,
@@ -7786,6 +7743,7 @@
     showToast: showToast,
     hasFeature: hasFeature,
     openProductDetails: openProductDetails,
+    deleteProduct: deleteProduct,
     showEditCMPModal: showEditCMPModal,
     saveCMP: saveCMP,
     // Filtres
@@ -7832,6 +7790,7 @@
     addPOLine: addPOLine,
     removePOLine: removePOLine,
     updatePOTotal: updatePOTotal,
+    onPOSupplierChange: onPOSupplierChange,
     savePO: savePO,
     openPODetails: openPODetails,
     sendPO: sendPO,
@@ -7878,12 +7837,20 @@
     filterInventoryByStatus: filterInventoryByStatus,
     duplicateInventorySession: duplicateInventorySession,
     archiveInventorySession: archiveInventorySession,
+    deleteInventorySession: deleteInventorySession,
     loadInventorySessions: loadInventorySessions,
     // Settings
     updateSetting: updateSetting,
     updateNestedSetting: updateNestedSetting,
     exportSettings: exportSettings,
     resetAllSettings: resetAllSettings,
+    // Data management
+    createSnapshot: createSnapshot,
+    showSnapshotsModal: showSnapshotsModal,
+    rollbackToSnapshot: rollbackToSnapshot,
+    deleteSnapshot: deleteSnapshot,
+    resetAllData: resetAllData,
+    downloadFullBackup: downloadFullBackup,
     // Export CSV
     exportStockCSV: exportStockCSV,
     exportMovementsCSV: exportMovementsCSV,
@@ -7894,7 +7861,7 @@
     markAllNotificationsRead: markAllNotificationsRead,
     // Plan
     cancelPlan: cancelPlan,
-    // Dashboard amélioré
+    // Dashboard amÃ©liorÃ©
     showLowStockModal: showLowStockModal,
     showOutOfStockModal: showOutOfStockModal,
     showQuickRestockModal: showQuickRestockModal,
@@ -7923,11 +7890,6 @@
     markNotificationRead: markNotificationRead,
     dismissNotification: dismissNotification,
     checkAlerts: checkAlerts,
-    // Notification Channels (External)
-    showNotificationChannelModal: showNotificationChannelModal,
-    saveNotificationChannel: saveNotificationChannel,
-    testNotificationChannel: testNotificationChannel,
-    testAllNotificationChannels: testAllNotificationChannels,
     // Profils
     loadProfiles: loadProfiles,
     showProfilesModal: showProfilesModal,
@@ -7959,7 +7921,7 @@
     get: function() { return state; }
   });
   
-  // Marquer l'app comme prÃªte
+  // Marquer l'app comme prÃƒÂªte
   markAppReady();
 
   // Init
