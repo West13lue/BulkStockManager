@@ -1,5 +1,5 @@
-// server-pro-routes.js ââ‚¬â€ Routes API pour les modules PRO
-// Ãƒâ‚¬ inclure dans server.js avec: require('./server-pro-routes')(app);
+// server-pro-routes.js Ã¢Ã¢â€šÂ¬Ã¢â‚¬Â Routes API pour les modules PRO
+// À inclure dans server.js avec: require('./server-pro-routes')(app);
 
 module.exports = function(router, helpers = {}) {
   

@@ -61,22 +61,6 @@ const catalogStore = require("./catalogStore");
 const movementStore = require("./movementStore");
 const notificationStore = require("./notificationStore");
 
-// --- Notification Dispatcher (external channels: Discord, Slack, Telegram, Ntfy)
-let notificationDispatcher = null;
-try {
-  notificationDispatcher = require("./notificationDispatcher");
-} catch (e) {
-  // NotificationDispatcher optionnel non charge
-}
-
-// --- Alert Checker (génération automatique des alertes)
-let alertChecker = null;
-try {
-  alertChecker = require("./alertChecker");
-} catch (e) {
-  // AlertChecker optionnel non charge
-}
-
 // --- Batch/Lots tracking (multi-shop) - PRO
 let batchStore = null;
 try {
@@ -140,20 +124,9 @@ let settingsStore = null;
 try {
   settingsStore = require("./settingsStore");
 } catch (e) {
-  // Fallback minimal pour settingsStore
-  const _settingsCache = new Map();
   settingsStore = {
-    loadSettings: (shop) => _settingsCache.get(shop) || {},
-    saveSettings: (shop, settings) => {
-      _settingsCache.set(shop, settings);
-      return settings;
-    },
-    setLocationId: (shop, locationId) => {
-      const settings = _settingsCache.get(shop) || {};
-      settings.locationId = locationId;
-      _settingsCache.set(shop, settings);
-      return settings;
-    },
+    loadSettings: () => ({}),
+    setLocationId: (_shop, locationId) => ({ locationId }),
   };
 }
 
@@ -606,7 +579,7 @@ async function getLocationIdForShop(shop) {
     }
   }
 
-  // 2) ENV locationId (a¡ i¸ uniquement si la boutique == SHOP_NAME)
+  // 2) ENV locationId (aÂ¡Â iÂ¸Â uniquement si la boutique == SHOP_NAME)
   const envShop = resolveShopFallback(); // SHOP_NAME normalise
   const envLoc = process.env.SHOPIFY_LOCATION_ID || process.env.LOCATION_ID;
 
@@ -1352,7 +1325,7 @@ router.delete("/api/movements/:id", (req, res) => {
   });
 });
 
-// aÅ“" NOUVEAU : Detail produit avec variantes et stats
+// aœ" NOUVEAU : Detail produit avec variantes et stats
 router.get("/api/products/:productId", (req, res) => {
   safeJson(req, res, () => {
     const shop = getShop(req);
@@ -2462,6 +2435,286 @@ router.get("/api/settings/support-bundle", (req, res) => {
 });
 
 // =====================================================
+// DATA MANAGEMENT ROUTES (Snapshots, Rollback, Reset)
+// =====================================================
+
+const SNAPSHOTS_SUBDIR = "snapshots";
+
+function snapshotsDir(shop) {
+  const DATA_DIR_SM = process.env.DATA_DIR || "/var/data";
+  const s = String(shop || "default").trim().toLowerCase().replace(/[^a-z0-9._-]/g, "_");
+  const dir = path.join(DATA_DIR_SM, s, SNAPSHOTS_SUBDIR);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+// Create a snapshot (manual or auto)
+router.post("/api/data/snapshot", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+
+    try {
+      const label = req.body?.label || "";
+      const now = new Date();
+      const dateStr = now.toISOString().slice(0, 10);
+      const timeStr = now.toISOString().slice(11, 19).replace(/:/g, "-");
+      const snapId = `${dateStr}_${timeStr}`;
+      const dir = snapshotsDir(shop);
+      const snapFile = path.join(dir, `${snapId}.json`);
+
+      // Gather all data
+      const stockStateMod = require("./stockState");
+      const stockData = stockStateMod.loadState(shop);
+
+      let settingsData = {};
+      if (settingsManager) {
+        try { settingsData = settingsManager.exportConfig(shop); } catch(e) {}
+      }
+
+      let batchData = [];
+      if (batchStore) {
+        try { batchData = batchStore.listBatches ? batchStore.listBatches(shop) : []; } catch(e) {}
+      }
+
+      let supplierData = [];
+      if (supplierStore) {
+        try { supplierData = supplierStore.listSuppliers ? supplierStore.listSuppliers(shop) : []; } catch(e) {}
+      }
+
+      // Movements from the last 30 days
+      let movementsData = [];
+      if (movementStore) {
+        try { movementsData = movementStore.listMovements({ shop, days: 30, limit: 5000 }); } catch(e) {}
+      }
+
+      const snapshot = {
+        id: snapId,
+        label: label || `Snapshot ${dateStr}`,
+        createdAt: now.toISOString(),
+        data: {
+          stock: stockData,
+          settings: settingsData,
+          batches: batchData,
+          suppliers: supplierData,
+          movements: movementsData,
+        }
+      };
+
+      fs.writeFileSync(snapFile, JSON.stringify(snapshot, null, 2), "utf8");
+      logEvent("snapshot_created", { shop, snapId, label }, "info");
+
+      // Keep only last 10 snapshots
+      const files = fs.readdirSync(dir).filter(f => f.endsWith(".json")).sort();
+      if (files.length > 10) {
+        const toDelete = files.slice(0, files.length - 10);
+        toDelete.forEach(f => { try { fs.unlinkSync(path.join(dir, f)); } catch(e) {} });
+      }
+
+      res.json({ success: true, snapshot: { id: snapId, label: snapshot.label, createdAt: snapshot.createdAt } });
+    } catch (e) {
+      return apiError(res, 500, "Erreur création snapshot: " + e.message);
+    }
+  });
+});
+
+// List available snapshots
+router.get("/api/data/snapshots", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+
+    try {
+      const dir = snapshotsDir(shop);
+      const files = fs.readdirSync(dir).filter(f => f.endsWith(".json")).sort().reverse();
+
+      const snapshots = files.map(f => {
+        try {
+          const raw = fs.readFileSync(path.join(dir, f), "utf8");
+          const snap = JSON.parse(raw);
+          const productCount = snap.data?.stock?.products ? Object.keys(snap.data.stock.products).length : 0;
+          const movementCount = Array.isArray(snap.data?.movements) ? snap.data.movements.length : 0;
+          return {
+            id: snap.id,
+            label: snap.label,
+            createdAt: snap.createdAt,
+            productCount,
+            movementCount,
+            fileSize: fs.statSync(path.join(dir, f)).size,
+          };
+        } catch(e) { return null; }
+      }).filter(Boolean);
+
+      res.json({ snapshots });
+    } catch (e) {
+      return apiError(res, 500, "Erreur lecture snapshots: " + e.message);
+    }
+  });
+});
+
+// Download a full backup (all data)
+router.get("/api/data/full-backup", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+
+    try {
+      const stockStateMod = require("./stockState");
+      const stockData = stockStateMod.loadState(shop);
+
+      let settingsData = {};
+      if (settingsManager) {
+        try { settingsData = settingsManager.exportConfig(shop); } catch(e) {}
+      }
+      let batchData = [];
+      if (batchStore) {
+        try { batchData = batchStore.listBatches ? batchStore.listBatches(shop) : []; } catch(e) {}
+      }
+      let supplierData = [];
+      if (supplierStore) {
+        try { supplierData = supplierStore.listSuppliers ? supplierStore.listSuppliers(shop) : []; } catch(e) {}
+      }
+      let movementsData = [];
+      if (movementStore) {
+        try { movementsData = movementStore.listMovements({ shop, days: 90, limit: 10000 }); } catch(e) {}
+      }
+
+      const backup = {
+        version: "1.0",
+        createdAt: new Date().toISOString(),
+        shop,
+        data: { stock: stockData, settings: settingsData, batches: batchData, suppliers: supplierData, movements: movementsData }
+      };
+
+      res.setHeader("Content-Type", "application/json");
+      res.setHeader("Content-Disposition", `attachment; filename="full-backup-${new Date().toISOString().slice(0,10)}.json"`);
+      res.json(backup);
+    } catch (e) {
+      return apiError(res, 500, "Erreur backup: " + e.message);
+    }
+  });
+});
+
+// Rollback to a specific snapshot
+router.post("/api/data/rollback", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+
+    const snapId = req.body?.snapshotId;
+    if (!snapId) return apiError(res, 400, "snapshotId manquant");
+
+    try {
+      const dir = snapshotsDir(shop);
+      const snapFile = path.join(dir, `${snapId}.json`);
+      if (!fs.existsSync(snapFile)) return apiError(res, 404, "Snapshot introuvable");
+
+      const raw = fs.readFileSync(snapFile, "utf8");
+      const snapshot = JSON.parse(raw);
+      const snapData = snapshot.data;
+
+      // Auto-snapshot before rollback (safety net)
+      const autoSnapId = `pre-rollback_${new Date().toISOString().slice(0,19).replace(/:/g, "-")}`;
+      const stockStateMod = require("./stockState");
+      const currentStock = stockStateMod.loadState(shop);
+      const autoSnap = {
+        id: autoSnapId,
+        label: "Auto (avant rollback)",
+        createdAt: new Date().toISOString(),
+        data: { stock: currentStock }
+      };
+      fs.writeFileSync(path.join(dir, `${autoSnapId}.json`), JSON.stringify(autoSnap, null, 2), "utf8");
+
+      // Restore stock
+      if (snapData.stock) {
+        stockStateMod.saveState(shop, snapData.stock);
+        // Reload stock manager state
+        if (stock.reloadShop) stock.reloadShop(shop);
+      }
+
+      // Restore settings
+      if (snapData.settings && settingsManager) {
+        try { settingsManager.importConfig(shop, snapData.settings, { merge: false }); } catch(e) { console.warn("Rollback settings error:", e.message); }
+      }
+
+      logEvent("data_rollback", { shop, snapshotId: snapId, snapshotDate: snapshot.createdAt }, "warn");
+      res.json({ success: true, restoredFrom: snapshot.createdAt, label: snapshot.label });
+    } catch (e) {
+      return apiError(res, 500, "Erreur rollback: " + e.message);
+    }
+  });
+});
+
+// Reset all data
+router.post("/api/data/reset", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+
+    const confirm = req.body?.confirm;
+    if (confirm !== "RESET") return apiError(res, 400, "Confirmation manquante. Envoyez confirm: 'RESET'");
+
+    try {
+      // Auto-snapshot before reset (safety net)
+      const dir = snapshotsDir(shop);
+      const autoSnapId = `pre-reset_${new Date().toISOString().slice(0,19).replace(/:/g, "-")}`;
+      const stockStateMod = require("./stockState");
+      const currentStock = stockStateMod.loadState(shop);
+      let currentMovements = [];
+      if (movementStore) {
+        try { currentMovements = movementStore.listMovements({ shop, days: 90, limit: 10000 }); } catch(e) {}
+      }
+      const autoSnap = {
+        id: autoSnapId,
+        label: "Auto (avant reset complet)",
+        createdAt: new Date().toISOString(),
+        data: { stock: currentStock, movements: currentMovements }
+      };
+      fs.writeFileSync(path.join(dir, `${autoSnapId}.json`), JSON.stringify(autoSnap, null, 2), "utf8");
+
+      // Reset stock
+      stockStateMod.saveState(shop, {});
+      if (stock.reloadShop) stock.reloadShop(shop);
+
+      // Reset movements
+      if (movementStore && movementStore.clearShopMovements) {
+        movementStore.clearShopMovements(shop);
+      }
+
+      // Reset settings
+      if (settingsManager) {
+        try { settingsManager.resetSettings(shop); } catch(e) {}
+      }
+
+      logEvent("data_full_reset", { shop, autoSnapshotId: autoSnapId }, "warn");
+      res.json({ success: true, autoSnapshotId: autoSnapId, message: "Toutes les données ont été réinitialisées. Un snapshot automatique a été créé." });
+    } catch (e) {
+      return apiError(res, 500, "Erreur reset: " + e.message);
+    }
+  });
+});
+
+// Delete a snapshot
+router.delete("/api/data/snapshots/:id", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+
+    const snapId = req.params.id;
+    const dir = snapshotsDir(shop);
+    const snapFile = path.join(dir, `${snapId}.json`);
+    if (!fs.existsSync(snapFile)) return apiError(res, 404, "Snapshot introuvable");
+
+    try {
+      fs.unlinkSync(snapFile);
+      res.json({ success: true });
+    } catch(e) {
+      return apiError(res, 500, "Erreur suppression: " + e.message);
+    }
+  });
+});
+
+// =====================================================
 // USER PROFILES ROUTES
 // =====================================================
 
@@ -2844,7 +3097,7 @@ router.post("/api/plan/upgrade", (req, res) => {
     if (created.userErrors && created.userErrors.length) {
       return res.status(400).json({
         error: "billing_user_errors",
-        message: "Shopify a refuse la creation daEURaa‚¬Å¾¢abonnement",
+        message: "Shopify a refusé la création d'abonnement",
         userErrors: created.userErrors,
       });
     }
@@ -2904,7 +3157,7 @@ router.post("/api/plan/cancel", (req, res) => {
     if (cancelled.userErrors && cancelled.userErrors.length) {
       return res.status(400).json({
         error: "billing_cancel_user_errors",
-        message: "Shopify a refuse laEURaa‚¬Å¾¢annulation",
+        message: "Shopify a refusé l'annulation",
         userErrors: cancelled.userErrors,
       });
     }
@@ -3808,88 +4061,78 @@ router.post("/api/notifications/mark-all-read", (req, res) => {
 
 // Vérifier et générer les alertes (appelé périodiquement ou manuellement)
 router.post("/api/notifications/check", (req, res) => {
-  safeJson(req, res, async () => {
+  safeJson(req, res, () => {
     const shop = getShop(req);
     if (!shop) return apiError(res, 400, "Shop introuvable");
 
     try {
-      let results;
+      // Récupérer les données de stock
+      const snapshot = stock.getCatalogSnapshot ? stock.getCatalogSnapshot(shop) : { products: [] };
+      const products = Array.isArray(snapshot.products) ? snapshot.products : [];
       
-      // Utiliser alertChecker si disponible (envoie aussi les notifications externes)
-      if (alertChecker && typeof alertChecker.checkAllAlerts === "function") {
-        results = await alertChecker.checkAllAlerts(shop);
-        logEvent("notifications_check_alertchecker", { shop, newAlerts: results.newAlerts, resolved: results.resolvedAlerts }, "info");
+      // Récupérer les settings pour les seuils
+      const settings = settingsStore.loadSettings ? settingsStore.loadSettings(shop) : {};
+      const criticalThreshold = (settings.stock && settings.stock.criticalThreshold) || 50;
+      const lowThreshold = (settings.stock && settings.stock.lowStockThreshold) || 200;
+      
+      let alertsGenerated = 0;
+      
+      // Vérifier chaque produit
+      products.forEach(p => {
+        const totalGrams = p.totalGrams || 0;
+        const productId = p.productId;
+        const productName = p.name || "Produit";
         
-        res.json({ 
-          success: true, 
-          alertsGenerated: results.newAlerts,
-          alertsResolved: results.resolvedAlerts,
-          errors: results.errors,
-          lastCheck: results.checked
-        });
-      } else {
-        // Fallback: vérification basique sans notifications externes
-        const snapshot = stock.getCatalogSnapshot ? stock.getCatalogSnapshot(shop) : { products: [] };
-        const products = Array.isArray(snapshot.products) ? snapshot.products : [];
-        
-        const settings = settingsStore.loadSettings ? settingsStore.loadSettings(shop) : {};
-        const criticalThreshold = (settings.stock && settings.stock.criticalThreshold) || 50;
-        const lowThreshold = (settings.stock && settings.stock.lowStockThreshold) || 200;
-        
-        let alertsGenerated = 0;
-        
-        products.forEach(p => {
-          const totalGrams = p.totalGrams || 0;
-          const productId = p.productId;
-          const productName = p.name || "Produit";
-          
-          if (totalGrams <= 0) {
-            notificationStore.addAlert(shop, {
-              type: "out_of_stock",
-              priority: "high",
-              title: "Rupture de stock",
-              message: productName + " est en rupture de stock",
-              productId,
-              productName
-            });
-            alertsGenerated++;
-          }
-          else if (totalGrams < criticalThreshold) {
-            notificationStore.addAlert(shop, {
-              type: "critical_stock",
-              priority: "high",
-              title: "Stock critique",
-              message: productName + " a un stock critique",
-              productId,
-              productName
-            });
-            alertsGenerated++;
-          }
-          else if (totalGrams < lowThreshold) {
-            notificationStore.addAlert(shop, {
-              type: "low_stock",
-              priority: "medium",
-              title: "Stock bas",
-              message: productName + " a un stock bas",
-              productId,
-              productName
-            });
-            alertsGenerated++;
-          }
-        });
-        
-        const data = notificationStore.loadNotifications(shop);
-        data.lastCheck = new Date().toISOString();
-        notificationStore.saveNotifications(shop, data);
-        
-        logEvent("notifications_check_fallback", { shop, alertsGenerated }, "info");
-        
-        res.json({ 
-          success: true, 
-          alertsGenerated,
-          lastCheck: data.lastCheck 
-        });
-      }
+        // Rupture de stock
+        if (totalGrams <= 0) {
+          notificationStore.addAlert(shop, {
+            type: "out_of_stock",
+            priority: "high",
+            title: "Rupture de stock",
+            message: productName + " est en rupture de stock",
+            productId,
+            productName
+          });
+          alertsGenerated++;
+        }
+        // Stock critique
+        else if (totalGrams < criticalThreshold * 1000) { // Convertir en grammes
+          notificationStore.addAlert(shop, {
+            type: "critical_stock",
+            priority: "high",
+            title: "Stock critique",
+            message: productName + " a un stock critique",
+            productId,
+            productName
+          });
+          alertsGenerated++;
+        }
+        // Stock bas
+        else if (totalGrams < lowThreshold * 1000) { // Convertir en grammes
+          notificationStore.addAlert(shop, {
+            type: "low_stock",
+            priority: "medium",
+            title: "Stock bas",
+            message: productName + " a un stock bas",
+            productId,
+            productName
+          });
+          alertsGenerated++;
+        }
+      });
+      
+      // Mettre à jour la date de dernière vérification
+      const data = notificationStore.loadNotifications(shop);
+      data.lastCheck = new Date().toISOString();
+      notificationStore.saveNotifications(shop, data);
+      
+      logEvent("notifications_check", { shop, alertsGenerated }, "info");
+      
+      res.json({ 
+        success: true, 
+        alertsGenerated,
+        lastCheck: data.lastCheck 
+      });
     } catch (e) {
       logEvent("notifications_check_error", { shop, error: e.message }, "error");
       return apiError(res, 500, "Erreur: " + e.message);
@@ -3919,312 +4162,6 @@ router.put("/api/notifications/settings", (req, res) => {
     notificationStore.saveNotifications(shop, data);
     
     res.json({ success: true, settings: data.settings });
-  });
-});
-
-// ============================================
-// NOTIFICATION CHANNELS (External: Discord, Slack, Telegram, Ntfy)
-// ============================================
-
-// Liste des canaux disponibles
-router.get("/api/notifications/channels", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-
-    // Vérifier le plan PRO
-    if (planManager) {
-      const check = planManager.checkLimit(shop, "external_notifications");
-      if (!check.allowed) {
-        return res.status(403).json({
-          error: "plan_limit",
-          message: check.reason || "Cette fonctionnalité nécessite le plan Pro",
-          upgrade: check.upgrade,
-          feature: "external_notifications",
-          channels: [],
-          available: false
-        });
-      }
-    }
-
-    if (!notificationDispatcher) {
-      return res.json({ 
-        channels: [],
-        configured: {},
-        available: false,
-        message: "Notification dispatcher not available"
-      });
-    }
-
-    // Récupérer les canaux disponibles
-    const availableChannels = notificationDispatcher.getAvailableChannels();
-
-    // Récupérer la config actuelle depuis settingsStore
-    const settings = settingsStore.loadSettings ? settingsStore.loadSettings(shop) : {};
-    const configured = settings.notificationChannels || {};
-
-    // Enrichir avec le statut de configuration
-    const channels = availableChannels.map(ch => ({
-      ...ch,
-      enabled: configured[ch.id]?.enabled || false,
-      configured: isChannelConfigured(ch.id, configured[ch.id])
-    }));
-
-    res.json({ 
-      channels, 
-      configured,
-      available: true 
-    });
-  });
-});
-
-// Helper pour vérifier si un canal est configuré
-function isChannelConfigured(channelId, config) {
-  if (!config) return false;
-  switch (channelId) {
-    case "discord":
-    case "slack":
-      return Boolean(config.webhookUrl);
-    case "telegram":
-      return Boolean(config.botToken && config.chatId);
-    case "ntfy":
-      return Boolean(config.topic);
-    default:
-      return false;
-  }
-}
-
-// Récupérer la config d'un canal spécifique
-router.get("/api/notifications/channels/:channelId", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-
-    const channelId = req.params.channelId;
-    const settings = settingsStore.loadSettings ? settingsStore.loadSettings(shop) : {};
-    const channels = settings.notificationChannels || {};
-    const channelConfig = channels[channelId] || {};
-
-    // Masquer les tokens/secrets partiellement pour la sécurité
-    const safeConfig = { ...channelConfig };
-    if (safeConfig.webhookUrl) {
-      safeConfig.webhookUrlPreview = maskSecret(safeConfig.webhookUrl);
-    }
-    if (safeConfig.botToken) {
-      safeConfig.botTokenPreview = maskSecret(safeConfig.botToken);
-    }
-
-    res.json({ 
-      channelId, 
-      config: safeConfig,
-      configured: isChannelConfigured(channelId, channelConfig)
-    });
-  });
-});
-
-// Helper pour masquer les secrets
-function maskSecret(secret) {
-  if (!secret || secret.length < 10) return "****";
-  return secret.substring(0, 8) + "..." + secret.substring(secret.length - 4);
-}
-
-// Configurer un canal
-router.put("/api/notifications/channels/:channelId", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-
-    // Vérifier le plan PRO
-    if (planManager) {
-      const check = planManager.checkLimit(shop, "external_notifications");
-      if (!check.allowed) {
-        return res.status(403).json({
-          error: "plan_limit",
-          message: check.reason || "Cette fonctionnalité nécessite le plan Pro",
-          upgrade: check.upgrade,
-          feature: "external_notifications"
-        });
-      }
-    }
-
-    if (!notificationDispatcher) {
-      return apiError(res, 500, "Notification dispatcher not available");
-    }
-
-    const channelId = req.params.channelId;
-    const config = req.body || {};
-
-    // Valider la configuration
-    const validation = notificationDispatcher.validateChannelConfig(channelId, config);
-    if (!validation.valid) {
-      return apiError(res, 400, validation.error);
-    }
-
-    // Charger les settings actuels
-    const settings = settingsStore.loadSettings ? settingsStore.loadSettings(shop) : {};
-    if (!settings.notificationChannels) {
-      settings.notificationChannels = {};
-    }
-
-    // Mettre à jour la config du canal
-    settings.notificationChannels[channelId] = {
-      ...settings.notificationChannels[channelId],
-      ...config,
-      updatedAt: new Date().toISOString()
-    };
-
-    // Sauvegarder
-    if (settingsStore.saveSettings) {
-      settingsStore.saveSettings(shop, settings);
-    }
-
-    logEvent("notification_channel_configured", { shop, channelId, enabled: config.enabled }, "info");
-
-    res.json({ 
-      success: true, 
-      channelId,
-      configured: isChannelConfigured(channelId, settings.notificationChannels[channelId]),
-      enabled: settings.notificationChannels[channelId]?.enabled || false
-    });
-  });
-});
-
-// Supprimer la config d'un canal
-router.delete("/api/notifications/channels/:channelId", (req, res) => {
-  safeJson(req, res, () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-
-    const channelId = req.params.channelId;
-
-    // Charger les settings actuels
-    const settings = settingsStore.loadSettings ? settingsStore.loadSettings(shop) : {};
-    if (settings.notificationChannels && settings.notificationChannels[channelId]) {
-      delete settings.notificationChannels[channelId];
-      
-      if (settingsStore.saveSettings) {
-        settingsStore.saveSettings(shop, settings);
-      }
-    }
-
-    logEvent("notification_channel_removed", { shop, channelId }, "info");
-
-    res.json({ success: true, channelId });
-  });
-});
-
-// Tester un canal
-router.post("/api/notifications/channels/:channelId/test", (req, res) => {
-  safeJson(req, res, async () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-
-    // Vérifier le plan PRO
-    if (planManager) {
-      const check = planManager.checkLimit(shop, "external_notifications");
-      if (!check.allowed) {
-        return res.status(403).json({
-          error: "plan_limit",
-          message: check.reason || "Cette fonctionnalité nécessite le plan Pro",
-          upgrade: check.upgrade,
-          feature: "external_notifications"
-        });
-      }
-    }
-
-    if (!notificationDispatcher) {
-      return apiError(res, 500, "Notification dispatcher not available");
-    }
-
-    const channelId = req.params.channelId;
-    
-    // Utiliser la config fournie dans le body OU la config sauvegardée
-    let config = req.body;
-    if (!config || Object.keys(config).length === 0) {
-      const settings = settingsStore.loadSettings ? settingsStore.loadSettings(shop) : {};
-      config = settings.notificationChannels?.[channelId] || {};
-    }
-
-    try {
-      const result = await notificationDispatcher.testChannel(shop, channelId, config);
-      
-      if (result.success) {
-        logEvent("notification_test_success", { shop, channelId }, "info");
-        res.json({ 
-          success: true, 
-          channel: channelId,
-          message: "Test notification sent successfully!" 
-        });
-      } else {
-        logEvent("notification_test_failed", { shop, channelId, error: result.error }, "warn");
-        res.json({ 
-          success: false, 
-          channel: channelId,
-          error: result.error 
-        });
-      }
-    } catch (e) {
-      logEvent("notification_test_error", { shop, channelId, error: e.message }, "error");
-      return apiError(res, 500, "Test failed: " + e.message);
-    }
-  });
-});
-
-// Envoyer une notification manuelle (pour debug/test)
-router.post("/api/notifications/dispatch", (req, res) => {
-  safeJson(req, res, async () => {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-
-    // Vérifier le plan PRO
-    if (planManager) {
-      const check = planManager.checkLimit(shop, "external_notifications");
-      if (!check.allowed) {
-        return res.status(403).json({
-          error: "plan_limit",
-          message: check.reason || "Cette fonctionnalité nécessite le plan Pro",
-          upgrade: check.upgrade,
-          feature: "external_notifications"
-        });
-      }
-    }
-
-    if (!notificationDispatcher) {
-      return apiError(res, 500, "Notification dispatcher not available");
-    }
-
-    const { title, message, priority, productName } = req.body;
-    if (!title || !message) {
-      return apiError(res, 400, "title and message are required");
-    }
-
-    const alert = {
-      type: "manual",
-      priority: priority || "normal",
-      title,
-      message,
-      productName: productName || "N/A",
-      data: {}
-    };
-
-    try {
-      const result = await notificationDispatcher.dispatch(shop, alert);
-      
-      logEvent("notification_manual_dispatch", { 
-        shop, 
-        dispatched: result.dispatched,
-        errors: result.errors.length 
-      }, "info");
-
-      res.json({ 
-        success: result.success,
-        dispatched: result.dispatched,
-        errors: result.errors
-      });
-    } catch (e) {
-      logEvent("notification_dispatch_error", { shop, error: e.message }, "error");
-      return apiError(res, 500, "Dispatch failed: " + e.message);
-    }
   });
 });
 
@@ -6058,16 +5995,6 @@ app.post("/webhooks/orders/create", express.raw({ type: "application/json" }), a
       }
     } catch (e) {
       logEvent("analytics_record_error", { shop, orderId: payload?.id, error: e.message }, "error");
-    }
-
-    // --- Vérifier les alertes après la commande (envoie notifications externes si configurées)
-    try {
-      if (alertChecker && typeof alertChecker.checkAllAlerts === "function") {
-        await alertChecker.checkAllAlerts(shop);
-        logEvent("alerts_checked_after_order", { shop, orderId: payload?.id }, "info");
-      }
-    } catch (e) {
-      logEvent("alerts_check_error", { shop, orderId: payload?.id, error: e.message }, "error");
     }
 
     return res.sendStatus(200);

@@ -208,7 +208,7 @@ const SETTING_OPTIONS = {
   ],
   
   syncModes: [
-    { value: "realtime", label: "Temps reel", description: "Sync ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â  chaque changement" },
+    { value: "realtime", label: "Temps reel", description: "Sync à chaque changement" },
     { value: "hourly", label: "Toutes les heures" },
     { value: "daily", label: "Une fois par jour" },
     { value: "manual", label: "Manuel uniquement" },
@@ -284,7 +284,7 @@ function loadSettings(shop) {
   // Merger avec les defaults pour avoir toutes les cles
   const settings = deepMerge(deepClone(DEFAULT_SETTINGS), saved);
   
-  // Mettre ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â  jour les metadonnees
+  // Mettre à jour les metadonnees
   if (!settings._meta.createdAt) {
     settings._meta.createdAt = new Date().toISOString();
   }
@@ -298,7 +298,7 @@ function loadSettings(shop) {
 function saveSettings(shop, settings) {
   const file = settingsFile(shop);
   
-  // Mettre ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â  jour les metadonnees
+  // Mettre à jour les metadonnees
   settings._meta = settings._meta || {};
   settings._meta.updatedAt = new Date().toISOString();
   settings._meta.version = DEFAULT_SETTINGS._meta.version;
@@ -311,7 +311,7 @@ function saveSettings(shop, settings) {
 }
 
 /**
- * Met ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â  jour une section de parametres
+ * Met à jour une section de parametres
  */
 function updateSettings(shop, section, values) {
   const settings = loadSettings(shop);
@@ -325,7 +325,7 @@ function updateSettings(shop, section, values) {
 }
 
 /**
- * Met ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â  jour un parametre unique
+ * Met à jour un parametre unique
  */
 function setSetting(shop, path, value) {
   const settings = loadSettings(shop);
@@ -628,7 +628,7 @@ function generateSupportBundle(shop, options = {}) {
       memory: process.memoryUsage(),
     },
     
-    // Etat des webhooks (ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â  implementer avec les vrais statuts)
+    // Etat des webhooks (à implementer avec les vrais statuts)
     webhooks: {
       ordersCreate: { status: "unknown", lastReceived: null },
       ordersUpdate: { status: "unknown", lastReceived: null },

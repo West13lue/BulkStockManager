@@ -58,7 +58,7 @@ function normalizeVariants(variants) {
     safe[String(label)] = { 
       gramsPerUnit, 
       inventoryItemId,
-      variantId: v?.variantId ? String(v.variantId) : null, // NOUVEAU: prÃ©server variantId
+      variantId: v?.variantId ? String(v.variantId) : null, // NOUVEAU: préserver variantId
     };
   }
   return safe;
@@ -224,6 +224,14 @@ function restoreStateForShop(shop) {
     }
     logEvent("stock_state_restore", { shop, mode: "legacy", applied });
   }
+}
+
+// Force reload shop state from disk (used after rollback/reset)
+function reloadShop(shop = "default") {
+  const key = String(shop || "default");
+  PRODUCT_CONFIG_BY_SHOP.delete(key);
+  getStore(key); // re-init from disk
+  logEvent("stock_state_reload", { shop: key });
 }
 
 function enqueue(fn) {
@@ -572,6 +580,7 @@ module.exports = {
   setProductCategories,
   getCatalogSnapshot,
   removeProduct,
+  reloadShop,
   
   // Fonctions CMP
   calculateTotalStockValue,

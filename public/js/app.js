@@ -2,11 +2,11 @@
 (function () {
   "use strict";
 
-  // Queue pour stocker les appels avant que les fonctions soient prÃƒÂªtes
+  // Queue pour stocker les appels avant que les fonctions soient prêtes
   var pendingCalls = [];
   var appReady = false;
   
-  // CrÃƒÂ©er un proxy qui queue les appels si l'app n'est pas prÃƒÂªte
+  // Créer un proxy qui queue les appels si l'app n'est pas prête
   function createProxy(fnName) {
     return function() {
       var args = Array.prototype.slice.call(arguments);
@@ -18,7 +18,7 @@
     };
   }
   
-  // Liste des fonctions qui seront exposÃƒÂ©es
+  // Liste des fonctions qui seront exposées
   var fnNames = [
     'init', 'navigateTo', 'toggleSidebar', 'toggleNotifications', 'toggleUserMenu',
     'showModal', 'closeModal', 'showAddProductModal', 'showImportModal', 'doImport',
@@ -71,13 +71,13 @@
     'selectSearchResultByIndex', 'toggleSection'
   ];
   
-  // CrÃƒÂ©er window.app avec des proxies pour toutes les fonctions
+  // Créer window.app avec des proxies pour toutes les fonctions
   window.app = {};
   fnNames.forEach(function(name) {
     window.app[name] = createProxy(name);
   });
   
-  // Fonction pour marquer l'app comme prÃƒÂªte et exÃƒÂ©cuter les appels en attente
+  // Fonction pour marquer l'app comme prête et exécuter les appels en attente
   function markAppReady() {
     appReady = true;
     pendingCalls.forEach(function(call) {
@@ -129,7 +129,7 @@
     console.log("[Shop]", CURRENT_SHOP);
   }
 
-  // ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ IMPORTANT: API calls should NOT include ?shop=... in an embedded app.
+  // ✅ IMPORTANT: API calls should NOT include ?shop=... in an embedded app.
   // The server should resolve shop from the Session Token (JWT) for security + Shopify review.
   function apiUrl(endpoint) {
     return API_BASE + endpoint;
@@ -148,12 +148,12 @@
   async function initAppBridge() {
     var host = getHostFromUrl();
     
-    // App Bridge v4 - shopify global est auto-initialisÃƒÂ© par le CDN
+    // App Bridge v4 - shopify global est auto-initialisé par le CDN
     if (typeof shopify !== "undefined") {
       appBridgeApp = shopify;
       console.log("[AppBridge v4] OK - shopify global disponible");
       
-      // Attendre que App Bridge soit prÃƒÂªt
+      // Attendre que App Bridge soit prêt
       try {
         if (typeof shopify.ready === "function") {
           await shopify.ready();
@@ -166,10 +166,10 @@
       return true;
     }
     
-    // Si shopify global n'existe pas, on est peut-ÃƒÂªtre en dehors de l'admin Shopify
+    // Si shopify global n'existe pas, on est peut-être en dehors de l'admin Shopify
     console.warn("[AppBridge] shopify global non disponible - app non embedded?");
     
-    // Fallback : essayer App Bridge v3 si chargÃƒÂ©
+    // Fallback : essayer App Bridge v3 si chargé
     if (!host) {
       console.warn("[AppBridge] host manquant");
       return false;
@@ -193,7 +193,7 @@
   }
 
   async function getSessionToken() {
-    // Ne pas cacher le token trop longtemps - App Bridge v4 gÃƒÂ¨re le refresh
+    // Ne pas cacher le token trop longtemps - App Bridge v4 gère le refresh
     
     // App Bridge v4 - utilise shopify.idToken()
     if (typeof shopify !== "undefined" && typeof shopify.idToken === "function") {
@@ -227,7 +227,7 @@
     sessionToken = null;
   }
 
-  // ÃƒÆ’Ã‚Â¢Ãƒâ€¦Ã¢â‚¬Å“ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ authFetch correctly closed + sends Session Token
+  // ✅ authFetch correctly closed + sends Session Token
   async function authFetch(url, options) {
     options = options || {};
     var token = await getSessionToken();
@@ -250,7 +250,7 @@
       res = await doFetch();
     }
 
-    // ÃƒÆ’Ã‚Â°Ãƒâ€¦Ã‚Â¸ÃƒÂ¢Ã¢â€šÂ¬Ã‚ÂÃƒâ€šÃ‚Â OAuth AUTO if token missing/revoked
+    // OAuth AUTO if token missing/revoked
     if (res.status === 401) {
       var data = null;
       try {
@@ -326,7 +326,7 @@
     try {
       var token = await getSessionToken();
       if (!token) {
-        console.warn("[OAuth] Aucun session token ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ redirection");
+        console.warn("[OAuth] Aucun session token → redirection");
         var shop = CURRENT_SHOP;
         if (!shop) throw new Error("Shop manquant");
         var url = "/api/auth/start?shop=" + encodeURIComponent(shop);
@@ -336,7 +336,7 @@
       }
       return true;
     } catch (e) {
-      console.warn("[OAuth] Erreur session ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ redirection", e);
+      console.warn("[OAuth] Erreur session → redirection", e);
       var shop2 = CURRENT_SHOP;
       if (shop2) {
         var url2 = "/api/auth/start?shop=" + encodeURIComponent(shop2);
@@ -403,7 +403,7 @@
     document.addEventListener('keydown', function(e) {
       // Ignorer si on tape dans un input
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') {
-        // Escape ferme les modals mÃƒÂªme dans un input
+        // Escape ferme les modals même dans un input
         if (e.key === 'Escape') {
           closeModal();
         }
@@ -423,7 +423,7 @@
         showAddProductModal();
       }
       
-      // R = RÃƒÂ©appro rapide
+      // R = Réappro rapide
       if (e.key === 'r' && !e.ctrlKey && !e.metaKey) {
         e.preventDefault();
         showQuickRestockModal();
@@ -597,7 +597,7 @@
     });
     
     html += '<div class="search-shortcut-hint">' +
-      '<span><kbd>Ã¢â€ â€˜Ã¢â€ â€œ</kbd> ' + t("search.navigate", "Naviguer") + '</span>' +
+      '<span><kbd>↑↓</kbd> ' + t("search.navigate", "Naviguer") + '</span>' +
       '<span><kbd>Enter</kbd> ' + t("search.select", "Selectionner") + '</span>' +
       '<span><kbd>Esc</kbd> ' + t("search.close", "Fermer") + '</span>' +
       '</div>';
@@ -631,7 +631,7 @@
     globalSearchResults.forEach(function(g) { allItems = allItems.concat(g.items); });
     if (allItems.length === 0) return;
     
-    // Retirer la sÃƒÂ©lection actuelle
+    // Retirer la sélection actuelle
     var items = document.querySelectorAll(".search-result-item");
     items.forEach(function(el) { el.classList.remove("selected"); });
     
@@ -640,7 +640,7 @@
     if (selectedSearchIndex < 0) selectedSearchIndex = allItems.length - 1;
     if (selectedSearchIndex >= allItems.length) selectedSearchIndex = 0;
     
-    // Appliquer la nouvelle sÃƒÂ©lection
+    // Appliquer la nouvelle sélection
     var selected = document.querySelector('.search-result-item[data-index="' + selectedSearchIndex + '"]');
     if (selected) {
       selected.classList.add("selected");
@@ -679,11 +679,11 @@
       content: '<div class="shortcuts-list">' +
         '<div class="shortcut-item"><kbd>/</kbd> ou <kbd>Ctrl+K</kbd><span>' + t("shortcuts.search", "Rechercher") + '</span></div>' +
         '<div class="shortcut-item"><kbd>N</kbd><span>' + t("shortcuts.newProduct", "Nouveau produit") + '</span></div>' +
-        '<div class="shortcut-item"><kbd>R</kbd><span>' + t("shortcuts.quickRestock", "RÃƒÂ©appro rapide") + '</span></div>' +
+        '<div class="shortcut-item"><kbd>R</kbd><span>' + t("shortcuts.quickRestock", "Réappro rapide") + '</span></div>' +
         '<div class="shortcut-item"><kbd>S</kbd><span>' + t("shortcuts.scanner", "Scanner code-barres") + '</span></div>' +
         '<div class="shortcut-item"><kbd>D</kbd><span>' + t("shortcuts.dashboard", "Dashboard") + '</span></div>' +
         '<div class="shortcut-item"><kbd>P</kbd><span>' + t("shortcuts.products", "Produits") + '</span></div>' +
-        '<div class="shortcut-item"><kbd>Esc</kbd><span>' + t("shortcuts.closeModal", "Fermer fenÃƒÂªtre") + '</span></div>' +
+        '<div class="shortcut-item"><kbd>Esc</kbd><span>' + t("shortcuts.closeModal", "Fermer fenêtre") + '</span></div>' +
         '<div class="shortcut-item"><kbd>?</kbd><span>' + t("shortcuts.help", "Afficher cette aide") + '</span></div>' +
         '</div>',
       footer: '<button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.close", "Fermer") + '</button>'
@@ -908,12 +908,12 @@
     // Refresh Lucide icons after rendering
     if (typeof lucide !== "undefined") lucide.createIcons();
     
-    // Afficher tutoriel si premiÃƒÂ¨re visite de cet onglet
+    // Afficher tutoriel si première visite de cet onglet
     setTimeout(function() { showTabTutorialIfNeeded(tab); }, 500);
   }
 
   // ============================================
-  // SYSTÃƒË†ME DE TUTORIEL CONTEXTUEL
+  // SYSTÈME DE TUTORIEL CONTEXTUEL
   // ============================================
   
   var tutorialsSeen = {};
@@ -939,20 +939,20 @@
   function resetAllTutorials() {
     tutorialsSeen = {};
     saveTutorialState();
-    showToast(t("tutorial.reset", "Tutoriels rÃƒÂ©initialisÃƒÂ©s"), "success");
+    showToast(t("tutorial.reset", "Tutoriels réinitialisés"), "success");
   }
 
-  // DÃƒÂ©finition des tutoriels par onglet (fonction pour ÃƒÂ©viter appel t() au chargement)
+  // Définition des tutoriels par onglet (fonction pour éviter appel t() au chargement)
   function getTabTutorial(tab) {
     var tutorials = {
       dashboard: {
         title: t("tutorial.dashboard.title", "Bienvenue sur le Dashboard !"),
         icon: "layout-dashboard",
         steps: [
-          { icon: "boxes", text: t("tutorial.dashboard.step1", "Visualisez vos statistiques clÃƒÂ©s : nombre de produits, stock total et valeur.") },
+          { icon: "boxes", text: t("tutorial.dashboard.step1", "Visualisez vos statistiques clés : nombre de produits, stock total et valeur.") },
           { icon: "alert-triangle", text: t("tutorial.dashboard.step2", "Les alertes vous signalent les produits en stock bas ou en rupture.") },
-          { icon: "zap", text: t("tutorial.dashboard.step3", "Utilisez les actions rapides pour rÃƒÂ©appro, scanner ou ajuster le stock.") },
-          { icon: "activity", text: t("tutorial.dashboard.step4", "Les mouvements rÃƒÂ©cents montrent l'activitÃƒÂ© de votre stock.") }
+          { icon: "zap", text: t("tutorial.dashboard.step3", "Utilisez les actions rapides pour réappro, scanner ou ajuster le stock.") },
+          { icon: "activity", text: t("tutorial.dashboard.step4", "Les mouvements récents montrent l'activité de votre stock.") }
         ],
         tip: t("tutorial.dashboard.tip", "Astuce : Appuyez sur ? pour voir tous les raccourcis clavier !")
       },
@@ -961,58 +961,58 @@
         icon: "boxes",
         steps: [
           { icon: "search", text: t("tutorial.products.step1", "Recherchez vos produits par nom, SKU ou code-barres.") },
-          { icon: "filter", text: t("tutorial.products.step2", "Filtrez par catÃƒÂ©gorie et triez selon vos besoins.") },
+          { icon: "filter", text: t("tutorial.products.step2", "Filtrez par catégorie et triez selon vos besoins.") },
           { icon: "scan-barcode", text: t("tutorial.products.step3", "Utilisez le scanner pour trouver un produit rapidement.") },
-          { icon: "mouse-pointer-click", text: t("tutorial.products.step4", "Cliquez sur un produit pour voir ses dÃƒÂ©tails et ajuster le stock.") }
+          { icon: "mouse-pointer-click", text: t("tutorial.products.step4", "Cliquez sur un produit pour voir ses détails et ajuster le stock.") }
         ],
-        tip: t("tutorial.products.tip", "Astuce : Raccourci N pour ajouter un produit, R pour rÃƒÂ©appro rapide !")
+        tip: t("tutorial.products.tip", "Astuce : Raccourci N pour ajouter un produit, R pour réappro rapide !")
       },
       batches: {
         title: t("tutorial.batches.title", "Lots et DLC"),
         icon: "tags",
         steps: [
-          { icon: "calendar", text: t("tutorial.batches.step1", "GÃƒÂ©rez les dates de pÃƒÂ©remption de vos produits.") },
-          { icon: "alert-circle", text: t("tutorial.batches.step2", "Recevez des alertes pour les lots qui arrivent ÃƒÂ  expiration.") },
-          { icon: "package", text: t("tutorial.batches.step3", "Suivez la traÃƒÂ§abilitÃƒÂ© de chaque lot entrant.") }
+          { icon: "calendar", text: t("tutorial.batches.step1", "Gérez les dates de péremption de vos produits.") },
+          { icon: "alert-circle", text: t("tutorial.batches.step2", "Recevez des alertes pour les lots qui arrivent à expiration.") },
+          { icon: "package", text: t("tutorial.batches.step3", "Suivez la traçabilité de chaque lot entrant.") }
         ],
-        tip: t("tutorial.batches.tip", "Astuce : Les lots expirÃƒÂ©s sont automatiquement signalÃƒÂ©s en rouge.")
+        tip: t("tutorial.batches.tip", "Astuce : Les lots expirés sont automatiquement signalés en rouge.")
       },
       suppliers: {
         title: t("tutorial.suppliers.title", "Gestion Fournisseurs"),
         icon: "factory",
         steps: [
           { icon: "users", text: t("tutorial.suppliers.step1", "Centralisez les informations de vos fournisseurs.") },
-          { icon: "phone", text: t("tutorial.suppliers.step2", "Gardez leurs contacts et conditions ÃƒÂ  portÃƒÂ©e de main.") },
-          { icon: "link", text: t("tutorial.suppliers.step3", "Associez les produits ÃƒÂ  leurs fournisseurs pour un suivi optimal.") }
+          { icon: "phone", text: t("tutorial.suppliers.step2", "Gardez leurs contacts et conditions à portée de main.") },
+          { icon: "link", text: t("tutorial.suppliers.step3", "Associez les produits à leurs fournisseurs pour un suivi optimal.") }
         ],
-        tip: t("tutorial.suppliers.tip", "Astuce : Ajoutez les dÃƒÂ©lais de livraison pour anticiper vos commandes.")
+        tip: t("tutorial.suppliers.tip", "Astuce : Ajoutez les délais de livraison pour anticiper vos commandes.")
       },
       orders: {
         title: t("tutorial.orders.title", "Commandes"),
         icon: "clipboard-list",
         steps: [
-          { icon: "shopping-cart", text: t("tutorial.orders.step1", "CrÃƒÂ©ez des bons de commande vers vos fournisseurs.") },
-          { icon: "truck", text: t("tutorial.orders.step2", "Suivez l'ÃƒÂ©tat de vos commandes en cours.") },
-          { icon: "check-circle", text: t("tutorial.orders.step3", "RÃƒÂ©ceptionnez les commandes pour mettre ÃƒÂ  jour le stock automatiquement.") }
+          { icon: "shopping-cart", text: t("tutorial.orders.step1", "Créez des bons de commande vers vos fournisseurs.") },
+          { icon: "truck", text: t("tutorial.orders.step2", "Suivez l'état de vos commandes en cours.") },
+          { icon: "check-circle", text: t("tutorial.orders.step3", "Réceptionnez les commandes pour mettre à jour le stock automatiquement.") }
         ],
         tip: t("tutorial.orders.tip", "Astuce : Importez vos commandes Shopify pour un suivi complet.")
       },
       forecast: {
-        title: t("tutorial.forecast.title", "PrÃƒÂ©visions"),
+        title: t("tutorial.forecast.title", "Prévisions"),
         icon: "trending-up",
         steps: [
           { icon: "bar-chart", text: t("tutorial.forecast.step1", "Analysez les tendances de ventes de vos produits.") },
-          { icon: "calendar", text: t("tutorial.forecast.step2", "Anticipez les ruptures grÃƒÂ¢ce aux prÃƒÂ©visions.") },
-          { icon: "shopping-bag", text: t("tutorial.forecast.step3", "Recevez des suggestions de rÃƒÂ©approvisionnement.") }
+          { icon: "calendar", text: t("tutorial.forecast.step2", "Anticipez les ruptures grâce aux prévisions.") },
+          { icon: "shopping-bag", text: t("tutorial.forecast.step3", "Recevez des suggestions de réapprovisionnement.") }
         ],
-        tip: t("tutorial.forecast.tip", "Astuce : Plus vous avez d'historique, plus les prÃƒÂ©visions sont prÃƒÂ©cises.")
+        tip: t("tutorial.forecast.tip", "Astuce : Plus vous avez d'historique, plus les prévisions sont précises.")
       },
       kits: {
         title: t("tutorial.kits.title", "Kits et Bundles"),
         icon: "puzzle",
         steps: [
-          { icon: "package", text: t("tutorial.kits.step1", "CrÃƒÂ©ez des kits composÃƒÂ©s de plusieurs produits.") },
-          { icon: "layers", text: t("tutorial.kits.step2", "Le stock des composants est automatiquement dÃƒÂ©duit.") },
+          { icon: "package", text: t("tutorial.kits.step1", "Créez des kits composés de plusieurs produits.") },
+          { icon: "layers", text: t("tutorial.kits.step2", "Le stock des composants est automatiquement déduit.") },
           { icon: "calculator", text: t("tutorial.kits.step3", "Simulez l'assemblage avant de valider.") }
         ],
         tip: t("tutorial.kits.tip", "Astuce : Utilisez les kits pour vos coffrets cadeaux ou packs promo.")
@@ -1021,8 +1021,8 @@
         title: t("tutorial.analytics.title", "Analytics"),
         icon: "bar-chart-3",
         steps: [
-          { icon: "pie-chart", text: t("tutorial.analytics.step1", "Visualisez la rÃƒÂ©partition de votre stock par catÃƒÂ©gorie.") },
-          { icon: "trending-up", text: t("tutorial.analytics.step2", "Suivez l'ÃƒÂ©volution de la valeur de votre inventaire.") },
+          { icon: "pie-chart", text: t("tutorial.analytics.step1", "Visualisez la répartition de votre stock par catégorie.") },
+          { icon: "trending-up", text: t("tutorial.analytics.step2", "Suivez l'évolution de la valeur de votre inventaire.") },
           { icon: "activity", text: t("tutorial.analytics.step3", "Analysez les mouvements pour optimiser votre gestion.") }
         ],
         tip: t("tutorial.analytics.tip", "Astuce : Exportez vos rapports en PDF ou Excel.")
@@ -1031,21 +1031,21 @@
         title: t("tutorial.inventory.title", "Inventaire"),
         icon: "clipboard-check",
         steps: [
-          { icon: "list-checks", text: t("tutorial.inventory.step1", "CrÃƒÂ©ez des sessions d'inventaire complet ou partiel.") },
+          { icon: "list-checks", text: t("tutorial.inventory.step1", "Créez des sessions d'inventaire complet ou partiel.") },
           { icon: "scan-barcode", text: t("tutorial.inventory.step2", "Utilisez le scanner pour compter plus rapidement.") },
-          { icon: "git-compare", text: t("tutorial.inventory.step3", "Comparez le stock thÃƒÂ©orique vs rÃƒÂ©el et validez les ÃƒÂ©carts.") }
+          { icon: "git-compare", text: t("tutorial.inventory.step3", "Comparez le stock théorique vs réel et validez les écarts.") }
         ],
-        tip: t("tutorial.inventory.tip", "Astuce : Planifiez des inventaires rÃƒÂ©guliers pour une meilleure prÃƒÂ©cision.")
+        tip: t("tutorial.inventory.tip", "Astuce : Planifiez des inventaires réguliers pour une meilleure précision.")
       },
       settings: {
-        title: t("tutorial.settings.title", "ParamÃƒÂ¨tres"),
+        title: t("tutorial.settings.title", "Paramètres"),
         icon: "settings",
         steps: [
-          { icon: "globe", text: t("tutorial.settings.step1", "Configurez la langue et les unitÃƒÂ©s de mesure.") },
+          { icon: "globe", text: t("tutorial.settings.step1", "Configurez la langue et les unités de mesure.") },
           { icon: "bell", text: t("tutorial.settings.step2", "Personnalisez vos seuils d'alerte de stock.") },
-          { icon: "palette", text: t("tutorial.settings.step3", "Adaptez l'interface ÃƒÂ  vos prÃƒÂ©fÃƒÂ©rences.") }
+          { icon: "palette", text: t("tutorial.settings.step3", "Adaptez l'interface à vos préférences.") }
         ],
-        tip: t("tutorial.settings.tip", "Astuce : Sauvegardez vos paramÃƒÂ¨tres pour les restaurer facilement.")
+        tip: t("tutorial.settings.tip", "Astuce : Sauvegardez vos paramètres pour les restaurer facilement.")
       }
     };
     return tutorials[tab] || null;
@@ -1058,10 +1058,10 @@
   function showTabTutorialIfNeeded(tab) {
     loadTutorialState();
     
-    // Ne pas afficher si dÃƒÂ©jÃƒÂ  vu
+    // Ne pas afficher si déjà vu
     if (tutorialsSeen[tab]) return;
     
-    // Ne pas afficher si pas de tutoriel dÃƒÂ©fini
+    // Ne pas afficher si pas de tutoriel défini
     var tutorial = getTabTutorial(tab);
     if (!tutorial) return;
     
@@ -1143,7 +1143,7 @@
       title: '<i data-lucide="book-open"></i> ' + t("tutorial.allTutorials", "Tous les tutoriels"),
       size: "md",
       content: '<div class="tutorial-list">' + listHtml + '</div>',
-      footer: '<button class="btn btn-ghost" onclick="app.resetAllTutorials();app.closeModal()">' + t("tutorial.resetAll", "RÃƒÂ©initialiser tout") + '</button>' +
+      footer: '<button class="btn btn-ghost" onclick="app.resetAllTutorials();app.closeModal()">' + t("tutorial.resetAll", "Réinitialiser tout") + '</button>' +
         '<button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.close", "Fermer") + '</button>'
     });
     
@@ -1230,7 +1230,7 @@
       '<div class="quick-actions-bar">' +
       '<div class="quick-actions-title"><i data-lucide="zap"></i> ' + t("dashboard.quickActions", "Actions rapides") + '</div>' +
       '<div class="quick-actions-buttons">' +
-      '<button class="btn btn-ghost btn-sm" onclick="app.showQuickRestockModal()"><i data-lucide="package-plus"></i> ' + t("dashboard.quickRestock", "RÃƒÂ©appro rapide") + '</button>' +
+      '<button class="btn btn-ghost btn-sm" onclick="app.showQuickRestockModal()"><i data-lucide="package-plus"></i> ' + t("dashboard.quickRestock", "Réappro rapide") + '</button>' +
       '<button class="btn btn-ghost btn-sm" onclick="app.showScannerModal()"><i data-lucide="scan-barcode"></i> ' + t("dashboard.scanBarcode", "Scanner") + '</button>' +
       '<button class="btn btn-ghost btn-sm" onclick="app.showQuickAdjustModal()"><i data-lucide="sliders"></i> ' + t("dashboard.quickAdjust", "Ajustement") + '</button>' +
       (hasFeature("hasInventoryCount") ? '<button class="btn btn-ghost btn-sm" onclick="app.navigateTo(\'inventory\')"><i data-lucide="clipboard-check"></i> ' + t("dashboard.inventory", "Inventaire") + '</button>' : '') +
@@ -1247,7 +1247,7 @@
         (lowStockProducts.length > 0 ? '<div class="alert-item alert-warning" onclick="app.showLowStockModal()"><span class="alert-icon"><i data-lucide="alert-triangle"></i></span><span class="alert-text">' + lowStockProducts.length + ' ' + t("dashboard.lowStockAlert", "produit(s) stock bas") + '</span><span class="alert-action"><i data-lucide="chevron-right"></i></span></div>' : '') +
         '</div></div>' : '') +
       
-      // ActivitÃƒÂ© rÃƒÂ©cente (nouveau!)
+      // Activité récente (nouveau!)
       '<div class="card card-activity">' +
       '<div class="card-header"><h3 class="card-title"><i data-lucide="history"></i> ' + t("dashboard.activityLog", "Activite recente") + '</h3>' +
       '<button class="btn btn-ghost btn-sm" onclick="app.showFullActivityLog()">' + t("dashboard.viewAll", "Voir tout") + '</button></div>' +
@@ -1260,7 +1260,7 @@
       (state.products.length ? renderTable(state.products.slice(0, 5)) : renderEmpty()) +
       "</div></div>" +
       
-      // Mouvements rÃ©cents
+      // Mouvements récents
       '<div class="card"><div class="card-header"><h3 class="card-title"><i data-lucide="activity"></i> ' + t("dashboard.recentMovements", "Recent movements") + '</h3>' +
       '<button class="btn btn-ghost btn-sm" onclick="app.exportMovementsCSV()" title="' + t("export.movements", "Export CSV") + '"><i data-lucide="download"></i></button></div>' +
       '<div class="card-body" id="dashboardMovements"><div class="text-center py-lg"><div class="spinner"></div></div></div></div>' +
@@ -1289,7 +1289,7 @@
         '<div class="low-stock-name">' + esc(p.title || p.name) + '</div>' +
         '<div class="low-stock-stock">' + formatWeight(p.totalGrams || 0) + ' ' + t("dashboard.remaining", "restant") + '</div>' +
         '</div>' +
-        '<button class="btn btn-primary btn-sm" onclick="app.showRestockModal(\'' + p.id + '\')">' + t("action.restock", "RÃƒÂ©appro") + '</button>' +
+        '<button class="btn btn-primary btn-sm" onclick="app.showRestockModal(\'' + p.id + '\')">' + t("action.restock", "Réappro") + '</button>' +
         '</div>';
     }).join('') + '</div>';
     
@@ -1319,7 +1319,7 @@
         '<div class="low-stock-name">' + esc(p.title || p.name) + '</div>' +
         '<div class="low-stock-stock text-danger">' + t("status.outOfStock", "Rupture de stock") + '</div>' +
         '</div>' +
-        '<button class="btn btn-primary btn-sm" onclick="app.showRestockModal(\'' + p.id + '\')">' + t("action.restock", "RÃƒÂ©appro") + '</button>' +
+        '<button class="btn btn-primary btn-sm" onclick="app.showRestockModal(\'' + p.id + '\')">' + t("action.restock", "Réappro") + '</button>' +
         '</div>';
     }).join('') + '</div>';
     
@@ -1332,7 +1332,7 @@
     if (typeof lucide !== "undefined") lucide.createIcons();
   }
 
-  // RÃƒÂ©appro rapide (sÃƒÂ©lection produit)
+  // Réappro rapide (sélection produit)
   function showQuickRestockModal() {
     var productOptions = state.products.map(function(p) {
       return '<option value="' + p.id + '" data-cmp="' + (p.averageCostPerGram || 0) + '">' + esc(p.title || p.name) + ' (' + formatWeight(p.totalGrams || 0) + ')</option>';
@@ -1342,20 +1342,20 @@
     var weightUnit = getWeightUnit();
     
     showModal({
-      title: '<i data-lucide="package-plus"></i> ' + t("dashboard.quickRestock", "RÃƒÂ©appro rapide"),
+      title: '<i data-lucide="package-plus"></i> ' + t("dashboard.quickRestock", "Réappro rapide"),
       size: "sm",
       content: '<div class="form-group"><label>' + t("products.product", "Produit") + '</label>' +
         '<select id="quickRestockProduct" class="form-select" onchange="app.updateQuickRestockCMP()">' +
-        '<option value="">' + t("action.selectProduct", "SÃƒÂ©lectionner...") + '</option>' + productOptions + '</select></div>' +
+        '<option value="">' + t("action.selectProduct", "Sélectionner...") + '</option>' + productOptions + '</select></div>' +
         '<div class="form-row" style="display:flex;gap:12px">' +
-        '<div class="form-group" style="flex:1"><label>' + t("products.quantity", "QuantitÃƒÂ©") + ' (' + weightUnit + ')</label>' +
+        '<div class="form-group" style="flex:1"><label>' + t("products.quantity", "Quantité") + ' (' + weightUnit + ')</label>' +
         '<input type="number" id="quickRestockQty" class="form-input" placeholder="0" min="0" step="0.1" onchange="app.updateQuickRestockTotal()"></div>' +
         '<div class="form-group" style="flex:1"><label>' + t("products.purchasePrice", "Prix d\'achat") + ' (' + currencySymbol + '/' + weightUnit + ')</label>' +
         '<input type="number" id="quickRestockPrice" class="form-input" placeholder="0.00" min="0" step="0.01" onchange="app.updateQuickRestockTotal()"></div>' +
         '</div>' +
         '<div class="form-group" id="quickRestockTotalContainer" style="display:none">' +
         '<div class="quick-restock-summary" style="background:var(--bg-tertiary);padding:12px;border-radius:var(--radius-md)">' +
-        '<div style="display:flex;justify-content:space-between;margin-bottom:4px"><span class="text-secondary">' + t("products.totalCost", "CoÃƒÂ»t total") + '</span><span id="quickRestockTotalCost" style="font-weight:600">0.00 ' + currencySymbol + '</span></div>' +
+        '<div style="display:flex;justify-content:space-between;margin-bottom:4px"><span class="text-secondary">' + t("products.totalCost", "Coût total") + '</span><span id="quickRestockTotalCost" style="font-weight:600">0.00 ' + currencySymbol + '</span></div>' +
         '<div style="display:flex;justify-content:space-between"><span class="text-secondary">' + t("products.currentCMP", "CMP actuel") + '</span><span id="quickRestockCurrentCMP">-</span></div>' +
         '</div></div>' +
         '<div class="form-group"><label>' + t("products.note", "Note") + ' (' + t("products.optional", "optionnel") + ')</label>' +
@@ -1376,7 +1376,7 @@
     if (cmpDisplay) {
       cmpDisplay.textContent = cmp > 0 ? formatPricePerUnit(cmp) : '-';
     }
-    // PrÃƒÂ©-remplir avec le CMP actuel si pas de prix saisi
+    // Pré-remplir avec le CMP actuel si pas de prix saisi
     if (priceInput && !priceInput.value && cmp > 0) {
       priceInput.value = cmp.toFixed(2);
     }
@@ -1404,19 +1404,19 @@
     var price = parseFloat(document.getElementById('quickRestockPrice').value) || 0;
     var note = document.getElementById('quickRestockNote').value || '';
     
-    if (!productId) { showToast(t("msg.selectProduct", "SÃƒÂ©lectionnez un produit"), "error"); return; }
-    if (qty <= 0) { showToast(t("msg.invalidQty", "QuantitÃƒÂ© invalide"), "error"); return; }
+    if (!productId) { showToast(t("msg.selectProduct", "Sélectionnez un produit"), "error"); return; }
+    if (qty <= 0) { showToast(t("msg.invalidQty", "Quantité invalide"), "error"); return; }
     
-    // Convertir en grammes si nÃƒÂ©cessaire
+    // Convertir en grammes si nécessaire
     var qtyInGrams = toGrams(qty);
     
-    // PrÃƒÂ©parer les donnÃƒÂ©es avec le profil actif
+    // Préparer les données avec le profil actif
     var data = { 
       grams: qtyInGrams, 
       note: note 
     };
     
-    // Ajouter le prix d'achat si spÃƒÂ©cifiÃƒÂ©
+    // Ajouter le prix d'achat si spécifié
     if (price > 0) {
       data.purchasePricePerGram = price;
     }
@@ -1433,7 +1433,7 @@
       body: JSON.stringify(data)
     }).then(function(res) {
       if (res.ok) {
-        showToast(t("msg.restockSuccess", "RÃƒÂ©appro effectuÃƒÂ©e"), "success");
+        showToast(t("msg.restockSuccess", "Réappro effectuée"), "success");
         closeModal();
         loadProducts(true).then(function() { renderTab(state.currentTab); });
       } else {
@@ -1452,13 +1452,13 @@
       title: '<i data-lucide="sliders"></i> ' + t("dashboard.quickAdjust", "Ajustement rapide"),
       size: "sm",
       content: '<div class="form-group"><label>' + t("products.product", "Produit") + '</label>' +
-        '<select id="quickAdjustProduct" class="form-select"><option value="">' + t("action.selectProduct", "SÃƒÂ©lectionner...") + '</option>' + productOptions + '</select></div>' +
+        '<select id="quickAdjustProduct" class="form-select"><option value="">' + t("action.selectProduct", "Sélectionner...") + '</option>' + productOptions + '</select></div>' +
         '<div class="form-group"><label>' + t("products.newStock", "Nouveau stock") + ' (g)</label>' +
         '<input type="number" id="quickAdjustQty" class="form-input" placeholder="0" min="0" step="0.1"></div>' +
         '<div class="form-group"><label>' + t("products.reason", "Raison") + '</label>' +
         '<select id="quickAdjustReason" class="form-select">' +
         '<option value="count">' + t("reason.count", "Comptage inventaire") + '</option>' +
-        '<option value="damage">' + t("reason.damage", "Produit endommagÃƒÂ©") + '</option>' +
+        '<option value="damage">' + t("reason.damage", "Produit endommagé") + '</option>' +
         '<option value="theft">' + t("reason.theft", "Vol/Perte") + '</option>' +
         '<option value="correction">' + t("reason.correction", "Correction erreur") + '</option>' +
         '</select></div>',
@@ -1473,15 +1473,15 @@
     var qty = parseFloat(document.getElementById('quickAdjustQty').value);
     var reason = document.getElementById('quickAdjustReason').value || 'count';
     
-    if (!productId) { showToast(t("msg.selectProduct", "SÃƒÂ©lectionnez un produit"), "error"); return; }
-    if (isNaN(qty) || qty < 0) { showToast(t("msg.invalidQty", "QuantitÃƒÂ© invalide"), "error"); return; }
+    if (!productId) { showToast(t("msg.selectProduct", "Sélectionnez un produit"), "error"); return; }
+    if (isNaN(qty) || qty < 0) { showToast(t("msg.invalidQty", "Quantité invalide"), "error"); return; }
     
     authFetch(apiUrl("/products/" + productId + "/adjust"), {
       method: "POST",
       body: JSON.stringify({ newGrams: qty, reason: reason })
     }).then(function(res) {
       if (res.ok) {
-        showToast(t("msg.adjustSuccess", "Ajustement effectuÃƒÂ©"), "success");
+        showToast(t("msg.adjustSuccess", "Ajustement effectué"), "success");
         closeModal();
         loadProducts(true).then(function() { renderTab(state.currentTab); });
       } else {
@@ -1513,7 +1513,7 @@
     });
     if (typeof lucide !== "undefined") lucide.createIcons();
     
-    // Sur desktop, dÃƒÂ©marrer automatiquement
+    // Sur desktop, démarrer automatiquement
     if (window.innerWidth > 768) {
       setTimeout(function() { startCamera(); }, 300);
     }
@@ -1529,7 +1529,7 @@
     
     if (!video || !status) return;
     
-    // VÃƒÂ©rifier si dans une iframe (Shopify Admin)
+    // Vérifier si dans une iframe (Shopify Admin)
     var inIframe = false;
     try {
       inIframe = window.self !== window.top;
@@ -1537,26 +1537,26 @@
       inIframe = true;
     }
     
-    // VÃƒÂ©rifier si HTTPS ou localhost
+    // Vérifier si HTTPS ou localhost
     var isSecure = location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1';
     if (!isSecure) {
       status.innerHTML = '<span class="text-warning"><i data-lucide="alert-triangle"></i> ' + 
-        t("scanner.httpsRequired", "HTTPS requis pour accÃƒÂ©der ÃƒÂ  la camÃƒÂ©ra") + '</span>';
+        t("scanner.httpsRequired", "HTTPS requis pour accéder à la caméra") + '</span>';
       if (typeof lucide !== "undefined") lucide.createIcons();
       return;
     }
     
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       status.innerHTML = '<span class="text-warning"><i data-lucide="alert-triangle"></i> ' + 
-        t("scanner.notSupported", "CamÃƒÂ©ra non supportÃƒÂ©e sur ce navigateur") + '</span>';
+        t("scanner.notSupported", "Caméra non supportée sur ce navigateur") + '</span>';
       if (typeof lucide !== "undefined") lucide.createIcons();
       return;
     }
     
     // Afficher loading
-    status.innerHTML = '<div class="spinner"></div> ' + t("scanner.requesting", "Demande d\'accÃƒÂ¨s ÃƒÂ  la camÃƒÂ©ra...");
+    status.innerHTML = '<div class="spinner"></div> ' + t("scanner.requesting", "Demande d\'accès à la caméra...");
     
-    // Contraintes optimisÃƒÂ©es pour mobile
+    // Contraintes optimisées pour mobile
     var constraints = {
       video: {
         facingMode: { ideal: "environment" },
@@ -1581,16 +1581,16 @@
         if (playPromise !== undefined) {
           playPromise.then(function() {
             status.innerHTML = '<span class="text-success"><i data-lucide="check-circle"></i> ' + 
-              t("scanner.ready", "CamÃƒÂ©ra prÃƒÂªte - PrÃƒÂ©sentez un code-barres") + '</span>';
+              t("scanner.ready", "Caméra prête - Présentez un code-barres") + '</span>';
             if (typeof lucide !== "undefined") lucide.createIcons();
             startBarcodeDetection(video, status);
           }).catch(function(err) {
             console.warn("[Scanner] Play error:", err);
-            status.innerHTML = '<span class="text-warning">' + t("scanner.tapToStart", "Touchez la vidÃƒÂ©o pour dÃƒÂ©marrer") + '</span>';
+            status.innerHTML = '<span class="text-warning">' + t("scanner.tapToStart", "Touchez la vidéo pour démarrer") + '</span>';
             video.onclick = function() {
               video.play();
               video.onclick = null;
-              status.innerHTML = '<span class="text-success"><i data-lucide="check-circle"></i> ' + t("scanner.ready", "CamÃƒÂ©ra prÃƒÂªte") + '</span>';
+              status.innerHTML = '<span class="text-success"><i data-lucide="check-circle"></i> ' + t("scanner.ready", "Caméra prête") + '</span>';
               if (typeof lucide !== "undefined") lucide.createIcons();
               startBarcodeDetection(video, status);
             };
@@ -1599,23 +1599,23 @@
       })
       .catch(function(err) {
         console.error("[Scanner] Camera error:", err.name, err.message);
-        var errorMsg = t("scanner.cameraError", "Erreur camÃƒÂ©ra");
+        var errorMsg = t("scanner.cameraError", "Erreur caméra");
         var showHelp = false;
         
         if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-          // VÃƒÂ©rifier si c'est un problÃƒÂ¨me d'iframe/permissions
+          // Vérifier si c'est un problème d'iframe/permissions
           if (err.message.includes('not allowed by the user agent') || err.message.includes('platform') || err.message.includes('Permissions')) {
-            errorMsg = t("scanner.iframeBlocked", "La camÃƒÂ©ra est bloquÃƒÂ©e par le navigateur.");
+            errorMsg = t("scanner.iframeBlocked", "La caméra est bloquée par le navigateur.");
           } else {
-            errorMsg = t("scanner.permissionDenied", "AccÃƒÂ¨s camÃƒÂ©ra refusÃƒÂ©.");
+            errorMsg = t("scanner.permissionDenied", "Accès caméra refusé.");
           }
           showHelp = true;
         } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
-          errorMsg = t("scanner.noCameraFound", "Aucune camÃƒÂ©ra dÃƒÂ©tectÃƒÂ©e sur cet appareil.");
+          errorMsg = t("scanner.noCameraFound", "Aucune caméra détectée sur cet appareil.");
         } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
-          errorMsg = t("scanner.cameraInUse", "La camÃƒÂ©ra est utilisÃƒÂ©e par une autre application.");
+          errorMsg = t("scanner.cameraInUse", "La caméra est utilisée par une autre application.");
         } else if (err.name === 'SecurityError') {
-          errorMsg = t("scanner.securityError", "AccÃƒÂ¨s camÃƒÂ©ra bloquÃƒÂ© par les paramÃƒÂ¨tres de sÃƒÂ©curitÃƒÂ©.");
+          errorMsg = t("scanner.securityError", "Accès caméra bloqué par les paramètres de sécurité.");
           showHelp = true;
         } else {
           showHelp = true;
@@ -1624,17 +1624,17 @@
         var helpHtml = '';
         if (showHelp) {
           helpHtml = '<div style="text-align:left;background:var(--surface-secondary);padding:12px;border-radius:8px;margin-top:12px;font-size:13px">' +
-            '<strong>' + t("scanner.howToEnable", "Comment activer la camÃƒÂ©ra :") + '</strong><br>' +
+            '<strong>' + t("scanner.howToEnable", "Comment activer la caméra :") + '</strong><br>' +
             '<ol style="margin:8px 0 0 16px;padding:0">' +
-            '<li>' + t("scanner.step1", "Cliquez sur l'icÃƒÂ´ne camÃƒÂ©ra/cadenas dans la barre d'adresse") + '</li>' +
-            '<li>' + t("scanner.step2", "Autorisez l'accÃƒÂ¨s ÃƒÂ  la camÃƒÂ©ra pour ce site") + '</li>' +
-            '<li>' + t("scanner.step3", "Rechargez la page si nÃƒÂ©cessaire") + '</li>' +
+            '<li>' + t("scanner.step1", "Cliquez sur l'icône caméra/cadenas dans la barre d'adresse") + '</li>' +
+            '<li>' + t("scanner.step2", "Autorisez l'accès à la caméra pour ce site") + '</li>' +
+            '<li>' + t("scanner.step3", "Rechargez la page si nécessaire") + '</li>' +
             '</ol></div>';
         }
         
         var buttonsHtml = '<div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:12px">' +
           '<button class="btn btn-sm btn-secondary" onclick="app.startCamera()">' + 
-          '<i data-lucide="refresh-cw"></i> ' + t("action.retry", "RÃƒÂ©essayer") + '</button>' +
+          '<i data-lucide="refresh-cw"></i> ' + t("action.retry", "Réessayer") + '</button>' +
           '<button class="btn btn-sm btn-ghost" onclick="location.reload()">' + 
           '<i data-lucide="rotate-cw"></i> ' + t("action.reload", "Recharger") + '</button>' +
           '</div>';
@@ -1645,7 +1645,7 @@
   }
   
   function startBarcodeDetection(video, status) {
-    // DÃƒÂ©tection via BarcodeDetector API (Chrome, Edge, Android)
+    // Détection via BarcodeDetector API (Chrome, Edge, Android)
     if ('BarcodeDetector' in window) {
       var detector = new BarcodeDetector({ 
         formats: ['ean_13', 'ean_8', 'code_128', 'code_39', 'upc_a', 'upc_e', 'qr_code', 'codabar'] 
@@ -1671,9 +1671,9 @@
       }
       scanFrame();
     } else {
-      // BarcodeDetector non supportÃƒÂ© (Safari, Firefox)
+      // BarcodeDetector non supporté (Safari, Firefox)
       status.innerHTML += '<br><span class="text-muted text-sm">' + 
-        t("scanner.manualOnly", "DÃƒÂ©tection auto non supportÃƒÂ©e - utilisez la saisie manuelle") + '</span>';
+        t("scanner.manualOnly", "Détection auto non supportée - utilisez la saisie manuelle") + '</span>';
     }
   }
 
@@ -1711,15 +1711,15 @@
     closeModal();
     
     if (product) {
-      showToast(t("scanner.productFound", "Produit trouvÃƒÂ©!"), "success");
+      showToast(t("scanner.productFound", "Produit trouvé!"), "success");
       openProductDetails(product.id);
     } else {
       showModal({
-        title: '<i data-lucide="search-x"></i> ' + t("scanner.notFound", "Produit non trouvÃƒÂ©"),
-        content: '<div class="text-center py-lg"><p>' + t("scanner.notFoundMsg", "Aucun produit trouvÃƒÂ© avec le code") + ' <strong>' + esc(code) + '</strong></p>' +
-          '<p class="text-muted">' + t("scanner.notFoundHint", "VÃƒÂ©rifiez que le code-barres est configurÃƒÂ© sur le produit dans Shopify.") + '</p></div>',
+        title: '<i data-lucide="search-x"></i> ' + t("scanner.notFound", "Produit non trouvé"),
+        content: '<div class="text-center py-lg"><p>' + t("scanner.notFoundMsg", "Aucun produit trouvé avec le code") + ' <strong>' + esc(code) + '</strong></p>' +
+          '<p class="text-muted">' + t("scanner.notFoundHint", "Vérifiez que le code-barres est configuré sur le produit dans Shopify.") + '</p></div>',
         footer: '<button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.close", "Fermer") + '</button>' +
-          '<button class="btn btn-primary" onclick="app.closeModal();app.showScannerModal()">' + t("scanner.scanAgain", "Scanner ÃƒÂ  nouveau") + '</button>'
+          '<button class="btn btn-primary" onclick="app.closeModal();app.showScannerModal()">' + t("scanner.scanAgain", "Scanner à nouveau") + '</button>'
       });
       if (typeof lucide !== "undefined") lucide.createIcons();
     }
@@ -1745,7 +1745,7 @@
         return;
       }
       
-      // Container scrollable limitÃƒÂ© ÃƒÂ  5 ÃƒÂ©lÃƒÂ©ments (~250px)
+      // Container scrollable limité à 5 éléments (~250px)
       var html = '<div class="movements-list" style="max-height:250px;overflow-y:auto">';
       movements.forEach(function(m) {
         var mType = m.type || m.source || 'adjustment';
@@ -1778,7 +1778,7 @@
     }
   }
 
-  // ActivitÃƒÂ© rÃƒÂ©cente avec profils
+  // Activité récente avec profils
   async function loadDashboardActivity() {
     try {
       var res = await authFetch(apiUrl("/movements?limit=20"));
@@ -1799,7 +1799,7 @@
         return;
       }
       
-      // Container scrollable limitÃƒÂ© ÃƒÂ  5 ÃƒÂ©lÃƒÂ©ments (~280px)
+      // Container scrollable limité à 5 éléments (~280px)
       var html = '<div class="activity-list" style="max-height:280px;overflow-y:auto">';
       movements.forEach(function(m) {
         var mType = m.type || m.source || 'adjustment';
@@ -3268,7 +3268,7 @@
     document.getElementById("ordersContent").innerHTML =
       '<div class="card"><div class="card-body" style="padding:0">' +
       '<table class="data-table"><thead><tr>' +
-      '<th>' + t("orders.number", "NÃƒâ€šÃ‚Â°") + '</th>' +
+      '<th>' + t("orders.number", "N°") + '</th>' +
       '<th>' + t("orders.supplier", "Fournisseur") + '</th>' +
       '<th>' + t("orders.lines", "Lignes") + '</th>' +
       '<th>' + t("orders.total", "Total") + '</th>' +
@@ -3666,7 +3666,7 @@
     document.getElementById("ordersContent").innerHTML =
       '<div class="card"><div class="card-body" style="padding:0">' +
       '<table class="data-table"><thead><tr>' +
-      '<th>' + t("orders.number", "NÃƒâ€šÃ‚Â°") + '</th>' +
+      '<th>' + t("orders.number", "N°") + '</th>' +
       '<th>' + t("orders.source", "Source") + '</th>' +
       '<th>' + t("orders.revenue", "CA") + '</th>' +
       '<th>' + t("orders.cost", "Cout") + '</th>' +
@@ -3691,7 +3691,7 @@
     }
   }
 
-  // DÃƒÂ©tails d'une commande de vente
+  // Détails d'une commande de vente
   async function openSODetails(orderId) {
     try {
       var res = await authFetch(apiUrl("/sales-orders/" + orderId));
@@ -3789,7 +3789,7 @@
     }
   }
 
-  // Modal pour lier un produit ÃƒÂ  un fournisseur
+  // Modal pour lier un produit à un fournisseur
   function showLinkProductModal(supplierId) {
     var productOptions = (state.products || []).map(function(p) {
       return '<option value="' + p.productId + '">' + esc(p.name) + '</option>';
@@ -3840,7 +3840,7 @@
       
       showToast(t("suppliers.productLinked", "Produit lie"), "success");
       closeModal();
-      // Recharger les dÃƒÂ©tails du fournisseur
+      // Recharger les détails du fournisseur
       if (typeof loadSupplierDetails === "function") {
         loadSupplierDetails(supplierId);
       }
@@ -4057,7 +4057,7 @@
 
     var rows = filtered.map(function(f) {
       var statusBadge = getForecastStatusBadge(f.status);
-      var daysDisplay = f.daysOfStock === Infinity ? "Ã¢Ë†Å¾" : (f.daysOfStock !== null ? f.daysOfStock.toFixed(0) + "j" : "-");
+      var daysDisplay = f.daysOfStock === Infinity ? "∞" : (f.daysOfStock !== null ? f.daysOfStock.toFixed(0) + "j" : "-");
       var stockoutDisplay = f.stockoutDate || "-";
       var reorderDisplay = f.reorderQty > 0 ? formatWeight(f.reorderQty) : "-";
 
@@ -4127,16 +4127,16 @@
         sparklineHtml = '<div class="sparkline-container">' + bars + '</div>';
       }
 
-      // ScÃƒÆ’Ã‚Â©narios
+      // Scénarios
       var scenariosHtml = '';
       if (data.scenarios) {
         scenariosHtml = '<div class="scenarios-grid">' +
           '<div class="scenario pessimistic"><div class="scenario-label">Pessimiste</div><div class="scenario-value">' + 
-          (data.scenarios.pessimistic.daysOfStock === Infinity ? "ÃƒÂ¢Ã‹â€ Ã…Â¾" : data.scenarios.pessimistic.daysOfStock.toFixed(0) + "j") + '</div></div>' +
+          (data.scenarios.pessimistic.daysOfStock === Infinity ? "∞" : data.scenarios.pessimistic.daysOfStock.toFixed(0) + "j") + '</div></div>' +
           '<div class="scenario normal"><div class="scenario-label">Normal</div><div class="scenario-value">' + 
-          (data.scenarios.normal.daysOfStock === Infinity ? "ÃƒÂ¢Ã‹â€ Ã…Â¾" : data.scenarios.normal.daysOfStock.toFixed(0) + "j") + '</div></div>' +
+          (data.scenarios.normal.daysOfStock === Infinity ? "∞" : data.scenarios.normal.daysOfStock.toFixed(0) + "j") + '</div></div>' +
           '<div class="scenario optimistic"><div class="scenario-label">Optimiste</div><div class="scenario-value">' + 
-          (data.scenarios.optimistic.daysOfStock === Infinity ? "ÃƒÂ¢Ã‹â€ Ã…Â¾" : data.scenarios.optimistic.daysOfStock.toFixed(0) + "j") + '</div></div>' +
+          (data.scenarios.optimistic.daysOfStock === Infinity ? "∞" : data.scenarios.optimistic.daysOfStock.toFixed(0) + "j") + '</div></div>' +
           '</div>';
       }
 
@@ -6215,7 +6215,7 @@
         trialBadge = '<span class="trial-badge">' + state.trial.daysLeft + 'j</span>';
       }
       
-      // Affichage compact pour plans illimitÃ©s
+      // Affichage compact pour plans illimités
       var usageDisplay = "";
       if (isUnlimited) {
         usageDisplay = '<span class="plan-usage">' + state.products.length + ' <i data-lucide="infinity" style="width:14px;height:14px;vertical-align:middle"></i></span>';
@@ -6783,7 +6783,7 @@
   }
 
   // ============================================
-  // ÃƒÂ¢Ã…â€œÃ¢â‚¬Â¦ FICHE DÃƒÆ’Ã¢â‚¬Â°TAIL PRODUIT
+  // ✅ FICHE DÉTAIL PRODUIT
   // ============================================
   async function openProductDetails(productId) {
     if (!productId) return;
@@ -7036,7 +7036,7 @@
   }
 
   function showAddBatchForProduct(productId, productName) {
-    // Ouvrir le modal de crÃƒÆ’Ã‚Â©ation de lot avec le produit prÃƒÆ’Ã‚Â©-sÃƒÆ’Ã‚Â©lectionnÃƒÆ’Ã‚Â©
+    // Ouvrir le modal de création de lot avec le produit pré-sélectionné
     showModal({
       title: t("batches.addBatchFor", "Nouveau lot pour") + ' ' + (productName || 'ce produit'),
       size: "md",
@@ -7718,7 +7718,7 @@
     }
   }
 
-  // DÃƒÂ©finir toutes les vraies fonctions
+  // Définir toutes les vraies fonctions
   var realFunctions = {
     init: init,
     navigateTo: navigateTo,
@@ -7861,7 +7861,7 @@
     markAllNotificationsRead: markAllNotificationsRead,
     // Plan
     cancelPlan: cancelPlan,
-    // Dashboard amÃ©liorÃ©
+    // Dashboard amélioré
     showLowStockModal: showLowStockModal,
     showOutOfStockModal: showOutOfStockModal,
     showQuickRestockModal: showQuickRestockModal,
@@ -7921,7 +7921,7 @@
     get: function() { return state; }
   });
   
-  // Marquer l'app comme prÃƒÂªte
+  // Marquer l'app comme prête
   markAppReady();
 
   // Init
