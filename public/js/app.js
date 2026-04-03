@@ -11,7 +11,13 @@
     return function() {
       var args = Array.prototype.slice.call(arguments);
       if (appReady && window.app._real && window.app._real[fnName]) {
-        return window.app._real[fnName].apply(null, args);
+        try {
+          return window.app._real[fnName].apply(null, args);
+        } catch(e) {
+          console.error("[app." + fnName + "] Error:", e.message, e.stack);
+        }
+      } else if (appReady) {
+        console.warn("[app." + fnName + "] Function not found in _real. Called with:", args);
       } else {
         pendingCalls.push({ fn: fnName, args: args });
       }
@@ -24,29 +30,27 @@
     'showModal', 'closeModal', 'showAddProductModal', 'showImportModal', 'doImport',
     'showRestockModal', 'showAdjustModal', 'showUpgradeModal', 'showLockedModal',
     'saveProduct', 'saveRestock', 'saveAdjust', 'syncShopify', 'upgradeTo',
-    'showToast', 'hasFeature', 'openProductDetails', 'showEditCMPModal', 'saveCMP',
+    'showToast', 'hasFeature', 'openProductDetails', 'deleteProduct',
+    'showEditCMPModal', 'saveCMP',
     'onSearchChange', 'onCategoryChange', 'onSortChange', 'showCategoriesModal',
     'createCategory', 'deleteCategory', 'renameCategory', 'showRenameCategoryModal',
     'showAssignCategoriesModal', 'saveProductCategories',
-    'addSupplier', 'editSupplier', 'deleteSupplier',
-    'saveSupplier', 'selectMainTab', 'loadSupplierProducts', 'linkProductToSupplier',
-    'unlinkProduct', 'addOrder', 'showOrderDetails', 'updateOrderStatus', 'receiveOrder',
-    'deleteOrder', 'savePurchaseOrder', 'startTrial', 'showSuppliersModal', 'confirmDeleteSupplier',
+    'deleteSupplier', 'saveSupplier',
     'openSupplierDetails', 'switchSupplierTab', 'showEditSupplierModal', 'updateSupplier',
     'showAddSupplierModal', 'onSupplierSearchChange', 'onSupplierStatusChange',
-    'showForecast', 'showKitModal', 'assembleKit', 'disassembleKit', 'saveKit', 'deleteKit',
+    'showLinkProductModal', 'linkProduct',
+    'saveKit', 'deleteKit',
     'openKitDetails', 'showCreateKitModal', 'showAddKitItemModal', 'saveKitItem', 'removeKitItem',
-    'showAssembleKitModal', 'runKitSimulation', 'activateKit',
+    'showAssembleKitModal', 'runKitSimulation', 'activateKit', 'assembleKit',
     'onKitFilterChange', 'onKitSearchChange',
-    'showCreateBatchModal', 'createBatch', 'updateBatchStatus', 'showBatchDetails', 'adjustBatchQuantity',
-    'applyBatchFilters', 'deleteBatch', 'resetBatchFilters',
-    'openBatchDetails', 'showAdjustBatchModal', 'deactivateBatch', 'showAddBatchModal',
-    'showAddBatchForProduct', 'markExpiredBatches', 'saveAdjustBatch', 'saveBatch',
+    'showAddBatchModal', 'showAddBatchForProduct', 'saveBatch',
+    'openBatchDetails', 'showAdjustBatchModal', 'saveAdjustBatch',
+    'deactivateBatch', 'deleteBatch', 'markExpiredBatches',
     'onBatchProductChange', 'onBatchStatusChange', 'onBatchExpiringChange',
-    'loadInventorySessions', 'showCreateInventoryModal', 'showCreateInventorySessionModal', 'createInventorySession',
-    'openInventorySession', 'backToInventoryList', 'updateInventoryCount', 'updateInventoryItem',
-    'validateInventorySession', 'applyInventorySession', 'archiveInventorySession', 'deleteInventorySession',
-    'startInventorySession', 'reviewInventorySession', 'switchInventoryTab',
+    'loadInventorySessions', 'showCreateInventorySessionModal', 'createInventorySession',
+    'openInventorySession', 'startInventorySession', 'reviewInventorySession',
+    'applyInventorySession', 'archiveInventorySession', 'deleteInventorySession',
+    'switchInventoryTab', 'updateInventoryItem',
     'filterInventoryByStatus', 'filterInventoryItems', 'duplicateInventorySession',
     'toggleInventoryItemFlag', 'setInventoryItemReason', 'onInvScopeTypeChange',
     'openForecastDetails', 'onForecastCategoryChange', 'onForecastStatusChange', 'onForecastWindowChange',
@@ -59,8 +63,8 @@
     'loadNotifications', 'showNotificationsModal', 'markNotificationRead', 'dismissNotification', 'checkAlerts',
     'markAllNotificationsRead',
     'loadProfiles', 'showProfilesModal', 'showCreateProfileModal', 'selectProfileColor', 'createProfile', 'switchProfile', 'deleteProfile',
-    'openSODetails', 'showReceivePOModal', 'receivePO', 'showLinkProductModal', 'linkProduct',
-    'showFullActivityLog', 'deleteProduct',
+    'openSODetails', 'showReceivePOModal', 'receivePO',
+    'showFullActivityLog',
     'exportStockCSV', 'exportMovementsCSV', 'exportAnalyticsCSV',
     'cancelPlan', 'changeAnalyticsPeriod', 'switchAnalyticsTab',
     'switchOrdersTab', 'onOrderStatusChange', 'onOrderPeriodChange', 'onOrderSourceChange',
