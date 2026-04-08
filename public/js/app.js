@@ -2585,7 +2585,7 @@
   }
 
   async function deactivateBatch(productId, lotId) {
-    if (!confirm(t("batches.confirmDeactivate", "Voulez-vous vraiment desactiver ce lot ?"))) return;
+    var _ok = await showConfirmDialog(t("batches.confirmDeactivate", "Voulez-vous vraiment desactiver ce lot ?"), {danger: true}); if (!_ok) return;
 
     try {
       var res = await authFetch(apiUrl("/lots/" + productId + "/" + lotId), {
@@ -3088,7 +3088,7 @@
   }
 
   async function deleteSupplier(supplierId) {
-    if (!confirm(t("suppliers.confirmDelete", "Voulez-vous vraiment supprimer ce fournisseur ?"))) return;
+    var _ok = await showConfirmDialog(t("suppliers.confirmDelete", "Voulez-vous vraiment supprimer ce fournisseur ?"), {danger: true}); if (!_ok) return;
 
     try {
       var res = await authFetch(apiUrl("/suppliers/" + supplierId), { method: "DELETE" });
@@ -3563,7 +3563,7 @@
   }
 
   async function cancelPO(poId) {
-    if (!confirm(t("orders.confirmCancel", "Annuler cette commande ?"))) return;
+    var _ok = await showConfirmDialog(t("orders.confirmCancel", "Annuler cette commande ?"), {danger: true}); if (!_ok) return;
     try {
       var res = await authFetch(apiUrl("/purchase-orders/" + poId + "/cancel"), { method: "POST" });
       if (!res.ok) throw new Error("Erreur");
@@ -4456,7 +4456,7 @@
   }
 
   async function removeKitItem(kitId, itemId) {
-    if (!confirm("Supprimer ce composant ?")) return;
+    var _ok = await showConfirmDialog("Supprimer ce composant ?", {danger: true}); if (!_ok) return;
     try {
       var res = await authFetch(apiUrl("/kits/" + kitId + "/items/" + itemId), { method: "DELETE" });
       if (!res.ok) throw new Error("Erreur");
@@ -4476,7 +4476,7 @@
   }
 
   async function deleteKit(kitId) {
-    if (!confirm(t("kits.confirmDelete", "Supprimer ce kit ?"))) return;
+    var _ok = await showConfirmDialog(t("kits.confirmDelete", "Supprimer ce kit ?"), {danger: true}); if (!_ok) return;
     try {
       var res = await authFetch(apiUrl("/kits/" + kitId), { method: "DELETE" });
       if (!res.ok) throw new Error("Erreur");
@@ -4892,7 +4892,7 @@
   }
 
   async function applyInventorySession() {
-    if (!confirm("Appliquer les ajustements ? Cette action est irreversible.")) return;
+    var _ok = await showConfirmDialog("Appliquer les ajustements ? Cette action est irreversible.", {danger: true}); if (!_ok) return;
     try {
       var res = await authFetch(apiUrl("/inventory/sessions/" + currentInventorySession.id + "/apply"), { method: "POST", body: JSON.stringify({}) });
       var data = await res.json();
@@ -4955,7 +4955,7 @@
   }
 
   async function archiveInventorySession(sessionId) {
-    if (!confirm(t("inventory.confirmArchive", "Archiver cette session ?"))) return;
+    var _ok = await showConfirmDialog(t("inventory.confirmArchive", "Archiver cette session ?"), {danger: true}); if (!_ok) return;
     try {
       var res = await authFetch(apiUrl("/inventory/sessions/" + sessionId), { method: "DELETE" });
       if (!res.ok) throw new Error("Erreur");
@@ -4965,7 +4965,7 @@
   }
 
   async function deleteInventorySession(sessionId, sessionName) {
-    if (!confirm(t("inventory.confirmDelete", "Supprimer definitivement cette session ?") + "\n\n" + sessionName)) return;
+    var _ok = await showConfirmDialog(t("inventory.confirmDelete", "Supprimer definitivement cette session ?") + "\n\n" + sessionName, {danger: true}); if (!_ok) return;
     try {
       var res = await authFetch(apiUrl("/inventory/sessions/" + sessionId + "?permanent=true"), { method: "DELETE" });
       if (!res.ok) throw new Error("Erreur");
@@ -5396,7 +5396,7 @@
 
   // Delete Batch
   async function deleteBatch(productId, lotId) {
-    if (!confirm(t("batches.confirmDelete", "Delete this batch permanently?"))) return;
+    var _ok = await showConfirmDialog(t("batches.confirmDelete", "Delete this batch permanently?"), {danger: true}); if (!_ok) return;
     try {
       var res = await authFetch(apiUrl("/lots/" + encodeURIComponent(productId) + "/" + encodeURIComponent(lotId)), {
         method: "DELETE"
@@ -5434,7 +5434,7 @@
 
   // Cancel Plan
   async function cancelPlan() {
-    if (!confirm(t("plan.confirmCancel", "Are you sure you want to cancel your subscription? You will lose access to premium features."))) return;
+    var _ok = await showConfirmDialog(t("plan.confirmCancel", "Are you sure you want to cancel your subscription? You will lose access to premium features."), {danger: true}); if (!_ok) return;
     try {
       var res = await authFetch(apiUrl("/plan/cancel"), { method: "POST" });
       if (res.ok) {
@@ -5460,7 +5460,7 @@
   }
 
   async function resetAllSettings() {
-    if (!confirm(t("settings.confirmReset", "Reset all settings to default values?"))) return;
+    var _ok = await showConfirmDialog(t("settings.confirmReset", "Reset all settings to default values?"), {danger: true}); if (!_ok) return;
     try {
       var res = await authFetch(apiUrl("/settings/reset"), { method: "POST" });
       if (res.ok) {
@@ -5477,8 +5477,8 @@
   // ============================================
 
   async function createSnapshot() {
-    var label = prompt(t("settings.snapshotLabel", "Nom du point de restauration (optionnel) :"), "");
-    if (label === null) return;
+    var label = await showPromptDialog(t("settings.snapshotLabel", "Nom du point de restauration (optionnel) :"), {defaultValue: ""});
+    if (label === null || label === undefined) return;
     try {
       showToast(t("settings.creatingSnapshot", "Creation du point..."), "info");
       var res = await authFetch(apiUrl("/data/snapshot"), {
@@ -5570,7 +5570,7 @@
   }
 
   async function rollbackToSnapshot(snapshotId, label) {
-    if (!confirm(t("settings.confirmRollback", "Restaurer les donnees au point :") + "\n\n" + label + "\n\n" + t("settings.confirmRollbackWarn", "Un point de sauvegarde automatique sera cree avant la restauration. Continuer ?"))) return;
+    var _ok = await showConfirmDialog(t("settings.confirmRollback", "Restaurer les donnees au point :") + "\n\n" + label + "\n\n" + t("settings.confirmRollbackWarn", "Un point de sauvegarde automatique sera cree avant la restauration. Continuer ?"), {danger: true}); if (!_ok) return;
     try {
       showToast(t("settings.rollingBack", "Restauration en cours..."), "info");
       var res = await authFetch(apiUrl("/data/rollback"), {
@@ -5593,7 +5593,7 @@
   }
 
   async function deleteSnapshot(snapshotId) {
-    if (!confirm(t("settings.confirmDeleteSnapshot", "Supprimer ce point de restauration ?"))) return;
+    var _ok = await showConfirmDialog(t("settings.confirmDeleteSnapshot", "Supprimer ce point de restauration ?"), {danger: true}); if (!_ok) return;
     try {
       var res = await authFetch(apiUrl("/data/snapshots/" + encodeURIComponent(snapshotId)), { method: "DELETE" });
       if (res.ok) {
@@ -5608,8 +5608,8 @@
   }
 
   async function resetAllData() {
-    if (!confirm(t("settings.confirmResetAll1", "ATTENTION : Cette action va supprimer TOUTES vos donnees (produits, stock, mouvements, parametres).\n\nUn point de restauration automatique sera cree avant la suppression.\n\nEtes-vous sur ?"))) return;
-    var code = prompt(t("settings.confirmResetAll2", "Pour confirmer, tapez RESET en majuscules :"));
+    var _ok = await showConfirmDialog(t("settings.confirmResetAll1", "ATTENTION : Cette action va supprimer TOUTES vos donnees (produits, stock, mouvements, parametres).\n\nUn point de restauration automatique sera cree avant la suppression.\n\nEtes-vous sur ?"), {danger: true}); if (!_ok) return;
+    var code = await showPromptDialog(t("settings.confirmResetAll2", "Pour confirmer, tapez RESET en majuscules :"), {placeholder: "RESET"});
     if (code !== "RESET") {
       showToast(t("settings.resetCancelled", "Reinitialisation annulee"), "info");
       return;
@@ -5675,6 +5675,64 @@
   function closeModal() {
     var el = document.getElementById("modalsContainer");
     if (el) el.innerHTML = "";
+  }
+
+  // Shopify-safe confirm dialog (native confirm() is blocked in iframes)
+  function showConfirmDialog(message, opts) {
+    opts = opts || {};
+    return new Promise(function(resolve) {
+      var btnClass = opts.danger ? "btn-danger" : "btn-primary";
+      var confirmLabel = opts.confirmText || t("action.confirm", "Confirmer");
+      var cancelLabel = opts.cancelText || t("action.cancel", "Annuler");
+      var title = opts.title || t("action.confirm", "Confirmation");
+      var msgHtml = String(message || "").replace(/\n/g, "<br>");
+
+      showModal({
+        title: '<i data-lucide="alert-triangle"></i> ' + title,
+        size: "sm",
+        content: '<div style="padding:8px 0;font-size:14px;line-height:1.6;color:var(--text-primary)">' + msgHtml + '</div>',
+        footer: '<button class="btn btn-ghost" onclick="app._dialogResolve(false)">' + cancelLabel + '</button>' +
+                '<button class="btn ' + btnClass + '" onclick="app._dialogResolve(true)">' + confirmLabel + '</button>'
+      });
+      if (typeof lucide !== "undefined") lucide.createIcons();
+
+      window.app._dialogResolve = function(val) {
+        closeModal();
+        delete window.app._dialogResolve;
+        resolve(val);
+      };
+    });
+  }
+
+  // Shopify-safe prompt dialog
+  function showPromptDialog(message, opts) {
+    opts = opts || {};
+    return new Promise(function(resolve) {
+      var defaultVal = opts.defaultValue || "";
+      var title = opts.title || message;
+
+      showModal({
+        title: title,
+        size: "sm",
+        content: '<div style="padding:8px 0">' +
+                 '<input type="text" class="form-input" id="promptDialogInput" value="' + esc(defaultVal) + '" placeholder="' + esc(opts.placeholder || '') + '" autofocus>' +
+                 '</div>',
+        footer: '<button class="btn btn-ghost" onclick="app._dialogResolve(null)">' + t("action.cancel", "Annuler") + '</button>' +
+                '<button class="btn btn-primary" onclick="app._dialogResolve(document.getElementById(\'promptDialogInput\').value)">' + t("action.confirm", "OK") + '</button>'
+      });
+
+      window.app._dialogResolve = function(val) {
+        closeModal();
+        delete window.app._dialogResolve;
+        resolve(val);
+      };
+
+      // Focus input
+      setTimeout(function() {
+        var inp = document.getElementById("promptDialogInput");
+        if (inp) inp.focus();
+      }, 100);
+    });
   }
 
   function showAddProductModal() {
@@ -6752,7 +6810,7 @@
   }
   
   async function deleteProfile(profileId) {
-    if (!confirm(t("profiles.confirmDelete", "Supprimer ce profil ?"))) return;
+    var _ok = await showConfirmDialog(t("profiles.confirmDelete", "Supprimer ce profil ?"), {danger: true}); if (!_ok) return;
     
     try {
       var res = await authFetch(apiUrl("/profiles/" + profileId), { method: "DELETE" });
@@ -7021,7 +7079,7 @@
       productName = prod ? prod.name : productId;
     } catch(e) {}
 
-    if (!confirm(t("products.confirmDelete", "Supprimer definitivement ce produit du stock ?") + "\n\n" + productName + "\n\n" + t("products.confirmDeleteWarn", "Cette action est irreversible. L'historique des mouvements sera conserve."))) return;
+    var _ok = await showConfirmDialog(t("products.confirmDelete", "Supprimer definitivement ce produit du stock ?") + "\n\n" + productName + "\n\n" + t("products.confirmDeleteWarn", "Cette action est irreversible. L'historique des mouvements sera conserve."), {danger: true}); if (!_ok) return;
 
     try {
       var res = await authFetch(apiUrl("/products/" + encodeURIComponent(productId)), { method: "DELETE" });
@@ -7648,7 +7706,7 @@
   }
 
   async function deleteCategory(catId) {
-    if (!confirm("Supprimer cette categorie ?")) return;
+    var _ok = await showConfirmDialog("Supprimer cette categorie ?", {danger: true}); if (!_ok) return;
     try {
       var res = await authFetch(apiUrl("/categories/" + encodeURIComponent(catId)), {
         method: "DELETE",
