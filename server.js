@@ -2064,6 +2064,118 @@ router.post("/api/products/:productId/restock", (req, res) => {
   });
 });
 
+// =====================================================
+// VENTE MANUELLE (hors Shopify)
+// =====================================================
+router.post("/api/sales/manual", (req, res) => {
+  safeJson(req, res, async () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+
+    const productId = String(req.body?.productId || "").trim();
+    const grams = Number(req.body?.grams || 0);
+    const sellingPriceTotal = Number(req.body?.sellingPriceTotal || 0);
+    const customerName = String(req.body?.customerName || "").trim();
+    const orderNote = String(req.body?.orderNote || "").trim();
+    const profileId = req.body?.profileId || null;
+    const profileName = req.body?.profileName || "User";
+    const profileColor = req.body?.profileColor || "#6366f1";
+
+    if (!productId) return apiError(res, 400, "productId manquant");
+    if (!Number.isFinite(grams) || grams <= 0) return apiError(res, 400, "Quantité invalide");
+    if (sellingPriceTotal < 0) return apiError(res, 400, "Prix invalide");
+
+    // Get product info for CMP
+    const productSnapshot = stock.getProductSnapshot ? stock.getProductSnapshot(shop, productId) : null;
+    if (!productSnapshot) return apiError(res, 404, "Produit introuvable");
+
+    const productName = productSnapshot.name || productId;
+    const costPerGram = productSnapshot.averageCostPerGram || 0;
+    const totalCost = grams * costPerGram;
+    const margin = sellingPriceTotal - totalCost;
+    const marginPercent = sellingPriceTotal > 0 ? Math.round((margin / sellingPriceTotal) * 100) : 0;
+    const sellingPricePerGram = grams > 0 ? sellingPriceTotal / grams : 0;
+
+    // 1. Deduct stock
+    if (typeof stock.applyOrderToProduct === "function") {
+      try {
+        await stock.applyOrderToProduct(shop, productId, grams);
+      } catch (e) {
+        return apiError(res, 400, "Erreur déduction stock: " + e.message);
+      }
+    }
+
+    // 2. Record movement
+    const orderId = `manual_${Date.now()}`;
+    if (movementStore && movementStore.addMovement) {
+      movementStore.addMovement({
+        source: "sale",
+        type: "manual_sale",
+        productId,
+        productName,
+        gramsDelta: -Math.abs(grams),
+        totalAfter: (productSnapshot.totalGrams || 0) - grams,
+        orderId,
+        sellingPricePerGram,
+        sellingPriceTotal,
+        customerName: customerName || undefined,
+        note: orderNote || undefined,
+        profileId,
+        profileName,
+        profileColor,
+        shop,
+      }, shop);
+    }
+
+    // 3. Record sale in analytics
+    if (analyticsStore && analyticsStore.addSale) {
+      analyticsStore.addSale({
+        orderId,
+        orderNumber: "MANUAL-" + Date.now().toString(36).toUpperCase(),
+        orderDate: new Date().toISOString(),
+        productId,
+        productName,
+        quantity: 1,
+        gramsPerUnit: grams,
+        totalGrams: grams,
+        grossPrice: sellingPriceTotal,
+        discountAmount: 0,
+        netRevenue: sellingPriceTotal,
+        costPerGram,
+        totalCost,
+        margin,
+        marginPercent,
+        source: "manual",
+        shop,
+      }, shop);
+    }
+
+    // 4. Sync Shopify inventory
+    const updatedProduct = stock.getProductSnapshot ? stock.getProductSnapshot(shop, productId) : null;
+    if (updatedProduct) {
+      try {
+        await pushProductInventoryToShopify(shop, updatedProduct);
+      } catch (e) {
+        logEvent("inventory_push_error", { shop, productId, error: e.message }, "error");
+      }
+    }
+
+    logEvent("manual_sale", { shop, productId, productName, grams, sellingPriceTotal, margin }, "info");
+
+    res.json({
+      success: true,
+      orderId,
+      productName,
+      grams,
+      sellingPriceTotal,
+      totalCost: Math.round(totalCost * 100) / 100,
+      margin: Math.round(margin * 100) / 100,
+      marginPercent,
+      newStock: updatedProduct ? updatedProduct.totalGrams : null,
+    });
+  });
+});
+
 router.post("/api/test-order", (req, res) => {
   safeJson(req, res, async () => {
     const shop = getShop(req);

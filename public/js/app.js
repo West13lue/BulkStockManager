@@ -61,6 +61,7 @@
     'createSnapshot', 'showSnapshotsModal', 'rollbackToSnapshot', 'deleteSnapshot', 'resetAllData', 'downloadFullBackup',
     'showLowStockModal', 'showOutOfStockModal', 'showQuickRestockModal', 'doQuickRestock',
     'showQuickAdjustModal', 'doQuickAdjust', 'showScannerModal', 'startCamera', 'stopScanner', 'searchBarcode',
+    'showManualSaleModal', 'onSaleProductChange', 'calcSaleMargin', 'saveManualSale',
     'showKeyboardShortcutsHelp', 'closeTutorial', 'showAllTutorials', 'showSpecificTutorial', 'resetAllTutorials',
     'showLockedFeatureTutorial',
     'loadNotifications', 'showNotificationsModal', 'markNotificationRead', 'dismissNotification', 'checkAlerts',
@@ -1240,6 +1241,7 @@
       '<button class="btn btn-ghost btn-sm" onclick="app.showQuickRestockModal()"><i data-lucide="package-plus"></i> ' + t("dashboard.quickRestock", "Réappro rapide") + '</button>' +
       '<button class="btn btn-ghost btn-sm" onclick="app.showScannerModal()"><i data-lucide="scan-barcode"></i> ' + t("dashboard.scanBarcode", "Scanner") + '</button>' +
       '<button class="btn btn-ghost btn-sm" onclick="app.showQuickAdjustModal()"><i data-lucide="sliders"></i> ' + t("dashboard.quickAdjust", "Ajustement") + '</button>' +
+      '<button class="btn btn-ghost btn-sm" onclick="app.showManualSaleModal()"><i data-lucide="shopping-cart"></i> ' + t("dashboard.manualSale", "Vente manuelle") + '</button>' +
       (hasFeature("hasInventoryCount") ? '<button class="btn btn-ghost btn-sm" onclick="app.navigateTo(\'inventory\')"><i data-lucide="clipboard-check"></i> ' + t("dashboard.inventory", "Inventaire") + '</button>' : '') +
       '</div></div>' +
       
@@ -1495,6 +1497,156 @@
         res.json().then(function(d) { showToast(d.error || t("msg.error", "Erreur"), "error"); });
       }
     }).catch(function() { showToast(t("msg.error", "Erreur"), "error"); });
+  }
+
+  // ============================================
+  // VENTE MANUELLE (hors Shopify)
+  // ============================================
+
+  function showManualSaleModal(preselectedProductId) {
+    var weightUnit = getWeightUnit();
+    var currSymbol = getCurrencySymbol();
+
+    var productOptions = (state.products || []).map(function(p) {
+      var sel = p.productId === preselectedProductId ? " selected" : "";
+      return '<option value="' + esc(p.productId) + '"' + sel + ' data-stock="' + (p.totalGrams || 0) + '" data-cmp="' + (p.averageCostPerGram || 0) + '">' + esc(p.name) + ' (' + formatWeight(p.totalGrams || 0) + ')' + '</option>';
+    }).join("");
+
+    showModal({
+      title: '<i data-lucide="shopping-cart"></i> ' + t("sale.title", "Vente manuelle"),
+      size: "md",
+      content:
+        '<div class="alert alert-info mb-md" style="font-size:12px;padding:12px;border-radius:8px;background:var(--info-bg);border:1px solid var(--info)">' +
+        '<strong>' + t("sale.manualInfo", "Vente hors Shopify") + '</strong><br>' +
+        t("sale.manualDesc", "Enregistrez une vente realisee en boutique, marche ou livraison. Le stock sera deduit et la vente comptabilisee dans les statistiques.") +
+        '</div>' +
+
+        '<div class="form-group"><label class="form-label">' + t("sale.product", "Produit") + ' *</label>' +
+        '<select class="form-select" id="saleProduct" onchange="app.onSaleProductChange()">' +
+        '<option value="">' + t("form.select", "-- Selectionner --") + '</option>' +
+        productOptions +
+        '</select></div>' +
+
+        '<div class="form-row-mobile">' +
+        '<div class="form-group" style="flex:1"><label class="form-label">' + t("sale.quantity", "Quantite vendue") + ' (' + weightUnit + ') *</label>' +
+        '<input type="number" class="form-input" id="saleQty" value="" step="0.1" min="0.1" placeholder="5" onchange="app.calcSaleMargin()"></div>' +
+        '<div class="form-group" style="flex:1"><label class="form-label">' + t("sale.sellingPrice", "Prix de vente total") + ' (' + currSymbol + ') *</label>' +
+        '<input type="number" class="form-input" id="salePrice" value="" step="0.01" min="0" placeholder="25.00" onchange="app.calcSaleMargin()"></div>' +
+        '</div>' +
+
+        '<div id="saleMarginPreview" style="display:none;padding:10px 14px;border-radius:8px;background:var(--bg-secondary);margin-bottom:12px;font-size:13px"></div>' +
+
+        '<div class="form-group"><label class="form-label">' + t("sale.customer", "Client") + ' <small class="text-secondary">(' + t("labels.optional", "optionnel") + ')</small></label>' +
+        '<input type="text" class="form-input" id="saleCustomer" placeholder="' + t("sale.customerPlaceholder", "Nom du client ou ref. commande") + '"></div>' +
+
+        '<div class="form-group"><label class="form-label">' + t("sale.note", "Note") + '</label>' +
+        '<input type="text" class="form-input" id="saleNote" placeholder="' + t("sale.notePlaceholder", "Ex: Vente comptoir, marche, livraison...") + '"></div>',
+      footer:
+        '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.cancel", "Annuler") + '</button>' +
+        '<button class="btn btn-primary" onclick="app.saveManualSale()"><i data-lucide="check"></i> ' + t("sale.confirm", "Enregistrer la vente") + '</button>'
+    });
+    if (typeof lucide !== "undefined") lucide.createIcons();
+  }
+
+  function onSaleProductChange() {
+    var sel = document.getElementById("saleProduct");
+    if (!sel) return;
+    var opt = sel.selectedOptions ? sel.selectedOptions[0] : null;
+    if (opt) {
+      var stockVal = parseFloat(opt.dataset.stock) || 0;
+      var qtyEl = document.getElementById("saleQty");
+      if (qtyEl) qtyEl.max = fromGrams(stockVal);
+    }
+    calcSaleMargin();
+  }
+
+  function calcSaleMargin() {
+    var preview = document.getElementById("saleMarginPreview");
+    if (!preview) return;
+
+    var sel = document.getElementById("saleProduct");
+    var qty = parseFloat((document.getElementById("saleQty") || {}).value) || 0;
+    var price = parseFloat((document.getElementById("salePrice") || {}).value) || 0;
+
+    if (!sel || !sel.value || qty <= 0) {
+      preview.style.display = "none";
+      return;
+    }
+
+    var opt = sel.selectedOptions ? sel.selectedOptions[0] : null;
+    var cmp = parseFloat(opt ? opt.dataset.cmp : 0) || 0;
+    var qtyGrams = toGrams(qty);
+    var cost = qtyGrams * cmp;
+    var margin = price - cost;
+    var marginPct = price > 0 ? Math.round((margin / price) * 100) : 0;
+    var currSymbol = getCurrencySymbol();
+    var marginColor = margin >= 0 ? "var(--success, #22c55e)" : "var(--danger, #ef4444)";
+
+    preview.style.display = "block";
+    preview.innerHTML =
+      '<div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px">' +
+      '<span>' + t("sale.costPrice", "Cout de revient") + ': <strong>' + cost.toFixed(2) + ' ' + currSymbol + '</strong></span>' +
+      '<span>' + t("sale.margin", "Marge") + ': <strong style="color:' + marginColor + '">' + (margin >= 0 ? "+" : "") + margin.toFixed(2) + ' ' + currSymbol + ' (' + marginPct + '%)</strong></span>' +
+      '</div>';
+  }
+
+  async function saveManualSale() {
+    var productId = (document.getElementById("saleProduct") || {}).value;
+    var qty = parseFloat((document.getElementById("saleQty") || {}).value) || 0;
+    var price = parseFloat((document.getElementById("salePrice") || {}).value) || 0;
+    var customer = (document.getElementById("saleCustomer") || {}).value || "";
+    var note = (document.getElementById("saleNote") || {}).value || "";
+
+    if (!productId) { showToast(t("msg.selectProduct", "Selectionnez un produit"), "error"); return; }
+    if (qty <= 0) { showToast(t("msg.invalidQty", "Quantite invalide"), "error"); return; }
+
+    var qtyGrams = toGrams(qty);
+
+    var product = (state.products || []).find(function(p) { return p.productId === productId; });
+    if (product && qtyGrams > (product.totalGrams || 0)) {
+      var _ok = await showConfirmDialog(
+        t("sale.insufficientStock", "Stock insuffisant ({stock}) pour la quantite demandee ({qty}). Continuer ?")
+          .replace("{stock}", formatWeight(product.totalGrams || 0))
+          .replace("{qty}", formatWeight(qtyGrams)),
+        { danger: true }
+      );
+      if (!_ok) return;
+    }
+
+    var profileData = {};
+    if (typeof activeProfile !== "undefined" && activeProfile) {
+      profileData.profileId = activeProfile.id;
+      profileData.profileName = activeProfile.name;
+      profileData.profileColor = activeProfile.color;
+    }
+
+    try {
+      var res = await authFetch(apiUrl("/sales/manual"), {
+        method: "POST",
+        body: JSON.stringify({
+          productId: productId,
+          grams: qtyGrams,
+          sellingPriceTotal: price,
+          customerName: customer,
+          orderNote: note,
+          ...profileData
+        }),
+      });
+
+      if (res.ok) {
+        var data = await res.json();
+        var marginStr = data.margin !== undefined ? " | Marge: " + data.margin.toFixed(2) + " (" + data.marginPercent + "%)" : "";
+        showToast(t("sale.success", "Vente enregistree") + marginStr, "success");
+        closeModal();
+        await loadProducts(true);
+        renderTab(state.currentTab);
+      } else {
+        var err = await res.json().catch(function() { return {}; });
+        showToast(err.error || t("msg.error", "Erreur"), "error");
+      }
+    } catch (e) {
+      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
+    }
   }
 
   // Scanner code-barres
@@ -2118,6 +2270,7 @@
       '<button class="btn btn-ghost" onclick="app.exportStockCSV()" title="' + t("export.stock", "Export CSV") + '"><i data-lucide="download"></i></button>' +
       '<button class="btn btn-ghost" onclick="app.showScannerModal()" title="' + t("scanner.title", "Scanner code-barres") + '"><i data-lucide="scan-barcode"></i></button>' +
       '<button class="btn btn-ghost" onclick="app.showCategoriesModal()">' + t("categories.title", "Categories") + '</button>' +
+      '<button class="btn btn-ghost" onclick="app.showManualSaleModal()" title="' + t("dashboard.manualSale", "Vente manuelle") + '"><i data-lucide="shopping-cart"></i></button>' +
       '<button class="btn btn-secondary" onclick="app.showImportModal()">' + t("products.importShopify", "Import Shopify") + '</button>' +
       '<button class="btn btn-primary" onclick="app.showAddProductModal()">+ ' + t("action.add", "Add") + '</button></div></div>' +
       
@@ -2671,7 +2824,7 @@
         '<div class="form-group" style="flex:1"><label class="form-label">' + t("labels.price", "Prix de vente") + ' (' + getCurrencySymbol() + ')</label>' +
         '<input type="number" class="form-input" id="labelPrice" value="" step="0.01" placeholder="' + t("labels.optional", "Optionnel") + '"></div>' +
         '<div class="form-group" style="flex:1"><label class="form-label">' + t("labels.customLine", "Ligne personnalisee") + '</label>' +
-        '<input type="text" class="form-input" id="labelCustom" placeholder="Ex: CBD <0.3% THC"></div>' +
+        '<input type="text" class="form-input" id="labelCustom" value="CBD <0.3% THC"></div>' +
         '</div>' +
 
         '<div class="form-row-mobile">' +
@@ -2798,7 +2951,7 @@
       }
 
       labels +=
-        '<div class="label" style="width:' + sz.w + ';height:' + sz.h + ';padding:' + sz.padding + ';box-sizing:border-box;border:0.5px solid #ccc;display:inline-flex;flex-direction:row;gap:' + sz.padding + ';page-break-inside:avoid;margin:2mm;font-family:Arial,sans-serif;font-size:' + sz.fontSize + ';color:#111;background:#fff;overflow:hidden">' +
+        '<div class="label" style="width:' + sz.w + ';height:' + sz.h + ';padding:' + sz.padding + ';box-sizing:border-box;border:0.5px solid #ccc;display:inline-flex;flex-direction:row;gap:' + sz.padding + ';page-break-inside:avoid;font-family:Arial,sans-serif;font-size:' + sz.fontSize + ';color:#111;background:#fff;overflow:hidden">' +
           '<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between;min-width:0">' +
             '<div>' +
               '<div style="font-size:' + sz.titleSize + ';font-weight:700;line-height:1.2;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + escPlain(data.productName) + '</div>' +
@@ -2899,11 +3052,13 @@
       '<style>' +
       '* { margin: 0; padding: 0; box-sizing: border-box; }' +
       'body { padding: 5mm; font-family: Arial, sans-serif; }' +
-      '.labels-grid { display: flex; flex-wrap: wrap; gap: 2mm; }' +
+      '.labels-grid { display: flex; flex-wrap: wrap; gap: 0; justify-content: flex-start; }' +
+      '.label { margin: 0 !important; border-collapse: collapse; }' +
       '@media print {' +
       '  body { padding: 0; margin: 0; }' +
       '  .no-print { display: none !important; }' +
-      '  .label { border: 0.5px solid #ddd !important; }' +
+      '  .label { border: 0.3px solid #ccc !important; margin: 0 !important; }' +
+      '  .labels-grid { gap: 0; }' +
       '}' +
       '</style></head><body>' +
       '<div class="no-print" style="padding:10px 20px;margin-bottom:10px;background:#f0f0f0;display:flex;justify-content:space-between;align-items:center;font-family:Arial,sans-serif">' +
@@ -8476,6 +8631,10 @@
     updateQuickRestockTotal: updateQuickRestockTotal,
     showQuickAdjustModal: showQuickAdjustModal,
     doQuickAdjust: doQuickAdjust,
+    showManualSaleModal: showManualSaleModal,
+    onSaleProductChange: onSaleProductChange,
+    calcSaleMargin: calcSaleMargin,
+    saveManualSale: saveManualSale,
     // Scanner
     showScannerModal: showScannerModal,
     startCamera: startCamera,
