@@ -921,6 +921,16 @@ router.get("/api/stock", (req, res) => {
       products.sort((a, b) => 
         ((b.totalGrams || 0) * (b.averageCostPerGram || 0)) - ((a.totalGrams || 0) * (a.averageCostPerGram || 0))
       );
+    } else if (sort === "cmp_asc") {
+      products.sort((a, b) => (a.averageCostPerGram || 0) - (b.averageCostPerGram || 0));
+    } else if (sort === "cmp_desc") {
+      products.sort((a, b) => (b.averageCostPerGram || 0) - (a.averageCostPerGram || 0));
+    } else if (sort === "status_asc") {
+      const statusOrder = { critical: 0, low: 1, good: 2, ok: 2 };
+      products.sort((a, b) => (statusOrder[a.stockStatus] ?? 3) - (statusOrder[b.stockStatus] ?? 3));
+    } else if (sort === "status_desc") {
+      const statusOrder = { critical: 0, low: 1, good: 2, ok: 2 };
+      products.sort((a, b) => (statusOrder[b.stockStatus] ?? 3) - (statusOrder[a.stockStatus] ?? 3));
     }
 
     // Ajouter compteur produits par categorie

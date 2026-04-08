@@ -32,7 +32,7 @@
     'saveProduct', 'saveRestock', 'saveAdjust', 'syncShopify', 'upgradeTo',
     'showToast', 'hasFeature', 'openProductDetails', 'deleteProduct',
     'showEditCMPModal', 'saveCMP',
-    'onSearchChange', 'onCategoryChange', 'onSortChange', 'showCategoriesModal',
+    'onSearchChange', 'onCategoryChange', 'onSortChange', 'sortByColumn', 'showCategoriesModal',
     'createCategory', 'deleteCategory', 'renameCategory', 'showRenameCategoryModal',
     'showAssignCategoriesModal', 'saveProductCategories',
     'deleteSupplier', 'saveSupplier',
@@ -2097,8 +2097,12 @@
       { value: "alpha_desc", label: t("sort.nameZA", "Nom Z-A") },
       { value: "stock_asc", label: t("sort.stockAsc", "Stock croissant") },
       { value: "stock_desc", label: t("sort.stockDesc", "Stock decroissant") },
+      { value: "cmp_asc", label: t("sort.cmpAsc", "CMP croissant") },
+      { value: "cmp_desc", label: t("sort.cmpDesc", "CMP decroissant") },
       { value: "value_asc", label: t("sort.valueAsc", "Valeur croissante") },
-      { value: "value_desc", label: t("sort.valueDesc", "Valeur decroissante") }
+      { value: "value_desc", label: t("sort.valueDesc", "Valeur decroissante") },
+      { value: "status_asc", label: t("sort.statusAsc", "Statut critique d'abord") },
+      { value: "status_desc", label: t("sort.statusDesc", "Statut OK d'abord") }
     ];
     var sortOptionsHtml = sortOptions.map(function(opt) {
       return '<option value="' + opt.value + '"' + (state.filters.sort === opt.value ? " selected" : "") + '>' + opt.label + '</option>';
@@ -3905,14 +3909,27 @@
         );
       })
       .join("");
+    // Sort indicators helper
+    var cs = state.filters.sort || "alpha";
+    function thSort(col, label) {
+      var colMap = { name: ["alpha", "alpha_desc"], stock: ["stock_asc", "stock_desc"], cmp: ["cmp_asc", "cmp_desc"], value: ["value_asc", "value_desc"], status: ["status_asc", "status_desc"] };
+      var pair = colMap[col] || [];
+      var arrow = "";
+      var isActive = pair.indexOf(cs) !== -1;
+      if (isActive) {
+        arrow = cs === pair[0] ? ' <span style="opacity:0.7">▲</span>' : ' <span style="opacity:0.7">▼</span>';
+      }
+      return '<th style="cursor:pointer;user-select:none;white-space:nowrap" onclick="app.sortByColumn(\'' + col + '\')">' + label + arrow + '</th>';
+    }
+
     return (
       '<table class="data-table"><thead><tr>' +
-      '<th>' + t("table.product", "Produit") + '</th>' +
+      thSort("name", t("table.product", "Produit")) +
       '<th>' + t("table.categories", "Categories") + '</th>' +
-      '<th>' + t("table.stock", "Stock") + '</th>' +
-      '<th>' + t("table.cmp", "CMP") + '</th>' +
-      '<th>' + t("table.value", "Valeur") + '</th>' +
-      '<th>' + t("table.status", "Statut") + '</th>' +
+      thSort("stock", t("table.stock", "Stock")) +
+      thSort("cmp", t("table.cmp", "CMP")) +
+      thSort("value", t("table.value", "Valeur")) +
+      thSort("status", t("table.status", "Statut")) +
       '<th></th></tr></thead><tbody>' +
       rows +
       "</tbody></table>"
@@ -7086,8 +7103,9 @@
       if (res.ok) {
         closeModal();
         showToast(t("products.deleted", "Produit supprime du stock"), "success");
-        // Refresh product list
-        navigateTo("products");
+        // Reload from API then re-render
+        await loadProducts(true);
+        renderTab(state.currentTab);
       } else {
         var err = await res.json().catch(function() { return {}; });
         showToast(err.error || t("msg.error", "Erreur"), "error");
@@ -7605,6 +7623,32 @@
     applyFilters();
   }
 
+  function sortByColumn(column) {
+    var currentSort = state.filters.sort || "alpha";
+    var colMap = {
+      name: { asc: "alpha", desc: "alpha_desc" },
+      stock: { asc: "stock_asc", desc: "stock_desc" },
+      cmp: { asc: "cmp_asc", desc: "cmp_desc" },
+      value: { asc: "value_asc", desc: "value_desc" },
+      status: { asc: "status_asc", desc: "status_desc" }
+    };
+    var col = colMap[column];
+    if (!col) return;
+
+    // Toggle: if already sorted by this column asc -> switch to desc, else asc
+    if (currentSort === col.asc) {
+      state.filters.sort = col.desc;
+    } else {
+      state.filters.sort = col.asc;
+    }
+
+    // Update dropdown if visible
+    var sel = document.getElementById("sortFilter");
+    if (sel) sel.value = state.filters.sort;
+
+    applyFilters();
+  }
+
   // ============================================
   // GESTION CATEGORIES
   // ============================================
@@ -7812,6 +7856,7 @@
     onSearchChange: onSearchChange,
     onCategoryChange: onCategoryChange,
     onSortChange: onSortChange,
+    sortByColumn: sortByColumn,
     // Categories
     showCategoriesModal: showCategoriesModal,
     createCategory: createCategory,
