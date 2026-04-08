@@ -49,6 +49,8 @@
     'openBatchDetails', 'showAdjustBatchModal', 'saveAdjustBatch',
     'deactivateBatch', 'deleteBatch', 'markExpiredBatches',
     'showLabelsModal', 'loadLabelLots', 'previewLabels', 'printLabels',
+    'switchLabelTab', 'addLabelConfig', 'removeLabelConfig',
+    'onLabelProductChange', 'onLabelLotChange', 'onLabelFieldChange',
     'onBatchProductChange', 'onBatchStatusChange', 'onBatchExpiringChange',
     'loadInventorySessions', 'showCreateInventorySessionModal', 'createInventorySession',
     'openInventorySession', 'startInventorySession', 'reviewInventorySession',
@@ -2787,43 +2789,29 @@
   // ETIQUETTES / LABELS (Impression)
   // ============================================
 
+  var labelConfigs = [];
+  var activeLabelTab = 0;
+
   function showLabelsModal(preselectedProductId, preselectedLotId) {
-    var productOptions = (state.products || []).map(function(p) {
-      var sel = p.productId === preselectedProductId ? " selected" : "";
-      return '<option value="' + esc(p.productId) + '"' + sel + '>' + esc(p.name) + '</option>';
-    }).join("");
+    labelConfigs = [{ productId: preselectedProductId || "", lotId: preselectedLotId || "", qty: 1, weight: "", price: "", lotData: null }];
+    activeLabelTab = 0;
 
     showModal({
       title: '<i data-lucide="tag"></i> ' + t("labels.title", "Imprimer des etiquettes"),
       size: "lg",
       content:
-        '<div class="form-row-mobile">' +
-        '<div class="form-group" style="flex:2"><label class="form-label">' + t("labels.product", "Produit") + ' *</label>' +
-        '<select class="form-select" id="labelProduct" onchange="app.loadLabelLots()">' +
-        '<option value="">' + t("form.select", "-- Selectionner --") + '</option>' +
-        productOptions +
-        '</select></div>' +
-        '<div class="form-group" style="flex:2"><label class="form-label">' + t("labels.lot", "Lot") + '</label>' +
-        '<select class="form-select" id="labelLot"><option value="">' + t("labels.allLots", "Tous les lots actifs") + '</option></select></div>' +
-        '</div>' +
+        '<div id="labelTabs" style="display:flex;gap:4px;margin-bottom:12px;flex-wrap:wrap"></div>' +
+        '<div id="labelConfigArea"></div>' +
 
+        '<div style="border-top:1px solid var(--border-color);margin-top:16px;padding-top:16px">' +
         '<div class="form-row-mobile">' +
-        '<div class="form-group" style="flex:1"><label class="form-label">' + t("labels.quantity", "Nombre d\'etiquettes") + '</label>' +
-        '<input type="number" class="form-input" id="labelQty" value="1" min="1" max="200"></div>' +
-        '<div class="form-group" style="flex:1"><label class="form-label">' + t("labels.weight", "Poids par pochon") + ' (' + getWeightUnit() + ')</label>' +
-        '<input type="number" class="form-input" id="labelWeight" value="" step="0.1" placeholder="' + t("labels.weightAuto", "Auto depuis lot") + '"></div>' +
         '<div class="form-group" style="flex:1"><label class="form-label">' + t("labels.format", "Format") + '</label>' +
         '<select class="form-select" id="labelFormat">' +
         '<option value="70x40">70 x 40 mm</option>' +
         '<option value="100x50">100 x 50 mm</option>' +
         '<option value="50x30">50 x 30 mm (mini)</option>' +
         '</select></div>' +
-        '</div>' +
-
-        '<div class="form-row-mobile">' +
-        '<div class="form-group" style="flex:1"><label class="form-label">' + t("labels.price", "Prix de vente") + ' (' + getCurrencySymbol() + ')</label>' +
-        '<input type="number" class="form-input" id="labelPrice" value="" step="0.01" placeholder="' + t("labels.optional", "Optionnel") + '"></div>' +
-        '<div class="form-group" style="flex:1"><label class="form-label">' + t("labels.customLine", "Ligne personnalisee") + '</label>' +
+        '<div class="form-group" style="flex:2"><label class="form-label">' + t("labels.customLine", "Ligne personnalisee") + '</label>' +
         '<input type="text" class="form-input" id="labelCustom" value="CBD <0.3% THC"></div>' +
         '</div>' +
 
@@ -2834,7 +2822,7 @@
         '<input type="checkbox" id="labelShowPrice" style="width:16px;height:16px"> ' + t("labels.showPrice", "Afficher le prix") + '</label></div>' +
         '<div class="form-group" style="flex:1"><label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px">' +
         '<input type="checkbox" id="labelShowSupplier" style="width:16px;height:16px"> ' + t("labels.showSupplierRef", "Ref. fournisseur") + '</label></div>' +
-        '</div>' +
+        '</div></div>' +
 
         '<div id="labelPreview" style="margin-top:16px;padding:16px;background:var(--bg-secondary);border-radius:8px;min-height:60px">' +
         '<p class="text-secondary text-center" style="font-size:13px">' + t("labels.selectProduct", "Selectionnez un produit pour generer l\'apercu") + '</p></div>',
@@ -2845,22 +2833,139 @@
     });
     if (typeof lucide !== "undefined") lucide.createIcons();
 
+    renderLabelTabs();
+    renderLabelConfig();
+
     if (preselectedProductId) {
-      loadLabelLots();
-      if (preselectedLotId) {
-        setTimeout(function() {
-          var sel = document.getElementById("labelLot");
-          if (sel) sel.value = preselectedLotId;
-        }, 500);
+      loadLabelLots(0);
+    }
+  }
+
+  function renderLabelTabs() {
+    var container = document.getElementById("labelTabs");
+    if (!container) return;
+
+    var html = labelConfigs.map(function(cfg, i) {
+      var active = i === activeLabelTab ? "background:var(--primary,#6366f1);color:#fff;border-color:var(--primary,#6366f1)" : "background:var(--bg-secondary);color:var(--text-primary)";
+      var product = (state.products || []).find(function(p) { return p.productId === cfg.productId; });
+      var label = product ? product.name : t("labels.labelNum", "Etiquette") + " " + (i + 1);
+      if (label.length > 20) label = label.substring(0, 18) + "...";
+      return '<div style="display:flex;align-items:center;gap:0">' +
+        '<button onclick="app.switchLabelTab(' + i + ')" style="padding:6px 14px;border:1px solid var(--border-color);border-radius:6px 0 0 6px;cursor:pointer;font-size:12px;font-weight:500;' + active + '">' +
+        label + ' <span style="opacity:0.7">x' + cfg.qty + '</span></button>' +
+        (labelConfigs.length > 1 ? '<button onclick="app.removeLabelConfig(' + i + ')" style="padding:6px 8px;border:1px solid var(--border-color);border-left:0;border-radius:0 6px 6px 0;cursor:pointer;font-size:11px;background:var(--bg-secondary);color:var(--danger,#ef4444)" title="' + t("action.delete", "Supprimer") + '">x</button>' : '<span style="width:0"></span>') +
+        '</div>';
+    }).join("");
+
+    html += '<button onclick="app.addLabelConfig()" style="padding:6px 14px;border:1px dashed var(--border-color);border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;background:transparent;color:var(--primary,#6366f1)">+ ' + t("labels.addLabel", "Ajouter") + '</button>';
+
+    container.innerHTML = html;
+  }
+
+  function renderLabelConfig() {
+    var container = document.getElementById("labelConfigArea");
+    if (!container) return;
+
+    var cfg = labelConfigs[activeLabelTab];
+    if (!cfg) return;
+
+    var weightUnit = getWeightUnit();
+    var currSymbol = getCurrencySymbol();
+
+    var productOptions = (state.products || []).map(function(p) {
+      var sel = p.productId === cfg.productId ? " selected" : "";
+      return '<option value="' + esc(p.productId) + '"' + sel + '>' + esc(p.name) + '</option>';
+    }).join("");
+
+    container.innerHTML =
+      '<div class="form-row-mobile">' +
+      '<div class="form-group" style="flex:2"><label class="form-label">' + t("labels.product", "Produit") + ' *</label>' +
+      '<select class="form-select" id="labelProduct" onchange="app.onLabelProductChange()">' +
+      '<option value="">' + t("form.select", "-- Selectionner --") + '</option>' +
+      productOptions +
+      '</select></div>' +
+      '<div class="form-group" style="flex:2"><label class="form-label">' + t("labels.lot", "Lot") + '</label>' +
+      '<select class="form-select" id="labelLot" onchange="app.onLabelLotChange()"><option value="">' + t("labels.allLots", "Tous les lots actifs") + '</option></select></div>' +
+      '</div>' +
+
+      '<div class="form-row-mobile">' +
+      '<div class="form-group" style="flex:1"><label class="form-label">' + t("labels.quantity", "Nombre") + '</label>' +
+      '<input type="number" class="form-input" id="labelQty" value="' + (cfg.qty || 1) + '" min="1" max="200" onchange="app.onLabelFieldChange()"></div>' +
+      '<div class="form-group" style="flex:1"><label class="form-label">' + t("labels.weight", "Poids") + ' (' + weightUnit + ')</label>' +
+      '<input type="number" class="form-input" id="labelWeight" value="' + (cfg.weight || "") + '" step="0.1" placeholder="Auto" onchange="app.onLabelFieldChange()"></div>' +
+      '<div class="form-group" style="flex:1"><label class="form-label">' + t("labels.price", "Prix") + ' (' + currSymbol + ')</label>' +
+      '<input type="number" class="form-input" id="labelPrice" value="' + (cfg.price || "") + '" step="0.01" placeholder="' + t("labels.optional", "Optionnel") + '" onchange="app.onLabelFieldChange()"></div>' +
+      '</div>';
+
+    if (cfg.productId) {
+      loadLabelLots(activeLabelTab);
+    }
+  }
+
+  function switchLabelTab(idx) {
+    saveLabelConfigFromForm();
+    activeLabelTab = idx;
+    renderLabelTabs();
+    renderLabelConfig();
+  }
+
+  function addLabelConfig() {
+    saveLabelConfigFromForm();
+    labelConfigs.push({ productId: "", lotId: "", qty: 1, weight: "", price: "", lotData: null });
+    activeLabelTab = labelConfigs.length - 1;
+    renderLabelTabs();
+    renderLabelConfig();
+  }
+
+  function removeLabelConfig(idx) {
+    if (labelConfigs.length <= 1) return;
+    labelConfigs.splice(idx, 1);
+    if (activeLabelTab >= labelConfigs.length) activeLabelTab = labelConfigs.length - 1;
+    renderLabelTabs();
+    renderLabelConfig();
+  }
+
+  function saveLabelConfigFromForm() {
+    var cfg = labelConfigs[activeLabelTab];
+    if (!cfg) return;
+    cfg.productId = (document.getElementById("labelProduct") || {}).value || "";
+    cfg.lotId = (document.getElementById("labelLot") || {}).value || "";
+    cfg.qty = parseInt((document.getElementById("labelQty") || {}).value) || 1;
+    cfg.weight = parseFloat((document.getElementById("labelWeight") || {}).value) || "";
+    cfg.price = parseFloat((document.getElementById("labelPrice") || {}).value) || "";
+
+    var lotOpt = document.getElementById("labelLot");
+    if (lotOpt && cfg.lotId) {
+      var selected = lotOpt.selectedOptions ? lotOpt.selectedOptions[0] : null;
+      if (selected && selected.dataset.lot) {
+        try { cfg.lotData = JSON.parse(selected.dataset.lot); } catch(e) {}
       }
     }
   }
 
-  async function loadLabelLots() {
-    var productId = (document.getElementById("labelProduct") || {}).value;
+  function onLabelProductChange() {
+    var cfg = labelConfigs[activeLabelTab];
+    if (cfg) cfg.productId = (document.getElementById("labelProduct") || {}).value || "";
+    loadLabelLots(activeLabelTab);
+    renderLabelTabs();
+  }
+
+  function onLabelLotChange() {
+    saveLabelConfigFromForm();
+  }
+
+  function onLabelFieldChange() {
+    saveLabelConfigFromForm();
+    renderLabelTabs();
+  }
+
+  async function loadLabelLots(tabIdx) {
+    var cfg = labelConfigs[tabIdx];
+    if (!cfg) return;
+    var productId = cfg.productId;
     var lotSelect = document.getElementById("labelLot");
     if (!lotSelect) return;
-    
+
     lotSelect.innerHTML = '<option value="">' + t("labels.allLots", "Tous les lots actifs") + '</option>';
     if (!productId) return;
 
@@ -2873,52 +2978,39 @@
           var label = lot.id + ' - ' + formatWeight(lot.currentGrams) + (lot.expiryDate ? ' (DLC: ' + lot.expiryDate + ')' : '');
           lotSelect.innerHTML += '<option value="' + esc(lot.id) + '" data-lot=\'' + JSON.stringify(lot).replace(/'/g, "&#39;") + '\'>' + esc(label) + '</option>';
         });
+        if (cfg.lotId) lotSelect.value = cfg.lotId;
       }
     } catch(e) {
       console.warn("Labels: lot load error", e);
     }
   }
 
-  function getLabelData() {
-    var productId = (document.getElementById("labelProduct") || {}).value;
-    var lotId = (document.getElementById("labelLot") || {}).value;
-    var qty = parseInt((document.getElementById("labelQty") || {}).value) || 1;
-    var weight = parseFloat((document.getElementById("labelWeight") || {}).value) || 0;
+  function getAllLabelData() {
+    saveLabelConfigFromForm();
     var format = (document.getElementById("labelFormat") || {}).value || "70x40";
-    var price = parseFloat((document.getElementById("labelPrice") || {}).value) || 0;
     var customLine = (document.getElementById("labelCustom") || {}).value || "";
     var showQR = (document.getElementById("labelShowQR") || {}).checked;
     var showPrice = (document.getElementById("labelShowPrice") || {}).checked;
     var showSupplier = (document.getElementById("labelShowSupplier") || {}).checked;
 
-    var product = (state.products || []).find(function(p) { return p.productId === productId; });
-    var productName = product ? product.name : "";
-    var lotData = null;
-
-    var lotOpt = document.getElementById("labelLot");
-    if (lotOpt && lotId) {
-      var selected = lotOpt.selectedOptions ? lotOpt.selectedOptions[0] : null;
-      if (selected && selected.dataset.lot) {
-        try { lotData = JSON.parse(selected.dataset.lot); } catch(e) {}
-      }
-    }
-
-    if (!weight && lotData) weight = lotData.currentGrams || lotData.initialGrams || 0;
-
-    return {
-      productId: productId,
-      productName: productName,
-      lotId: lotId,
-      lotData: lotData,
-      qty: Math.min(qty, 200),
-      weight: weight,
-      format: format,
-      price: price,
-      customLine: customLine,
-      showQR: showQR,
-      showPrice: showPrice,
-      showSupplier: showSupplier
-    };
+    return labelConfigs.map(function(cfg) {
+      var product = (state.products || []).find(function(p) { return p.productId === cfg.productId; });
+      var weight = cfg.weight || (cfg.lotData ? (cfg.lotData.currentGrams || cfg.lotData.initialGrams || 0) : 0);
+      return {
+        productId: cfg.productId,
+        productName: product ? product.name : "",
+        lotId: cfg.lotId,
+        lotData: cfg.lotData,
+        qty: Math.min(cfg.qty || 1, 200),
+        weight: weight,
+        format: format,
+        price: cfg.price || 0,
+        customLine: customLine,
+        showQR: showQR,
+        showPrice: showPrice,
+        showSupplier: showSupplier
+      };
+    }).filter(function(d) { return d.productName; });
   }
 
   function buildLabelHTML(data) {
@@ -2940,15 +3032,11 @@
     var supplierRef = lotInfo.supplierBatchRef || "";
     var weightDisplay = data.weight ? fromGrams(data.weight).toFixed(1) + " " + weightUnit : "-";
 
-    // QR code data
     var qrData = "LOT:" + lotId + "|PROD:" + data.productName + "|W:" + weightDisplay + "|EXP:" + expiryDate + "|DATE:" + today;
 
     var labels = "";
     for (var i = 0; i < data.qty; i++) {
-      var qrSvg = "";
-      if (data.showQR) {
-        qrSvg = generateQRPlaceholder(qrData, data.format === "50x30" ? 50 : 70);
-      }
+      var qrSvg = data.showQR ? generateQRPlaceholder(qrData, data.format === "50x30" ? 50 : 70) : "";
 
       labels +=
         '<div class="label" style="width:' + sz.w + ';height:' + sz.h + ';padding:' + sz.padding + ';box-sizing:border-box;border:0.5px solid #ccc;display:inline-flex;flex-direction:row;gap:' + sz.padding + ';page-break-inside:avoid;font-family:Arial,sans-serif;font-size:' + sz.fontSize + ';color:#111;background:#fff;overflow:hidden">' +
@@ -2977,20 +3065,17 @@
   }
 
   function generateQRPlaceholder(data, size) {
-    // Simple QR-like pattern using SVG (not a real QR but a visual placeholder)
-    // For real QR, use a library like qrcode.js
     var s = size || 60;
     var hash = 0;
     for (var i = 0; i < data.length; i++) {
       hash = ((hash << 5) - hash) + data.charCodeAt(i);
       hash |= 0;
     }
-    
+
     var cells = 11;
     var cellSize = s / cells;
     var rects = '';
-    
-    // Fixed corners (QR finder patterns)
+
     var corners = [[0,0],[0,cells-3],[cells-3,0]];
     corners.forEach(function(c) {
       for (var dy = 0; dy < 3; dy++) {
@@ -3002,7 +3087,6 @@
       rects += '<rect x="' + ((c[0]+1)*cellSize) + '" y="' + ((c[1]+1)*cellSize) + '" width="' + cellSize + '" height="' + cellSize + '" fill="#111"/>';
     });
 
-    // Data cells from hash
     var seed = Math.abs(hash);
     for (var y = 0; y < cells; y++) {
       for (var x = 0; x < cells; x++) {
@@ -3019,27 +3103,41 @@
   }
 
   function previewLabels() {
-    var data = getLabelData();
-    if (!data.productName) {
+    var allData = getAllLabelData();
+    if (allData.length === 0) {
       showToast(t("labels.selectProduct", "Selectionnez un produit"), "warning");
       return;
     }
     var container = document.getElementById("labelPreview");
     if (!container) return;
 
-    var html = buildLabelHTML({ ...data, qty: Math.min(data.qty, 4) });
+    var html = "";
+    var totalCount = 0;
+    allData.forEach(function(data) {
+      html += buildLabelHTML({ ...data, qty: Math.min(data.qty, 2) });
+      totalCount += data.qty;
+    });
     container.innerHTML = '<div style="display:flex;flex-wrap:wrap;gap:4px;justify-content:center">' + html + '</div>' +
-      (data.qty > 4 ? '<p class="text-secondary text-center" style="font-size:12px;margin-top:8px">' + t("labels.previewNote", "Apercu limite a 4 etiquettes. Les {count} seront imprimees.").replace("{count}", data.qty) + '</p>' : '');
+      '<p class="text-secondary text-center" style="font-size:12px;margin-top:8px">' +
+      t("labels.previewTotal", "{count} etiquette(s) au total sur la feuille").replace("{count}", totalCount) +
+      (allData.length > 1 ? ' (' + allData.length + ' ' + t("labels.productTypes", "produits differents") + ')' : '') + '</p>';
   }
 
   function printLabels() {
-    var data = getLabelData();
-    if (!data.productName) {
+    var allData = getAllLabelData();
+    if (allData.length === 0) {
       showToast(t("labels.selectProduct", "Selectionnez un produit"), "warning");
       return;
     }
 
-    var labelsHtml = buildLabelHTML(data);
+    var labelsHtml = "";
+    var totalCount = 0;
+    var names = [];
+    allData.forEach(function(data) {
+      labelsHtml += buildLabelHTML(data);
+      totalCount += data.qty;
+      names.push(data.productName);
+    });
 
     var printWindow = window.open("", "_blank", "width=800,height=600");
     if (!printWindow) {
@@ -3048,21 +3146,20 @@
     }
 
     printWindow.document.write(
-      '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>' + t("labels.printTitle", "Etiquettes") + ' - ' + escPlain(data.productName) + '</title>' +
+      '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>' + t("labels.printTitle", "Etiquettes") + '</title>' +
       '<style>' +
       '* { margin: 0; padding: 0; box-sizing: border-box; }' +
       'body { padding: 5mm; font-family: Arial, sans-serif; }' +
       '.labels-grid { display: flex; flex-wrap: wrap; gap: 0; justify-content: flex-start; }' +
-      '.label { margin: 0 !important; border-collapse: collapse; }' +
+      '.label { margin: 0 !important; }' +
       '@media print {' +
       '  body { padding: 0; margin: 0; }' +
       '  .no-print { display: none !important; }' +
-      '  .label { border: 0.3px solid #ccc !important; margin: 0 !important; }' +
-      '  .labels-grid { gap: 0; }' +
+      '  .label { border: 0.3px solid #ccc !important; }' +
       '}' +
       '</style></head><body>' +
       '<div class="no-print" style="padding:10px 20px;margin-bottom:10px;background:#f0f0f0;display:flex;justify-content:space-between;align-items:center;font-family:Arial,sans-serif">' +
-      '<span style="font-weight:600">' + data.qty + ' ' + t("labels.labelCount", "etiquette(s)") + ' — ' + escPlain(data.productName) + '</span>' +
+      '<span style="font-weight:600">' + totalCount + ' ' + t("labels.labelCount", "etiquette(s)") + ' — ' + escPlain(names.join(", ")) + '</span>' +
       '<button onclick="window.print()" style="padding:8px 20px;background:#6366f1;color:white;border:none;border-radius:6px;cursor:pointer;font-size:14px">Imprimer</button>' +
       '</div>' +
       '<div class="labels-grid">' + labelsHtml + '</div>' +
@@ -8535,6 +8632,12 @@
     loadLabelLots: loadLabelLots,
     previewLabels: previewLabels,
     printLabels: printLabels,
+    switchLabelTab: switchLabelTab,
+    addLabelConfig: addLabelConfig,
+    removeLabelConfig: removeLabelConfig,
+    onLabelProductChange: onLabelProductChange,
+    onLabelLotChange: onLabelLotChange,
+    onLabelFieldChange: onLabelFieldChange,
     // Suppliers
     onSupplierSearchChange: onSupplierSearchChange,
     onSupplierStatusChange: onSupplierStatusChange,
