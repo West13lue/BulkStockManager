@@ -31,6 +31,7 @@
     'showRestockModal', 'showAdjustModal', 'showUpgradeModal', 'showLockedModal',
     'saveProduct', 'saveRestock', 'saveAdjust', 'syncShopify', 'upgradeTo',
     'showToast', 'hasFeature', 'openProductDetails', 'deleteProduct',
+    'toggleProductSelect', 'toggleSelectAll', 'deleteSelectedProducts', 'clearProductSelection',
     'showEditCMPModal', 'saveCMP',
     'onSearchChange', 'onCategoryChange', 'onSortChange', 'sortByColumn', 'showCategoriesModal',
     'createCategory', 'deleteCategory', 'renameCategory', 'showRenameCategoryModal',
@@ -3872,6 +3873,99 @@
     loadSalesOrders();
   }
 
+  var selectedProducts = new Set();
+
+  function toggleProductSelect(productId, event) {
+    if (event) event.stopPropagation();
+    if (selectedProducts.has(productId)) {
+      selectedProducts.delete(productId);
+    } else {
+      selectedProducts.add(productId);
+    }
+    updateBulkBar();
+    // Update checkbox visual
+    var cb = document.querySelector('.product-cb[data-id="' + productId + '"]');
+    if (cb) cb.checked = selectedProducts.has(productId);
+    // Update select-all
+    var sa = document.getElementById("selectAllProducts");
+    if (sa) sa.checked = selectedProducts.size > 0 && selectedProducts.size === state.products.length;
+  }
+
+  function toggleSelectAll(event) {
+    if (event) event.stopPropagation();
+    var sa = document.getElementById("selectAllProducts");
+    if (!sa) return;
+    if (sa.checked) {
+      state.products.forEach(function(p) { selectedProducts.add(p.productId); });
+    } else {
+      selectedProducts.clear();
+    }
+    document.querySelectorAll(".product-cb").forEach(function(cb) { cb.checked = sa.checked; });
+    updateBulkBar();
+  }
+
+  function updateBulkBar() {
+    var existing = document.getElementById("bulkBar");
+    if (selectedProducts.size === 0) {
+      if (existing) existing.remove();
+      return;
+    }
+    if (!existing) {
+      existing = document.createElement("div");
+      existing.id = "bulkBar";
+      existing.style.cssText = "position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:999;background:var(--bg-primary,#1e1e2e);border:1px solid var(--border-color,#333);border-radius:12px;padding:10px 20px;display:flex;align-items:center;gap:16px;box-shadow:0 8px 32px rgba(0,0,0,0.4);";
+      document.body.appendChild(existing);
+    }
+    existing.innerHTML =
+      '<span style="font-size:14px;font-weight:500;color:var(--text-primary,#fff)">' + selectedProducts.size + ' ' + t("products.selected", "selectionne(s)") + '</span>' +
+      '<button class="btn btn-ghost btn-sm" onclick="app.clearProductSelection()" style="font-size:13px">' + t("action.cancel", "Annuler") + '</button>' +
+      '<button class="btn btn-sm" style="background:var(--danger,#ef4444);color:white;border:none;font-size:13px" onclick="app.deleteSelectedProducts()"><i data-lucide="trash-2" style="width:14px;height:14px"></i> ' + t("products.deleteSelected", "Supprimer") + '</button>';
+    if (typeof lucide !== "undefined") lucide.createIcons();
+  }
+
+  function clearProductSelection() {
+    selectedProducts.clear();
+    document.querySelectorAll(".product-cb").forEach(function(cb) { cb.checked = false; });
+    var sa = document.getElementById("selectAllProducts");
+    if (sa) sa.checked = false;
+    updateBulkBar();
+  }
+
+  async function deleteSelectedProducts() {
+    var count = selectedProducts.size;
+    if (count === 0) return;
+    var _ok = await showConfirmDialog(
+      t("products.confirmDeleteMultiple", "Supprimer {count} produit(s) du stock ?").replace("{count}", count) +
+      "\n\n" + t("products.confirmDeleteWarn", "Cette action est irreversible. L'historique des mouvements sera conserve."),
+      { danger: true, confirmText: t("products.deleteSelected", "Supprimer") + " (" + count + ")" }
+    );
+    if (!_ok) return;
+
+    showToast(t("products.deletingMultiple", "Suppression en cours..."), "info");
+    var ids = Array.from(selectedProducts);
+    var success = 0;
+    var errors = 0;
+
+    for (var i = 0; i < ids.length; i++) {
+      try {
+        var res = await authFetch(apiUrl("/products/" + encodeURIComponent(ids[i])), { method: "DELETE" });
+        if (res.ok) {
+          success++;
+        } else {
+          errors++;
+        }
+      } catch (e) {
+        errors++;
+      }
+    }
+
+    selectedProducts.clear();
+    updateBulkBar();
+    showToast(success + " " + t("products.deletedCount", "produit(s) supprime(s)") + (errors > 0 ? " (" + errors + " " + t("msg.errors", "erreurs") + ")" : ""), success > 0 ? "success" : "error");
+    await loadProducts(true);
+    renderTab(state.currentTab);
+  }
+
   function renderTable(products) {
     var rows = products
       .map(function (p) {
@@ -3893,8 +3987,11 @@
           catChips = '<span class="category-chip category-chip-empty">-</span>';
         }
         
+        var isChecked = selectedProducts.has(p.productId) ? " checked" : "";
+        
         return (
           '<tr class="product-row" data-product-id="' + esc(p.productId) + '" onclick="app.openProductDetails(\'' + esc(p.productId) + '\')" style="cursor:pointer">' +
+          '<td onclick="event.stopPropagation()"><input type="checkbox" class="product-cb" data-id="' + esc(p.productId) + '"' + isChecked + ' onchange="app.toggleProductSelect(\'' + esc(p.productId) + '\', event)" style="cursor:pointer;width:16px;height:16px"></td>' +
           "<td>" + esc(p.name || p.title || t("products.unnamed", "Sans nom")) + "</td>" +
           '<td class="cell-categories" onclick="event.stopPropagation();app.showAssignCategoriesModal(\'' + esc(p.productId) + '\')">' + catChips + '</td>' +
           "<td>" + formatWeight(s) + "</td>" +
@@ -3922,8 +4019,11 @@
       return '<th style="cursor:pointer;user-select:none;white-space:nowrap" onclick="app.sortByColumn(\'' + col + '\')">' + label + arrow + '</th>';
     }
 
+    var allChecked = selectedProducts.size > 0 && selectedProducts.size === products.length;
+
     return (
       '<table class="data-table"><thead><tr>' +
+      '<th onclick="event.stopPropagation()" style="width:32px"><input type="checkbox" id="selectAllProducts"' + (allChecked ? " checked" : "") + ' onchange="app.toggleSelectAll(event)" style="cursor:pointer;width:16px;height:16px"></th>' +
       thSort("name", t("table.product", "Produit")) +
       '<th>' + t("table.categories", "Categories") + '</th>' +
       thSort("stock", t("table.stock", "Stock")) +
@@ -7850,6 +7950,10 @@
     hasFeature: hasFeature,
     openProductDetails: openProductDetails,
     deleteProduct: deleteProduct,
+    toggleProductSelect: toggleProductSelect,
+    toggleSelectAll: toggleSelectAll,
+    deleteSelectedProducts: deleteSelectedProducts,
+    clearProductSelection: clearProductSelection,
     showEditCMPModal: showEditCMPModal,
     saveCMP: saveCMP,
     // Filtres
