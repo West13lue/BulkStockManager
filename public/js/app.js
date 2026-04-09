@@ -76,7 +76,7 @@
     'switchOrdersTab', 'onOrderStatusChange', 'onOrderPeriodChange', 'onOrderSourceChange',
     'importShopifyOrders',
     'showCreatePOModal', 'savePO', 'openPODetails', 'confirmPO', 'sendPO',
-    'addPOLine', 'removePOLine', 'updatePOTotal', 'onPOSupplierChange',
+    'addPOLine', 'removePOLine', 'updatePOTotal', 'onPOSupplierChange', 'onPOFileSelected',
     'updateQuickRestockCMP', 'updateQuickRestockTotal',
     'selectSearchResultByIndex', 'toggleSection'
   ];
@@ -3855,15 +3855,19 @@
       });
     }
 
-    // Options produits
-    var productOptions = state.products.map(function(p) {
-      return '<option value="' + esc(p.productId) + '">' + esc(p.name) + '</option>';
-    }).join("");
-
     showModal({
       title: t("orders.newPO", "Nouvelle commande fournisseur"),
       size: "lg",
       content:
+        // PDF Upload zone
+        '<div style="border:2px dashed var(--border-color);border-radius:12px;padding:20px;margin-bottom:16px;text-align:center;position:relative" id="poDropZone">' +
+        '<input type="file" id="poFileInput" accept=".pdf,.jpg,.jpeg,.png" style="position:absolute;inset:0;opacity:0;cursor:pointer" onchange="app.onPOFileSelected(event)">' +
+        '<div id="poFileStatus">' +
+        '<i data-lucide="file-up" style="width:32px;height:32px;color:var(--text-secondary);margin-bottom:8px"></i>' +
+        '<p style="font-size:14px;font-weight:500;margin:0">' + t("orders.uploadInvoice", "Deposer une facture d\'achat") + '</p>' +
+        '<p style="font-size:12px;color:var(--text-secondary);margin:4px 0 0">' + t("orders.uploadFormats", "PDF - Le texte sera extrait et analyse automatiquement") + '</p>' +
+        '</div></div>' +
+
         '<div class="form-row">' +
         '<div class="form-group" style="flex:1"><label class="form-label">' + t("orders.supplier", "Fournisseur") + ' *</label>' +
         '<select class="form-select" id="poSupplier" onchange="app.onPOSupplierChange(this)">' + supplierOptions + '</select></div>' +
@@ -3898,6 +3902,274 @@
     // Ajouter une premiere ligne
     addPOLine();
     if (typeof lucide !== "undefined") lucide.createIcons();
+  }
+
+  var poUploadedFileBase64 = null;
+  var poUploadedFileName = null;
+
+  function onPOFileSelected(event) {
+    var file = event.target.files ? event.target.files[0] : null;
+    if (!file) return;
+
+    poUploadedFileName = file.name;
+    var statusEl = document.getElementById("poFileStatus");
+    if (!statusEl) return;
+
+    statusEl.innerHTML =
+      '<div class="spinner" style="margin:0 auto 8px"></div>' +
+      '<p style="font-size:14px;font-weight:500;margin:0">' + t("orders.analyzing", "Analyse en cours...") + '</p>' +
+      '<p style="font-size:12px;color:var(--text-secondary);margin:4px 0 0">' + escPlain(file.name) + '</p>';
+
+    if (file.type === "application/pdf") {
+      extractTextFromPDF(file);
+    } else {
+      // Image: just show it and let user enter manually
+      statusEl.innerHTML =
+        '<div style="display:flex;align-items:center;gap:8px;justify-content:center">' +
+        '<i data-lucide="image" style="width:20px;height:20px;color:var(--primary)"></i>' +
+        '<span style="font-weight:500">' + escPlain(file.name) + '</span>' +
+        '</div>' +
+        '<p style="font-size:12px;color:var(--text-secondary);margin:8px 0 0">' + t("orders.imageUploaded", "Image chargee. Saisissez les lignes manuellement.") + '</p>';
+      if (typeof lucide !== "undefined") lucide.createIcons();
+    }
+  }
+
+  async function extractTextFromPDF(file) {
+    var statusEl = document.getElementById("poFileStatus");
+
+    // Load PDF.js from CDN if not present
+    if (typeof pdfjsLib === "undefined") {
+      try {
+        await loadScript("https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js");
+        pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+      } catch (e) {
+        if (statusEl) {
+          statusEl.innerHTML =
+            '<p style="color:var(--danger)">' + t("orders.pdfLibError", "Impossible de charger le lecteur PDF.") + '</p>' +
+            '<p style="font-size:11px;color:var(--text-secondary)">' + t("orders.manualEntry", "Saisissez les lignes manuellement ci-dessous.") + '</p>';
+        }
+        return;
+      }
+    }
+
+    try {
+      var arrayBuffer = await file.arrayBuffer();
+      var pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      var fullText = "";
+
+      for (var i = 1; i <= pdf.numPages; i++) {
+        var page = await pdf.getPage(i);
+        var content = await page.getTextContent();
+        var pageText = content.items.map(function(item) { return item.str; }).join(" ");
+        fullText += pageText + "\n";
+      }
+
+      var analysis = parseInvoiceText(fullText);
+
+      if (statusEl) {
+        statusEl.innerHTML =
+          '<div style="display:flex;align-items:center;gap:8px;justify-content:center">' +
+          '<i data-lucide="check-circle" style="width:20px;height:20px;color:var(--success)"></i>' +
+          '<span style="font-weight:500">' + escPlain(file.name) + '</span>' +
+          '</div>' +
+          (analysis.summary ? '<p style="font-size:12px;color:var(--text-secondary);margin:8px 0 0">' + escPlain(analysis.summary) + '</p>' : '') +
+          '<details style="margin-top:8px;font-size:11px;color:var(--text-secondary)"><summary style="cursor:pointer">' + t("orders.showExtracted", "Voir le texte extrait") + '</summary>' +
+          '<pre style="max-height:100px;overflow:auto;white-space:pre-wrap;background:var(--bg-secondary);padding:8px;border-radius:4px;margin-top:4px;font-size:10px">' + escPlain(fullText.substring(0, 2000)) + '</pre></details>';
+        if (typeof lucide !== "undefined") lucide.createIcons();
+      }
+
+      applyInvoiceAnalysis(analysis, file.name);
+
+    } catch (e) {
+      if (statusEl) {
+        statusEl.innerHTML =
+          '<div style="display:flex;align-items:center;gap:8px;justify-content:center">' +
+          '<i data-lucide="alert-triangle" style="width:20px;height:20px;color:var(--danger)"></i>' +
+          '<span style="font-weight:500">' + escPlain(file.name) + '</span>' +
+          '</div>' +
+          '<p style="font-size:12px;color:var(--danger);margin:8px 0 0">' + t("orders.analysisFailed", "Analyse echouee") + '</p>' +
+          '<p style="font-size:11px;color:var(--text-secondary)">' + t("orders.manualEntry", "Saisissez les lignes manuellement ci-dessous.") + '</p>';
+        if (typeof lucide !== "undefined") lucide.createIcons();
+      }
+    }
+  }
+
+  function loadScript(src) {
+    return new Promise(function(resolve, reject) {
+      if (document.querySelector('script[src="' + src + '"]')) { resolve(); return; }
+      var s = document.createElement("script");
+      s.src = src;
+      s.onload = resolve;
+      s.onerror = reject;
+      document.head.appendChild(s);
+    });
+  }
+
+  function parseInvoiceText(text) {
+    var analysis = { supplier: null, date: null, lines: [], shipping: 0, totalTTC: 0, summary: "" };
+    var lines = text.split(/\n/);
+    var allText = text.toLowerCase();
+    var weightUnit = getWeightUnit();
+
+    // Detect date (DD/MM/YYYY or YYYY-MM-DD)
+    var dateMatch = text.match(/(\d{2})[\/\-](\d{2})[\/\-](\d{4})/);
+    if (dateMatch) {
+      var d1 = parseInt(dateMatch[1]), d2 = parseInt(dateMatch[2]), d3 = parseInt(dateMatch[3]);
+      if (d1 > 12) {
+        analysis.date = d3 + "-" + String(d2).padStart(2, "0") + "-" + String(d1).padStart(2, "0");
+      } else {
+        analysis.date = d3 + "-" + String(d1).padStart(2, "0") + "-" + String(d2).padStart(2, "0");
+      }
+    }
+    var isoDate = text.match(/(\d{4})-(\d{2})-(\d{2})/);
+    if (isoDate) analysis.date = isoDate[0];
+
+    // Detect shipping
+    var shipMatch = text.match(/(?:frais\s*(?:de\s*)?port|livraison|shipping|transport)[^\d]*(\d+[.,]\d{2})/i);
+    if (shipMatch) analysis.shipping = parseFloat(shipMatch[1].replace(",", "."));
+
+    // Detect total TTC
+    var totalMatch = text.match(/(?:total\s*(?:ttc|TTC|general|à payer|a payer))[^\d]*(\d+[.,]\d{2})/i);
+    if (totalMatch) analysis.totalTTC = parseFloat(totalMatch[1].replace(",", "."));
+
+    // Detect product lines: patterns like "product name   qty   unit   price   total"
+    // CBD invoices typically have: "3x Filtré   500g   4,50€/g   2250,00€"
+    // Or: "Amnesia US   1 kg   8,90 €   8900,00 €"
+    var productPatterns = [
+      // "name    500g    4,50€/g    2250,00€" or "name   500 g   4.50   2250.00"
+      /([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ\s\-\.\/\(\)]{2,40}?)\s+(\d+[.,]?\d*)\s*(?:g|kg|gr)\s+(\d+[.,]\d{1,4})\s*(?:€|EUR|eur)?(?:\/(?:g|kg))?\s+(\d+[.,]\d{2})/gi,
+      // "name   qty x price = total"
+      /([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ\s\-\.\/\(\)]{2,40}?)\s+(\d+[.,]?\d*)\s*[xX×]\s*(\d+[.,]\d{1,4})\s*(?:€|EUR)?\s*=?\s*(\d+[.,]\d{2})/gi,
+      // "qty  name  price/unit  total"
+      /(\d+[.,]?\d*)\s*(?:g|kg|gr)\s+([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ\s\-\.\/]{2,30}?)\s+(\d+[.,]\d{1,4})\s*(?:€|EUR)?(?:\/(?:g|kg))?\s+(\d+[.,]\d{2})/gi,
+    ];
+
+    var foundLines = [];
+    productPatterns.forEach(function(pattern) {
+      var m;
+      while ((m = pattern.exec(text)) !== null) {
+        var name, qty, price, total;
+        if (/^\d/.test(m[1])) {
+          // Pattern 3: qty first
+          qty = parseFloat(m[1].replace(",", "."));
+          name = m[2].trim();
+          price = parseFloat(m[3].replace(",", "."));
+          total = parseFloat(m[4].replace(",", "."));
+        } else {
+          name = m[1].trim();
+          qty = parseFloat(m[2].replace(",", "."));
+          price = parseFloat(m[3].replace(",", "."));
+          total = parseFloat(m[4].replace(",", "."));
+        }
+
+        // Skip non-product lines
+        if (/total|sous.total|sub.total|tva|port|livraison|shipping|remise|discount/i.test(name)) continue;
+        if (qty <= 0 || price <= 0) continue;
+
+        // Convert kg to g
+        if (/kg/i.test(m[0]) && qty < 100) qty = qty * 1000;
+        if (/kg/i.test(m[0]) && price > 10) price = price / 1000;
+
+        // Avoid duplicates
+        var isDup = foundLines.some(function(l) { return l.productName === name && l.quantity === qty; });
+        if (!isDup) {
+          foundLines.push({
+            productName: name,
+            quantity: qty,
+            pricePerUnit: Math.round(price * 10000) / 10000,
+            totalLine: Math.round(total * 100) / 100
+          });
+        }
+      }
+    });
+
+    analysis.lines = foundLines;
+
+    // Build summary
+    var parts = [];
+    if (analysis.lines.length > 0) parts.push(analysis.lines.length + " produit(s) detecte(s)");
+    if (analysis.totalTTC > 0) parts.push("Total: " + analysis.totalTTC.toFixed(2) + " EUR");
+    if (analysis.shipping > 0) parts.push("Port: " + analysis.shipping.toFixed(2) + " EUR");
+    if (analysis.date) parts.push("Date: " + analysis.date);
+    analysis.summary = parts.join(" | ") || "Texte extrait, veuillez verifier les lignes.";
+
+    return analysis;
+  }
+
+  function applyInvoiceAnalysis(analysis, fileName) {
+    // Auto-fill supplier
+    if (analysis.supplier) {
+      var supSelect = document.getElementById("poSupplier");
+      if (supSelect) {
+        for (var i = 0; i < supSelect.options.length; i++) {
+          if (supSelect.options[i].textContent.toLowerCase().includes(analysis.supplier.toLowerCase())) {
+            supSelect.selectedIndex = i;
+            break;
+          }
+        }
+      }
+    }
+
+    // Auto-fill date
+    if (analysis.date) {
+      var dateEl = document.getElementById("poExpectedDate");
+      if (dateEl) dateEl.value = analysis.date;
+    }
+
+    // Auto-fill shipping
+    if (analysis.shipping) {
+      var shipEl = document.getElementById("poShipping");
+      if (shipEl) shipEl.value = analysis.shipping;
+    }
+
+    // Auto-fill lines
+    if (analysis.lines && analysis.lines.length > 0) {
+      var linesContainer = document.getElementById("poLines");
+      if (linesContainer) linesContainer.innerHTML = "";
+      poLineIndex = 0;
+
+      analysis.lines.forEach(function(line) {
+        addPOLine();
+        var lastLine = document.querySelector('.po-line:last-child');
+        if (!lastLine) return;
+
+        // Try to match product by name
+        var prodSelect = lastLine.querySelector(".po-line-product");
+        if (prodSelect && line.productName) {
+          var bestMatch = null;
+          var bestScore = 0;
+          for (var j = 1; j < prodSelect.options.length; j++) {
+            var optName = prodSelect.options[j].textContent.toLowerCase();
+            var searchName = line.productName.toLowerCase();
+            // Check both directions
+            var words = searchName.split(/\s+/);
+            var matchCount = words.filter(function(w) { return w.length > 2 && optName.includes(w); }).length;
+            if (matchCount > bestScore) {
+              bestScore = matchCount;
+              bestMatch = j;
+            }
+          }
+          if (bestMatch && bestScore > 0) prodSelect.selectedIndex = bestMatch;
+        }
+
+        var qtyEl = lastLine.querySelector(".po-line-qty");
+        var priceEl = lastLine.querySelector(".po-line-price");
+        if (qtyEl && line.quantity) qtyEl.value = fromGrams(line.quantity);
+        if (priceEl && line.pricePerUnit) priceEl.value = line.pricePerUnit;
+      });
+
+      updatePOTotal();
+    }
+
+    // Notes
+    if (analysis.summary) {
+      var notesEl = document.getElementById("poNotes");
+      if (notesEl && !notesEl.value) {
+        notesEl.value = "Facture: " + fileName + "\n" + analysis.summary;
+      }
+    }
+
+    showToast(t("orders.invoiceAnalyzed", "Facture analysee - {count} ligne(s) detectee(s)").replace("{count}", (analysis.lines || []).length), "success");
   }
 
   var poLineIndex = 0;
@@ -8655,6 +8927,7 @@
     removePOLine: removePOLine,
     updatePOTotal: updatePOTotal,
     onPOSupplierChange: onPOSupplierChange,
+    onPOFileSelected: onPOFileSelected,
     savePO: savePO,
     openPODetails: openPODetails,
     sendPO: sendPO,
