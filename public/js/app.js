@@ -3039,7 +3039,7 @@
       var qrSvg = data.showQR ? generateQRPlaceholder(qrData, data.format === "50x30" ? 50 : 70) : "";
 
       labels +=
-        '<div class="label" style="width:' + sz.w + ';height:' + sz.h + ';padding:' + sz.padding + ';box-sizing:border-box;border:0.5px solid #ccc;display:inline-flex;flex-direction:row;gap:' + sz.padding + ';page-break-inside:avoid;font-family:Arial,sans-serif;font-size:' + sz.fontSize + ';color:#111;background:#fff;overflow:hidden">' +
+        '<div class="label" style="width:' + sz.w + ';height:' + sz.h + ';padding:' + sz.padding + ';box-sizing:border-box;border:1px solid #333;display:inline-flex;flex-direction:row;gap:' + sz.padding + ';page-break-inside:avoid;font-family:Arial,sans-serif;font-size:' + sz.fontSize + ';color:#111;background:#fff;overflow:hidden">' +
           '<div style="flex:1;display:flex;flex-direction:column;justify-content:space-between;min-width:0">' +
             '<div>' +
               '<div style="font-size:' + sz.titleSize + ';font-weight:700;line-height:1.2;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + escPlain(data.productName) + '</div>' +
@@ -3155,7 +3155,7 @@
       '@media print {' +
       '  body { padding: 0; margin: 0; }' +
       '  .no-print { display: none !important; }' +
-      '  .label { border: 0.3px solid #ccc !important; }' +
+      '  .label { border: 1px solid #333 !important; }' +
       '}' +
       '</style></head><body>' +
       '<div class="no-print" style="padding:10px 20px;margin-bottom:10px;background:#f0f0f0;display:flex;justify-content:space-between;align-items:center;font-family:Arial,sans-serif">' +
@@ -3643,7 +3643,7 @@
     var _ok = await showConfirmDialog(t("suppliers.confirmDelete", "Voulez-vous vraiment supprimer ce fournisseur ?"), {danger: true}); if (!_ok) return;
 
     try {
-      var res = await authFetch(apiUrl("/suppliers/" + supplierId), { method: "DELETE" });
+      var res = await authFetch(apiUrl("/suppliers/" + supplierId + "?hard=true"), { method: "DELETE" });
       if (!res.ok) throw new Error("Erreur");
 
       closeModal();
@@ -6062,7 +6062,7 @@
   async function deleteBatch(productId, lotId) {
     var _ok = await showConfirmDialog(t("batches.confirmDelete", "Delete this batch permanently?"), {danger: true}); if (!_ok) return;
     try {
-      var res = await authFetch(apiUrl("/lots/" + encodeURIComponent(productId) + "/" + encodeURIComponent(lotId)), {
+      var res = await authFetch(apiUrl("/lots/" + encodeURIComponent(productId) + "/" + encodeURIComponent(lotId) + "?hard=true"), {
         method: "DELETE"
       });
       if (res.ok) {
