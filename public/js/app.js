@@ -2812,7 +2812,7 @@
         '<option value="50x30">50 x 30 mm (mini)</option>' +
         '</select></div>' +
         '<div class="form-group" style="flex:2"><label class="form-label">' + t("labels.customLine", "Ligne personnalisee") + '</label>' +
-        '<input type="text" class="form-input" id="labelCustom" value="CBD <0.3% THC"></div>' +
+        '<input type="text" class="form-input" id="labelCustom" value="Taux de THC <0.3%"></div>' +
         '</div>' +
 
         '<div class="form-row-mobile">' +
@@ -3045,6 +3045,7 @@
               '<div style="font-size:' + sz.titleSize + ';font-weight:700;line-height:1.2;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + escPlain(data.productName) + '</div>' +
               '<div style="font-weight:600;margin-bottom:1px">' + weightDisplay + '</div>' +
               (data.customLine ? '<div style="font-style:italic;margin-bottom:1px">' + escPlain(data.customLine) + '</div>' : '') +
+              '<div style="font-weight:600;font-size:' + (parseInt(sz.fontSize) - 1) + 'px;margin-bottom:1px">Interdit aux mineurs</div>' +
             '</div>' +
             '<div style="border-top:0.5px solid #ddd;padding-top:2px;margin-top:auto">' +
               '<div><span style="font-weight:600">LOT:</span> ' + escPlain(lotId) + '</div>' +
