@@ -28,6 +28,25 @@ try {
   rateLimit = null;
 }
 
+// Webhook deduplication - prevents processing same order multiple times
+const processedWebhooks = new Map(); // orderId -> timestamp
+const WEBHOOK_DEDUP_TTL = 24 * 60 * 60 * 1000; // 24h
+
+function isWebhookDuplicate(orderId) {
+  if (!orderId) return false;
+  const key = String(orderId);
+  if (processedWebhooks.has(key)) return true;
+  processedWebhooks.set(key, Date.now());
+  // Cleanup old entries every 100 additions
+  if (processedWebhooks.size % 100 === 0) {
+    const cutoff = Date.now() - WEBHOOK_DEDUP_TTL;
+    for (const [k, ts] of processedWebhooks) {
+      if (ts < cutoff) processedWebhooks.delete(k);
+    }
+  }
+  return false;
+}
+
 // OAuth token store (Render disk)
 const tokenStore = require("./utils/tokenStore");
 
@@ -6062,6 +6081,13 @@ app.post("/webhooks/orders/create", express.raw({ type: "application/json" }), a
       return res.sendStatus(200);
     }
 
+    // --- DEDUPLICATION: skip if this order was already processed ---
+    const orderId = String(payload?.id || "");
+    if (isWebhookDuplicate(orderId)) {
+      logEvent("webhook_duplicate_skipped", { shop, orderId, orderNumber: payload?.order_number }, "info");
+      return res.sendStatus(200);
+    }
+
     const lineItems = Array.isArray(payload?.line_items) ? payload.line_items : [];
     if (!lineItems.length) return res.sendStatus(200);
 
@@ -6085,6 +6111,14 @@ app.post("/webhooks/orders/create", express.raw({ type: "application/json" }), a
 
       const gramsToSubtract = gramsPerUnit * qty;
 
+      // Capture selling price per line from Shopify payload
+      const unitPrice = Number(li?.price || 0);
+      const lineTotal = unitPrice * qty;
+      const lineDiscounts = Array.isArray(li?.discount_allocations)
+        ? li.discount_allocations.reduce((sum, d) => sum + Number(d?.amount || 0), 0)
+        : 0;
+      const netLineRevenue = Math.max(0, lineTotal - lineDiscounts);
+
       const updated = await stock.applyOrderToProduct(shop, productId, gramsToSubtract);
       if (updated) {
         try {
@@ -6101,6 +6135,10 @@ app.post("/webhooks/orders/create", express.raw({ type: "application/json" }), a
               productName: updated.name,
               gramsDelta: -Math.abs(gramsToSubtract),
               totalAfter: updated.totalGrams,
+              orderId,
+              orderNumber: payload?.order_number || payload?.name || "",
+              sellingPriceTotal: netLineRevenue,
+              sellingPricePerGram: gramsToSubtract > 0 ? netLineRevenue / gramsToSubtract : 0,
               shop,
             },
             shop
@@ -6109,11 +6147,11 @@ app.post("/webhooks/orders/create", express.raw({ type: "application/json" }), a
       }
     }
 
-    // ---
+    // --- Record analytics (with selling prices from payload) ---
     try {
       if (analyticsManager && typeof analyticsManager.recordSaleFromOrder === "function") {
         await analyticsManager.recordSaleFromOrder(shop, payload);
-        logEvent("analytics_sale_recorded", { shop, orderId: payload?.id }, "info");
+        logEvent("analytics_sale_recorded", { shop, orderId: payload?.id, orderNumber: payload?.order_number }, "info");
       }
     } catch (e) {
       logEvent("analytics_record_error", { shop, orderId: payload?.id, error: e.message }, "error");

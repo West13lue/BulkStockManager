@@ -63,7 +63,7 @@
     'createSnapshot', 'showSnapshotsModal', 'rollbackToSnapshot', 'deleteSnapshot', 'resetAllData', 'downloadFullBackup',
     'showLowStockModal', 'showOutOfStockModal', 'showQuickRestockModal', 'doQuickRestock',
     'showQuickAdjustModal', 'doQuickAdjust', 'showScannerModal', 'startCamera', 'stopScanner', 'searchBarcode',
-    'showManualSaleModal', 'onSaleProductChange', 'calcSaleMargin', 'saveManualSale',
+    'showManualSaleModal', 'addSaleLine', 'removeSaleLine', 'updateSaleSummary', 'saveManualSale', 'printSaleLabels',
     'showKeyboardShortcutsHelp', 'closeTutorial', 'showAllTutorials', 'showSpecificTutorial', 'resetAllTutorials',
     'showLockedFeatureTutorial',
     'loadNotifications', 'showNotificationsModal', 'markNotificationRead', 'dismissNotification', 'checkAlerts',
@@ -1502,118 +1502,183 @@
   }
 
   // ============================================
-  // VENTE MANUELLE (hors Shopify)
+  // VENTE MANUELLE (hors Shopify) - Multi-produits
   // ============================================
 
-  function showManualSaleModal(preselectedProductId) {
+  var saleLines = [];
+  var saleLineIdx = 0;
+
+  function showManualSaleModal() {
     var weightUnit = getWeightUnit();
     var currSymbol = getCurrencySymbol();
-
-    var productOptions = (state.products || []).map(function(p) {
-      var sel = p.productId === preselectedProductId ? " selected" : "";
-      return '<option value="' + esc(p.productId) + '"' + sel + ' data-stock="' + (p.totalGrams || 0) + '" data-cmp="' + (p.averageCostPerGram || 0) + '">' + esc(p.name) + ' (' + formatWeight(p.totalGrams || 0) + ')' + '</option>';
-    }).join("");
+    saleLines = [];
+    saleLineIdx = 0;
 
     showModal({
       title: '<i data-lucide="shopping-cart"></i> ' + t("sale.title", "Vente manuelle"),
-      size: "md",
+      size: "lg",
       content:
         '<div class="alert alert-info mb-md" style="font-size:12px;padding:12px;border-radius:8px;background:var(--info-bg);border:1px solid var(--info)">' +
         '<strong>' + t("sale.manualInfo", "Vente hors Shopify") + '</strong><br>' +
         t("sale.manualDesc", "Enregistrez une vente realisee en boutique, marche ou livraison. Le stock sera deduit et la vente comptabilisee dans les statistiques.") +
         '</div>' +
 
-        '<div class="form-group"><label class="form-label">' + t("sale.product", "Produit") + ' *</label>' +
-        '<select class="form-select" id="saleProduct" onchange="app.onSaleProductChange()">' +
-        '<option value="">' + t("form.select", "-- Selectionner --") + '</option>' +
-        productOptions +
-        '</select></div>' +
-
-        '<div class="form-row-mobile">' +
-        '<div class="form-group" style="flex:1"><label class="form-label">' + t("sale.quantity", "Quantite vendue") + ' (' + weightUnit + ') *</label>' +
-        '<input type="number" class="form-input" id="saleQty" value="" step="0.1" min="0.1" placeholder="5" onchange="app.calcSaleMargin()"></div>' +
-        '<div class="form-group" style="flex:1"><label class="form-label">' + t("sale.sellingPrice", "Prix de vente total") + ' (' + currSymbol + ') *</label>' +
-        '<input type="number" class="form-input" id="salePrice" value="" step="0.01" min="0" placeholder="25.00" onchange="app.calcSaleMargin()"></div>' +
+        '<div class="form-section"><h4>' + t("sale.products", "Produits vendus") + '</h4>' +
+        '<div id="saleLines"></div>' +
+        '<button class="btn btn-ghost btn-sm mt-sm" onclick="app.addSaleLine()"><i data-lucide="plus"></i> ' + t("sale.addProduct", "Ajouter un produit") + '</button>' +
         '</div>' +
 
-        '<div id="saleMarginPreview" style="display:none;padding:10px 14px;border-radius:8px;background:var(--bg-secondary);margin-bottom:12px;font-size:13px"></div>' +
-
-        '<div class="form-group"><label class="form-label">' + t("sale.customer", "Client") + ' <small class="text-secondary">(' + t("labels.optional", "optionnel") + ')</small></label>' +
-        '<input type="text" class="form-input" id="saleCustomer" placeholder="' + t("sale.customerPlaceholder", "Nom du client ou ref. commande") + '"></div>' +
-
+        '<div style="border-top:1px solid var(--border-color);padding-top:12px;margin-top:8px">' +
+        '<div class="form-row-mobile">' +
+        '<div class="form-group" style="flex:1"><label class="form-label">' + t("sale.sellingPrice", "Prix de vente global") + ' (' + currSymbol + ') *</label>' +
+        '<input type="number" class="form-input" id="salePriceTotal" value="" step="0.01" min="0" placeholder="45.00" onchange="app.updateSaleSummary()" style="font-size:16px;font-weight:600"></div>' +
+        '<div class="form-group" style="flex:1"><label class="form-label">' + t("sale.customer", "Client") + ' <small class="text-secondary">(' + t("labels.optional", "optionnel") + ')</small></label>' +
+        '<input type="text" class="form-input" id="saleCustomer" placeholder="' + t("sale.customerPlaceholder", "Nom du client ou ref.") + '"></div>' +
+        '</div>' +
         '<div class="form-group"><label class="form-label">' + t("sale.note", "Note") + '</label>' +
-        '<input type="text" class="form-input" id="saleNote" placeholder="' + t("sale.notePlaceholder", "Ex: Vente comptoir, marche, livraison...") + '"></div>',
+        '<input type="text" class="form-input" id="saleNote" placeholder="' + t("sale.notePlaceholder", "Ex: Vente comptoir, marche, livraison...") + '"></div>' +
+        '</div>' +
+
+        '<div id="saleSummary" style="display:none;padding:12px 16px;border-radius:8px;background:var(--bg-secondary);margin-top:12px;font-size:13px"></div>',
       footer:
         '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.cancel", "Annuler") + '</button>' +
         '<button class="btn btn-primary" onclick="app.saveManualSale()"><i data-lucide="check"></i> ' + t("sale.confirm", "Enregistrer la vente") + '</button>'
     });
+
+    addSaleLine();
     if (typeof lucide !== "undefined") lucide.createIcons();
   }
 
-  function onSaleProductChange() {
-    var sel = document.getElementById("saleProduct");
-    if (!sel) return;
-    var opt = sel.selectedOptions ? sel.selectedOptions[0] : null;
-    if (opt) {
-      var stockVal = parseFloat(opt.dataset.stock) || 0;
-      var qtyEl = document.getElementById("saleQty");
-      if (qtyEl) qtyEl.max = fromGrams(stockVal);
-    }
-    calcSaleMargin();
+  function addSaleLine() {
+    var container = document.getElementById("saleLines");
+    if (!container) return;
+
+    var weightUnit = getWeightUnit();
+    var productOptions = (state.products || []).map(function(p) {
+      return '<option value="' + esc(p.productId) + '" data-stock="' + (p.totalGrams || 0) + '" data-cmp="' + (p.averageCostPerGram || 0) + '" data-name="' + esc(p.name) + '">' + esc(p.name) + ' (' + formatWeight(p.totalGrams || 0) + ')</option>';
+    }).join("");
+
+    var lineHtml =
+      '<div class="sale-line" data-line="' + saleLineIdx + '" style="display:flex;gap:8px;align-items:flex-end;margin-bottom:8px;padding:10px;border:1px solid var(--border-color);border-radius:8px;background:var(--bg-secondary)">' +
+      '<div style="flex:3"><label class="form-label" style="font-size:12px">' + t("sale.product", "Produit") + '</label>' +
+      '<select class="form-select sale-line-product" onchange="app.updateSaleSummary()" style="font-size:13px">' +
+      '<option value="">' + t("form.select", "-- Selectionner --") + '</option>' + productOptions +
+      '</select></div>' +
+      '<div style="flex:1"><label class="form-label" style="font-size:12px">' + t("sale.quantity", "Qte") + ' (' + weightUnit + ')</label>' +
+      '<input type="number" class="form-input sale-line-qty" placeholder="5" step="0.1" min="0.1" onchange="app.updateSaleSummary()" style="font-size:13px"></div>' +
+      '<button class="btn btn-ghost btn-xs text-danger" onclick="app.removeSaleLine(' + saleLineIdx + ')" style="margin-bottom:2px"><i data-lucide="x" style="width:14px;height:14px"></i></button>' +
+      '</div>';
+
+    container.insertAdjacentHTML("beforeend", lineHtml);
+    saleLineIdx++;
+    if (typeof lucide !== "undefined") lucide.createIcons();
   }
 
-  function calcSaleMargin() {
-    var preview = document.getElementById("saleMarginPreview");
+  function removeSaleLine(index) {
+    var line = document.querySelector('.sale-line[data-line="' + index + '"]');
+    if (line) line.remove();
+    updateSaleSummary();
+  }
+
+  function getSaleLines() {
+    var lines = [];
+    document.querySelectorAll(".sale-line").forEach(function(lineEl) {
+      var prodSelect = lineEl.querySelector(".sale-line-product");
+      var qtyInput = lineEl.querySelector(".sale-line-qty");
+      if (!prodSelect || !prodSelect.value) return;
+
+      var opt = prodSelect.selectedOptions ? prodSelect.selectedOptions[0] : null;
+      var qty = parseFloat(qtyInput ? qtyInput.value : 0) || 0;
+      if (qty <= 0) return;
+
+      lines.push({
+        productId: prodSelect.value,
+        productName: opt ? (opt.dataset.name || opt.textContent.split("(")[0].trim()) : "",
+        qty: qty,
+        qtyGrams: toGrams(qty),
+        cmp: parseFloat(opt ? opt.dataset.cmp : 0) || 0,
+        stock: parseFloat(opt ? opt.dataset.stock : 0) || 0,
+      });
+    });
+    return lines;
+  }
+
+  function updateSaleSummary() {
+    var lines = getSaleLines();
+    var preview = document.getElementById("saleSummary");
     if (!preview) return;
 
-    var sel = document.getElementById("saleProduct");
-    var qty = parseFloat((document.getElementById("saleQty") || {}).value) || 0;
-    var price = parseFloat((document.getElementById("salePrice") || {}).value) || 0;
-
-    if (!sel || !sel.value || qty <= 0) {
+    if (lines.length === 0) {
       preview.style.display = "none";
       return;
     }
 
-    var opt = sel.selectedOptions ? sel.selectedOptions[0] : null;
-    var cmp = parseFloat(opt ? opt.dataset.cmp : 0) || 0;
-    var qtyGrams = toGrams(qty);
-    var cost = qtyGrams * cmp;
-    var margin = price - cost;
-    var marginPct = price > 0 ? Math.round((margin / price) * 100) : 0;
+    var totalCost = 0;
+    var totalGrams = 0;
+    var linesHtml = "";
     var currSymbol = getCurrencySymbol();
+
+    lines.forEach(function(l) {
+      var lineCost = l.qtyGrams * l.cmp;
+      totalCost += lineCost;
+      totalGrams += l.qtyGrams;
+      var stockWarn = l.qtyGrams > l.stock ? ' <span style="color:var(--danger)">(!)</span>' : '';
+      linesHtml += '<div style="display:flex;justify-content:space-between;padding:2px 0;font-size:12px">' +
+        '<span>' + escPlain(l.productName) + ' — ' + formatWeight(l.qtyGrams) + stockWarn + '</span>' +
+        '<span style="color:var(--text-secondary)">' + t("sale.costPrice", "Cout") + ': ' + lineCost.toFixed(2) + ' ' + currSymbol + '</span></div>';
+    });
+
+    var priceTotal = parseFloat((document.getElementById("salePriceTotal") || {}).value) || 0;
+    var margin = priceTotal - totalCost;
+    var marginPct = priceTotal > 0 ? Math.round((margin / priceTotal) * 100) : 0;
     var marginColor = margin >= 0 ? "var(--success, #22c55e)" : "var(--danger, #ef4444)";
 
     preview.style.display = "block";
     preview.innerHTML =
-      '<div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px">' +
-      '<span>' + t("sale.costPrice", "Cout de revient") + ': <strong>' + cost.toFixed(2) + ' ' + currSymbol + '</strong></span>' +
-      '<span>' + t("sale.margin", "Marge") + ': <strong style="color:' + marginColor + '">' + (margin >= 0 ? "+" : "") + margin.toFixed(2) + ' ' + currSymbol + ' (' + marginPct + '%)</strong></span>' +
-      '</div>';
+      linesHtml +
+      '<div style="border-top:1px solid var(--border-color);margin-top:6px;padding-top:6px;display:flex;justify-content:space-between;font-weight:500">' +
+      '<span>' + lines.length + ' produit(s) — ' + formatWeight(totalGrams) + '</span>' +
+      '<span>' + t("sale.costPrice", "Cout total") + ': ' + totalCost.toFixed(2) + ' ' + currSymbol + '</span>' +
+      '</div>' +
+      (priceTotal > 0 ?
+        '<div style="display:flex;justify-content:space-between;margin-top:4px;font-weight:600">' +
+        '<span>' + t("sale.margin", "Marge") + '</span>' +
+        '<span style="color:' + marginColor + '">' + (margin >= 0 ? "+" : "") + margin.toFixed(2) + ' ' + currSymbol + ' (' + marginPct + '%)</span></div>'
+      : '');
   }
 
   async function saveManualSale() {
-    var productId = (document.getElementById("saleProduct") || {}).value;
-    var qty = parseFloat((document.getElementById("saleQty") || {}).value) || 0;
-    var price = parseFloat((document.getElementById("salePrice") || {}).value) || 0;
+    var lines = getSaleLines();
+    if (lines.length === 0) {
+      showToast(t("sale.addAtLeastOne", "Ajoutez au moins un produit"), "error");
+      return;
+    }
+
+    var priceTotal = parseFloat((document.getElementById("salePriceTotal") || {}).value) || 0;
     var customer = (document.getElementById("saleCustomer") || {}).value || "";
     var note = (document.getElementById("saleNote") || {}).value || "";
 
-    if (!productId) { showToast(t("msg.selectProduct", "Selectionnez un produit"), "error"); return; }
-    if (qty <= 0) { showToast(t("msg.invalidQty", "Quantite invalide"), "error"); return; }
+    if (priceTotal <= 0) {
+      showToast(t("sale.priceRequired", "Saisissez le prix de vente"), "error");
+      return;
+    }
 
-    var qtyGrams = toGrams(qty);
-
-    var product = (state.products || []).find(function(p) { return p.productId === productId; });
-    if (product && qtyGrams > (product.totalGrams || 0)) {
+    // Check stock warnings
+    var stockWarnings = lines.filter(function(l) { return l.qtyGrams > l.stock; });
+    if (stockWarnings.length > 0) {
+      var warnMsg = stockWarnings.map(function(l) {
+        return l.productName + ": " + formatWeight(l.stock) + " dispo / " + formatWeight(l.qtyGrams) + " demande";
+      }).join("\n");
       var _ok = await showConfirmDialog(
-        t("sale.insufficientStock", "Stock insuffisant ({stock}) pour la quantite demandee ({qty}). Continuer ?")
-          .replace("{stock}", formatWeight(product.totalGrams || 0))
-          .replace("{qty}", formatWeight(qtyGrams)),
+        t("sale.stockWarning", "Stock insuffisant pour certains produits :") + "\n\n" + warnMsg + "\n\n" + t("sale.continueAnyway", "Continuer quand meme ?"),
         { danger: true }
       );
       if (!_ok) return;
     }
+
+    // Distribute price proportionally by cost weight
+    var totalCost = 0;
+    lines.forEach(function(l) { totalCost += l.qtyGrams * l.cmp; });
 
     var profileData = {};
     if (typeof activeProfile !== "undefined" && activeProfile) {
@@ -1622,33 +1687,141 @@
       profileData.profileColor = activeProfile.color;
     }
 
-    try {
-      var res = await authFetch(apiUrl("/sales/manual"), {
-        method: "POST",
-        body: JSON.stringify({
-          productId: productId,
-          grams: qtyGrams,
-          sellingPriceTotal: price,
-          customerName: customer,
-          orderNote: note,
-          ...profileData
-        }),
-      });
+    showToast(t("sale.processing", "Enregistrement..."), "info");
+    var success = 0;
+    var errors = 0;
+    var results = [];
 
-      if (res.ok) {
-        var data = await res.json();
-        var marginStr = data.margin !== undefined ? " | Marge: " + data.margin.toFixed(2) + " (" + data.marginPercent + "%)" : "";
-        showToast(t("sale.success", "Vente enregistree") + marginStr, "success");
-        closeModal();
-        await loadProducts(true);
-        renderTab(state.currentTab);
-      } else {
-        var err = await res.json().catch(function() { return {}; });
-        showToast(err.error || t("msg.error", "Erreur"), "error");
+    for (var i = 0; i < lines.length; i++) {
+      var l = lines[i];
+      // Distribute price proportionally
+      var lineCost = l.qtyGrams * l.cmp;
+      var linePrice = totalCost > 0 ? (lineCost / totalCost) * priceTotal : priceTotal / lines.length;
+
+      try {
+        var res = await authFetch(apiUrl("/sales/manual"), {
+          method: "POST",
+          body: JSON.stringify({
+            productId: l.productId,
+            grams: l.qtyGrams,
+            sellingPriceTotal: Math.round(linePrice * 100) / 100,
+            customerName: customer,
+            orderNote: note + (lines.length > 1 ? " [" + (i + 1) + "/" + lines.length + "]" : ""),
+            ...profileData
+          }),
+        });
+
+        if (res.ok) {
+          var data = await res.json();
+          results.push({ productId: l.productId, productName: l.productName, qty: l.qtyGrams, price: linePrice, ...data });
+          success++;
+        } else {
+          errors++;
+        }
+      } catch (e) {
+        errors++;
       }
-    } catch (e) {
-      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
     }
+
+    closeModal();
+
+    var totalMargin = results.reduce(function(sum, r) { return sum + (r.margin || 0); }, 0);
+    showToast(
+      t("sale.success", "Vente enregistree") + " — " + success + " produit(s)" +
+      " | " + t("sale.margin", "Marge") + ": " + totalMargin.toFixed(2) + " " + getCurrencySymbol() +
+      (errors > 0 ? " (" + errors + " erreur(s))" : ""),
+      success > 0 ? "success" : "error"
+    );
+
+    await loadProducts(true);
+    renderTab(state.currentTab);
+
+    // Propose to print labels
+    if (success > 0) {
+      setTimeout(function() {
+        showSaleLabelsModal(results);
+      }, 800);
+    }
+  }
+
+  function showSaleLabelsModal(saleResults) {
+    var weightUnit = getWeightUnit();
+    var format = "70x40";
+    var customLine = "Taux de THC <0.3%";
+
+    // Build preview labels
+    var labelsData = saleResults.map(function(r) {
+      return {
+        productName: r.productName || r.productId,
+        weight: r.qty || r.grams || 0,
+        lotId: "-",
+        lotData: null,
+        qty: 1,
+        format: format,
+        price: Math.round((r.price || r.sellingPriceTotal || 0) * 100) / 100,
+        customLine: customLine,
+        showQR: true,
+        showPrice: true,
+        showSupplier: false
+      };
+    });
+
+    var previewHtml = "";
+    labelsData.forEach(function(d) { previewHtml += buildLabelHTML(d); });
+    var totalLabels = labelsData.length;
+
+    showModal({
+      title: '<i data-lucide="tag"></i> ' + t("sale.printLabels", "Etiquettes de la commande"),
+      size: "lg",
+      content:
+        '<p style="font-size:13px;color:var(--text-secondary);margin-bottom:12px">' +
+        t("sale.labelsReady", "{count} etiquette(s) prete(s) pour impression.").replace("{count}", totalLabels) + '</p>' +
+        '<div style="display:flex;flex-wrap:wrap;gap:4px;justify-content:center;padding:16px;background:var(--bg-secondary);border-radius:8px">' + previewHtml + '</div>',
+      footer:
+        '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("sale.skipLabels", "Passer") + '</button>' +
+        '<button class="btn btn-primary" onclick="app.printSaleLabels()"><i data-lucide="printer"></i> ' + t("labels.print", "Imprimer") + '</button>'
+    });
+    if (typeof lucide !== "undefined") lucide.createIcons();
+
+    // Store for printing
+    window._saleLabelsData = labelsData;
+  }
+
+  function printSaleLabels() {
+    var labelsData = window._saleLabelsData;
+    if (!labelsData || labelsData.length === 0) return;
+
+    var labelsHtml = "";
+    var names = [];
+    labelsData.forEach(function(d) {
+      labelsHtml += buildLabelHTML(d);
+      names.push(d.productName);
+    });
+
+    var printWindow = window.open("", "_blank", "width=800,height=600");
+    if (!printWindow) {
+      showToast(t("labels.popupBlocked", "Popup bloquee"), "error");
+      return;
+    }
+
+    printWindow.document.write(
+      '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>' + t("labels.printTitle", "Etiquettes") + '</title>' +
+      '<style>' +
+      '* { margin: 0; padding: 0; box-sizing: border-box; }' +
+      'body { padding: 5mm; font-family: Arial, sans-serif; }' +
+      '.labels-grid { display: flex; flex-wrap: wrap; gap: 0; justify-content: flex-start; }' +
+      '.label { margin: 0 !important; }' +
+      '@media print { body { padding: 0; margin: 0; } .no-print { display: none !important; } .label { border: 1px solid #333 !important; } }' +
+      '</style></head><body>' +
+      '<div class="no-print" style="padding:10px 20px;margin-bottom:10px;background:#f0f0f0;display:flex;justify-content:space-between;align-items:center;font-family:Arial,sans-serif">' +
+      '<span style="font-weight:600">' + labelsData.length + ' etiquette(s) — ' + escPlain(names.join(", ")) + '</span>' +
+      '<button onclick="window.print()" style="padding:8px 20px;background:#6366f1;color:white;border:none;border-radius:6px;cursor:pointer;font-size:14px">Imprimer</button>' +
+      '</div>' +
+      '<div class="labels-grid">' + labelsHtml + '</div>' +
+      '</body></html>'
+    );
+    printWindow.document.close();
+    closeModal();
   }
 
   // Scanner code-barres
@@ -3032,7 +3205,7 @@
     var supplierRef = lotInfo.supplierBatchRef || "";
     var weightDisplay = data.weight ? fromGrams(data.weight).toFixed(1) + " " + weightUnit : "-";
 
-    var qrData = "LOT:" + lotId + "|PROD:" + data.productName + "|W:" + weightDisplay + "|EXP:" + expiryDate + "|DATE:" + today;
+    var qrData = "LOT:" + lotId + "|ID:" + (data.productId || "-") + "|PROD:" + data.productName + "|W:" + weightDisplay + "|EXP:" + expiryDate + "|DATE:" + today;
 
     var labels = "";
     for (var i = 0; i < data.qty; i++) {
@@ -3049,6 +3222,7 @@
             '</div>' +
             '<div style="border-top:0.5px solid #ddd;padding-top:2px;margin-top:auto">' +
               '<div><span style="font-weight:600">LOT:</span> ' + escPlain(lotId) + '</div>' +
+              '<div style="font-size:' + (parseInt(sz.fontSize) - 1) + 'px"><span style="font-weight:600">ID:</span> ' + escPlain(String(data.productId || "-").replace("manual_", "M-").substring(0, 22)) + '</div>' +
               (expiryDate !== "-" ? '<div><span style="font-weight:600">' + (expiryType || "DLC") + ':</span> ' + escPlain(expiryDate) + '</div>' : '') +
               (data.showSupplier && supplierRef ? '<div><span style="font-weight:600">REF:</span> ' + escPlain(supplierRef) + '</div>' : '') +
               (data.showPrice && data.price > 0 ? '<div style="font-weight:700">' + data.price.toFixed(2) + ' ' + currSymbol + '</div>' : '') +
@@ -9009,9 +9183,11 @@
     showQuickAdjustModal: showQuickAdjustModal,
     doQuickAdjust: doQuickAdjust,
     showManualSaleModal: showManualSaleModal,
-    onSaleProductChange: onSaleProductChange,
-    calcSaleMargin: calcSaleMargin,
+    addSaleLine: addSaleLine,
+    removeSaleLine: removeSaleLine,
+    updateSaleSummary: updateSaleSummary,
     saveManualSale: saveManualSale,
+    printSaleLabels: printSaleLabels,
     // Scanner
     showScannerModal: showScannerModal,
     startCamera: startCamera,
