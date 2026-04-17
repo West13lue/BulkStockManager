@@ -3553,6 +3553,107 @@ function detectSaleAnomalies(order) {
   return anomalies;
 }
 
+// =====================================================
+// Analytics cleanup: détecte et supprime les doublons
+// =====================================================
+router.post("/api/analytics/deduplicate", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    if (!analyticsStore) return apiError(res, 500, "Analytics non disponible");
+
+    const dryRun = req.body?.dryRun !== false; // default true
+
+    const allSales = analyticsStore.listSales({ shop, limit: 50000 });
+    
+    // Group duplicates by orderId + productId (exclude manual_ sales from dedup)
+    const seen = new Map();
+    const duplicates = [];
+    const kept = [];
+
+    for (const sale of allSales) {
+      const orderId = sale.orderId || "";
+      const productId = sale.productId || "";
+      
+      // Manual sales: each has unique timestamp-based ID, keep all
+      if (String(orderId).startsWith("manual_")) {
+        kept.push(sale);
+        continue;
+      }
+
+      const key = orderId + "|" + productId;
+      if (seen.has(key)) {
+        duplicates.push(sale);
+      } else {
+        seen.set(key, sale);
+        kept.push(sale);
+      }
+    }
+
+    if (dryRun) {
+      return res.json({
+        dryRun: true,
+        totalSales: allSales.length,
+        duplicatesFound: duplicates.length,
+        wouldKeep: kept.length,
+        sampleDuplicates: duplicates.slice(0, 5).map(d => ({
+          orderId: d.orderId,
+          orderNumber: d.orderNumber,
+          productName: d.productName,
+          orderDate: d.orderDate,
+        })),
+      });
+    }
+
+    // Actually clean: rewrite the analytics files
+    if (duplicates.length === 0) {
+      return res.json({ success: true, duplicatesRemoved: 0, kept: kept.length });
+    }
+
+    try {
+      const fs = require("fs");
+      const path = require("path");
+      const DATA_DIR = process.env.DATA_DIR || "/var/data";
+      const analyticsDir = path.join(DATA_DIR, shop.replace(/[^a-z0-9._-]/g, "_"), "analytics");
+
+      // Group kept sales by month file
+      const byMonth = new Map();
+      for (const sale of kept) {
+        const d = new Date(sale.orderDate);
+        const monthKey = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0");
+        if (!byMonth.has(monthKey)) byMonth.set(monthKey, []);
+        byMonth.get(monthKey).push(sale);
+      }
+
+      // Clear and rewrite each month file
+      if (fs.existsSync(analyticsDir)) {
+        const files = fs.readdirSync(analyticsDir).filter(f => f.endsWith(".jsonl"));
+        for (const file of files) {
+          fs.unlinkSync(path.join(analyticsDir, file));
+        }
+      } else {
+        fs.mkdirSync(analyticsDir, { recursive: true });
+      }
+
+      for (const [monthKey, sales] of byMonth) {
+        const filePath = path.join(analyticsDir, monthKey + ".jsonl");
+        const content = sales.map(s => JSON.stringify(s)).join("\n") + "\n";
+        fs.writeFileSync(filePath, content, "utf8");
+      }
+
+      logEvent("analytics_deduplicated", { shop, removed: duplicates.length, kept: kept.length }, "info");
+      res.json({
+        success: true,
+        duplicatesRemoved: duplicates.length,
+        kept: kept.length,
+      });
+    } catch (e) {
+      logEvent("analytics_dedup_error", { shop, error: e.message }, "error");
+      return apiError(res, 500, "Erreur nettoyage: " + e.message);
+    }
+  });
+});
+
 
 // ---
 router.get("/api/analytics/products/top", (req, res) => {

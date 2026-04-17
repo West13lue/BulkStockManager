@@ -72,7 +72,7 @@
     'openSODetails', 'showReceivePOModal', 'receivePO',
     'showFullActivityLog',
     'exportStockCSV', 'exportMovementsCSV', 'exportAnalyticsCSV',
-    'cancelPlan', 'changeAnalyticsPeriod', 'switchAnalyticsTab', 'loadManualSalesTab', 'loadOrdersDebugTab', 'toggleOrderDebugRow',
+    'cancelPlan', 'changeAnalyticsPeriod', 'switchAnalyticsTab', 'loadManualSalesTab', 'loadOrdersDebugTab', 'toggleOrderDebugRow', 'analyzeDuplicates',
     'switchOrdersTab', 'onOrderStatusChange', 'onOrderPeriodChange', 'onOrderSourceChange',
     'importShopifyOrders',
     'showCreatePOModal', 'savePO', 'openPODetails', 'confirmPO', 'sendPO',
@@ -8582,8 +8582,11 @@
         '</div>';
     }
 
-    html += '<div style="margin-bottom:12px;color:var(--text-secondary);font-size:13px">' +
+    html += '<div style="margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">' +
+      '<div style="color:var(--text-secondary);font-size:13px">' +
       orders.length + ' commande(s) sur la periode — cliquer sur une ligne pour voir les details' +
+      '</div>' +
+      '<button class="btn btn-ghost btn-sm" onclick="app.analyzeDuplicates()" style="font-size:12px"><i data-lucide="search" style="width:12px;height:12px"></i> ' + t("ordersDebug.detectDups", "Detecter doublons") + '</button>' +
       '</div>';
 
     html += '<div style="display:flex;flex-direction:column;gap:8px">';
@@ -8654,6 +8657,44 @@
   function toggleOrderDebugRow(idx) {
     var el = document.getElementById("order-debug-details-" + idx);
     if (el) el.style.display = el.style.display === "none" ? "block" : "none";
+  }
+
+  async function analyzeDuplicates() {
+    try {
+      // First: dry run to detect
+      var res = await authFetch(apiUrl("/analytics/deduplicate"), {
+        method: "POST",
+        body: JSON.stringify({ dryRun: true })
+      });
+      if (!res.ok) throw new Error("Erreur detection");
+      var data = await res.json();
+
+      if (data.duplicatesFound === 0) {
+        showToast(t("ordersDebug.noDups", "Aucun doublon trouve"), "success");
+        return;
+      }
+
+      var msg = data.duplicatesFound + " doublon(s) detecte(s) sur " + data.totalSales + " enregistrements.\n\n" +
+        "Apres nettoyage: " + data.wouldKeep + " vente(s) unique(s) conservee(s).\n\n" +
+        "Voulez-vous supprimer les doublons maintenant ?";
+      var _ok = await showConfirmDialog(msg, { danger: true, confirmText: "Supprimer les doublons" });
+      if (!_ok) return;
+
+      showToast(t("ordersDebug.cleaning", "Nettoyage en cours..."), "info");
+
+      // Execute cleanup
+      var res2 = await authFetch(apiUrl("/analytics/deduplicate"), {
+        method: "POST",
+        body: JSON.stringify({ dryRun: false })
+      });
+      if (!res2.ok) throw new Error("Erreur nettoyage");
+      var result = await res2.json();
+
+      showToast(result.duplicatesRemoved + " doublon(s) supprime(s). " + result.kept + " vente(s) conservee(s).", "success");
+      loadOrdersDebugTab();
+    } catch (e) {
+      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
+    }
   }
 
   async function loadAnalyticsSales() {
@@ -9273,6 +9314,7 @@
     loadManualSalesTab: loadManualSalesTab,
     loadOrdersDebugTab: loadOrdersDebugTab,
     toggleOrderDebugRow: toggleOrderDebugRow,
+    analyzeDuplicates: analyzeDuplicates,
     // Batches / Lots
     onBatchProductChange: onBatchProductChange,
     onBatchStatusChange: onBatchStatusChange,
