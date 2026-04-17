@@ -287,7 +287,7 @@ function buildVariantGramsMap(shop) {
     for (const [productId, productData] of Object.entries(snapshot)) {
       if (!productData || !productData.variants) continue;
       
-      // Les variantes sont stockées avec le grammage comme clé
+      // Les variantes sont stockÃ©es avec le grammage comme clÃ©
       // Format: { "5": { gramsPerUnit: 5, inventoryItemId: xxx, variantId: "yyy" }, ... }
       if (typeof productData.variants === 'object' && !Array.isArray(productData.variants)) {
         for (const [label, v] of Object.entries(productData.variants)) {
@@ -319,56 +319,50 @@ function buildVariantGramsMap(shop) {
 
 /**
  * Extrait le grammage depuis un line_item Shopify
- * Stratégies multiples pour trouver les grammes par unité
+ * StratÃ©gies multiples pour trouver les grammes par unitÃ©
  */
 function parseGramsFromLineItem(li) {
-  // Strategie 1: Chercher un pattern de grammage dans variant_title, sku, title
-  const candidates = [
-    li.variant_title,
-    li.sku,
-    li.title,
-    li.name,
-    ...(li.properties || []).map(p => p.value),
-  ].filter(Boolean);
-
-  for (const candidate of candidates) {
-    const str = String(candidate);
-    
-    // Pattern 1: "5g", "10 g", "5gr", "10 grammes", "5.5g"
-    const match1 = str.match(/([\d.,]+)\s*g(?:r(?:amme)?s?)?(?:\s|$|[^a-zA-Z])/i);
-    if (match1) {
-      const g = parseFloat(match1[1].replace(",", "."));
-      if (Number.isFinite(g) && g > 0 && g < 10000) return g;
+  // PRIORITY 1: variant_title is a plain number or explicit "Xg" (most reliable for CBD shops)
+  if (li.variant_title) {
+    const str = String(li.variant_title).trim();
+    const plainNum = str.match(/^([\d.,]+)$/);
+    if (plainNum) {
+      const g = parseFloat(plainNum[1].replace(",", "."));
+      if (Number.isFinite(g) && g >= 0.1 && g <= 500) return g;
     }
-    
-    // Pattern 2: Juste un nombre seul (ex: variant_title = "5" ou "10")
-    // Commun pour les variantes de grammage
-    const match2 = str.match(/^([\d.,]+)$/);
-    if (match2) {
-      const g = parseFloat(match2[1].replace(",", "."));
-      // On considère les valeurs entre 0.5 et 1000 comme des grammes plausibles
-      if (Number.isFinite(g) && g >= 0.5 && g <= 1000) return g;
-    }
-    
-    // Pattern 3: "5 grams", "10 Grams"
-    const match3 = str.match(/([\d.,]+)\s*grams?/i);
-    if (match3) {
-      const g = parseFloat(match3[1].replace(",", "."));
-      if (Number.isFinite(g) && g > 0 && g < 10000) return g;
+    const gPattern = str.match(/^([\d.,]+)\s*g(?![a-zA-Z])/i);
+    if (gPattern) {
+      const g = parseFloat(gPattern[1].replace(",", "."));
+      if (Number.isFinite(g) && g >= 0.1 && g <= 500) return g;
     }
   }
 
-  // Strategie 2: Utiliser li.grams de Shopify (poids total de la ligne)
-  // ATTENTION: li.grams = poids TOTAL de la ligne, pas par unite!
-  // On doit diviser par la quantite pour obtenir gramsPerUnit
+  // PRIORITY 2: Explicit "Xg" pattern in sku, title, name, properties
+  const otherCandidates = [li.sku, li.title, li.name, ...(li.properties || []).map(p => p.value)].filter(Boolean);
+  for (const candidate of otherCandidates) {
+    const str = String(candidate);
+    const match = str.match(/(?:^|[\s\-_])([\d.,]+)\s*g(?:r(?:amme)?s?)?(?:\s|$|[^a-zA-Z0-9])/i);
+    if (match) {
+      const g = parseFloat(match[1].replace(",", "."));
+      if (Number.isFinite(g) && g >= 0.1 && g <= 500) return g;
+    }
+  }
+
+  // PRIORITY 3: li.grams from Shopify - ONLY if value looks reasonable per unit
   if (li.grams && Number(li.grams) > 0) {
     const quantity = Number(li.quantity) || 1;
     const gramsPerUnit = Number(li.grams) / quantity;
-    if (gramsPerUnit > 0 && gramsPerUnit < 10000) return gramsPerUnit;
+    if (gramsPerUnit >= 0.1 && gramsPerUnit <= 100) return gramsPerUnit;
+    console.warn("[Analytics] Suspicious li.grams ignored:", {
+      li_grams: li.grams, quantity, gramsPerUnit,
+      productId: li.product_id, variantTitle: li.variant_title, sku: li.sku
+    });
   }
 
-  // Si aucune info trouvee, retourner 1 par defaut (1g minimum)
-  // Ceci evite les divisions par 0 et donne une base pour le calcul
+  console.warn("[Analytics] Could not determine gramsPerUnit:", {
+    productId: li.product_id, variantId: li.variant_id,
+    variantTitle: li.variant_title, sku: li.sku, title: li.title
+  });
   return 1;
 }
 

@@ -3427,6 +3427,133 @@ router.get("/api/analytics/orders", (req, res) => {
   });
 });
 
+// =====================================================
+// VENTES MANUELLES (listing filtré)
+// =====================================================
+router.get("/api/analytics/manual-sales", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    if (!analyticsStore) return apiError(res, 500, "Analytics non disponible");
+
+    const from = req.query.from || null;
+    const to = req.query.to || null;
+    const limit = Math.min(Number(req.query.limit || 100), 500);
+
+    // Get all sales, filter to manual only
+    const allSales = analyticsStore.listSales({ shop, from, to, limit: 5000 });
+    const manualSales = allSales.filter(s => s.source === "manual");
+
+    // Sort by date desc
+    manualSales.sort((a, b) => new Date(b.orderDate) - new Date(a.orderDate));
+
+    // Calculate summary
+    const totalRevenue = manualSales.reduce((sum, s) => sum + (Number(s.netRevenue) || 0), 0);
+    const totalCost = manualSales.reduce((sum, s) => sum + (Number(s.totalCost) || 0), 0);
+    const totalMargin = totalRevenue - totalCost;
+    const totalGrams = manualSales.reduce((sum, s) => sum + (Number(s.totalGrams) || 0), 0);
+    const marginPercent = totalRevenue > 0 ? Math.round((totalMargin / totalRevenue) * 100) : 0;
+
+    res.json({
+      period: { from, to },
+      summary: {
+        count: manualSales.length,
+        totalRevenue: Math.round(totalRevenue * 100) / 100,
+        totalCost: Math.round(totalCost * 100) / 100,
+        totalMargin: Math.round(totalMargin * 100) / 100,
+        marginPercent,
+        totalGrams: Math.round(totalGrams * 100) / 100,
+      },
+      sales: manualSales.slice(0, limit),
+    });
+  });
+});
+
+// =====================================================
+// DEBUG: Récap détaillé des commandes avec lignes brutes
+// =====================================================
+router.get("/api/analytics/orders-debug", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    if (!analyticsStore) return apiError(res, 500, "Analytics non disponible");
+
+    const from = req.query.from || null;
+    const to = req.query.to || null;
+    const limit = Math.min(Number(req.query.limit || 50), 200);
+
+    const allSales = analyticsStore.listSales({ shop, from, to, limit: 5000 });
+
+    // Group by orderId
+    const ordersMap = new Map();
+    for (const sale of allSales) {
+      const oid = sale.orderId || sale.id;
+      if (!ordersMap.has(oid)) {
+        ordersMap.set(oid, {
+          orderId: sale.orderId,
+          orderNumber: sale.orderNumber,
+          orderDate: sale.orderDate,
+          source: sale.source,
+          lines: [],
+          totalGrams: 0,
+          totalRevenue: 0,
+          totalCost: 0,
+          totalMargin: 0,
+        });
+      }
+      const order = ordersMap.get(oid);
+      order.lines.push({
+        productId: sale.productId,
+        productName: sale.productName,
+        variantTitle: sale.variantTitle,
+        quantity: sale.quantity,
+        gramsPerUnit: sale.gramsPerUnit,
+        totalGrams: sale.totalGrams,
+        grossPrice: sale.grossPrice,
+        netRevenue: sale.netRevenue,
+        costPerGram: sale.costPerGram,
+        totalCost: sale.totalCost,
+        margin: sale.margin,
+      });
+      order.totalGrams += Number(sale.totalGrams) || 0;
+      order.totalRevenue += Number(sale.netRevenue) || 0;
+      order.totalCost += Number(sale.totalCost) || 0;
+      order.totalMargin += Number(sale.margin) || 0;
+    }
+
+    const orders = Array.from(ordersMap.values())
+      .sort((a, b) => new Date(b.orderDate) - new Date(a.orderDate))
+      .slice(0, limit)
+      .map(o => ({
+        ...o,
+        totalGrams: Math.round(o.totalGrams * 100) / 100,
+        totalRevenue: Math.round(o.totalRevenue * 100) / 100,
+        totalCost: Math.round(o.totalCost * 100) / 100,
+        totalMargin: Math.round(o.totalMargin * 100) / 100,
+        // Flag anomalies
+        anomalies: detectSaleAnomalies(o),
+      }));
+
+    res.json({ period: { from, to }, orders });
+  });
+});
+
+function detectSaleAnomalies(order) {
+  const anomalies = [];
+  // Detect unusually high grams per unit (likely parsing bug)
+  for (const line of order.lines) {
+    const gpu = Number(line.gramsPerUnit) || 0;
+    if (gpu > 100) anomalies.push("Ligne '" + line.productName + "' a " + gpu + "g/unite (suspect)");
+    if (gpu === 1000) anomalies.push("Ligne '" + line.productName + "' = 1000g (probablement li.grams mal lu)");
+  }
+  // Detect impossible margin
+  if (order.totalRevenue > 0 && order.totalMargin < -order.totalRevenue * 2) {
+    anomalies.push("Marge absurde (-" + Math.abs(Math.round(order.totalMargin)) + "€ pour " + order.totalRevenue + "€ CA)");
+  }
+  return anomalies;
+}
+
+
 // ---
 router.get("/api/analytics/products/top", (req, res) => {
   safeJson(req, res, () => {

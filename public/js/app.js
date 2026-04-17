@@ -72,7 +72,7 @@
     'openSODetails', 'showReceivePOModal', 'receivePO',
     'showFullActivityLog',
     'exportStockCSV', 'exportMovementsCSV', 'exportAnalyticsCSV',
-    'cancelPlan', 'changeAnalyticsPeriod', 'switchAnalyticsTab',
+    'cancelPlan', 'changeAnalyticsPeriod', 'switchAnalyticsTab', 'loadManualSalesTab', 'loadOrdersDebugTab', 'toggleOrderDebugRow',
     'switchOrdersTab', 'onOrderStatusChange', 'onOrderPeriodChange', 'onOrderSourceChange',
     'importShopifyOrders',
     'showCreatePOModal', 'savePO', 'openPODetails', 'confirmPO', 'sendPO',
@@ -8417,6 +8417,8 @@
       '<div class="analytics-tabs">' +
       '<button class="tab-btn active" data-tab="sales" onclick="app.switchAnalyticsTab(\'sales\')">' + t("analytics.sales", "Sales") + '</button>' +
       '<button class="tab-btn" data-tab="stock" onclick="app.switchAnalyticsTab(\'stock\')">' + t("analytics.stock", "Stock") + '</button>' +
+      '<button class="tab-btn" data-tab="manual" onclick="app.switchAnalyticsTab(\'manual\')">' + t("analytics.manualSales", "Ventes manuelles") + '</button>' +
+      '<button class="tab-btn" data-tab="orders" onclick="app.switchAnalyticsTab(\'orders\')">' + t("analytics.ordersRecap", "Recap commandes") + '</button>' +
       '</div>' +
       '</div></div>' +
       '<div id="analyticsContent"><div class="text-center" style="padding:60px"><div class="spinner"></div><p class="text-secondary mt-md">' + t("analytics.loading", "Loading analytics...") + '</p></div></div>';
@@ -8440,6 +8442,10 @@
       } else {
         loadAnalyticsSales();
       }
+    } else if (tab === "manual") {
+      loadManualSalesTab();
+    } else if (tab === "orders") {
+      loadOrdersDebugTab();
     } else {
       if (analyticsData) {
         renderAnalyticsContent();
@@ -8447,6 +8453,207 @@
         loadAnalytics();
       }
     }
+  }
+
+  async function loadManualSalesTab() {
+    var container = document.getElementById("analyticsContent");
+    if (!container) return;
+    container.innerHTML = '<div class="text-center" style="padding:60px"><div class="spinner"></div><p class="text-secondary mt-md">' + t("analytics.loading", "Chargement...") + '</p></div>';
+
+    try {
+      var days = parseInt(analyticsPeriod) || 30;
+      var now = new Date();
+      var from = new Date(now.getTime() - days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      var to = now.toISOString().slice(0, 10);
+
+      var res = await authFetch(apiUrl("/analytics/manual-sales?from=" + from + "&to=" + to + "&limit=500"));
+      if (!res.ok) throw new Error("Erreur chargement");
+      var data = await res.json();
+
+      renderManualSalesContent(data);
+    } catch (e) {
+      container.innerHTML = '<div class="card"><div class="card-body"><p class="text-danger">Erreur: ' + esc(e.message) + '</p></div></div>';
+    }
+  }
+
+  function renderManualSalesContent(data) {
+    var container = document.getElementById("analyticsContent");
+    if (!container) return;
+
+    var summary = data.summary || {};
+    var sales = data.sales || [];
+    var currSymbol = getCurrencySymbol();
+
+    if (sales.length === 0) {
+      container.innerHTML =
+        '<div class="card"><div class="card-body" style="text-align:center;padding:60px">' +
+        '<i data-lucide="shopping-cart" style="width:48px;height:48px;color:var(--text-secondary);margin-bottom:16px"></i>' +
+        '<h3>' + t("manualSales.noSales", "Aucune vente manuelle") + '</h3>' +
+        '<p class="text-secondary">' + t("manualSales.noSalesDesc", "Les ventes realisees en boutique ou en livraison apparaitront ici.") + '</p>' +
+        '<button class="btn btn-primary mt-md" onclick="app.showManualSaleModal()"><i data-lucide="plus"></i> ' + t("dashboard.manualSale", "Vente manuelle") + '</button>' +
+        '</div></div>';
+      if (typeof lucide !== "undefined") lucide.createIcons();
+      return;
+    }
+
+    var marginColor = summary.totalMargin >= 0 ? "var(--success, #22c55e)" : "var(--danger, #ef4444)";
+
+    var kpiHtml =
+      '<div class="kpi-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:20px">' +
+      '<div class="kpi-card"><div class="kpi-value">' + summary.count + '</div><div class="kpi-label">' + t("manualSales.count", "Ventes") + '</div></div>' +
+      '<div class="kpi-card"><div class="kpi-value">' + formatCurrency(summary.totalRevenue) + '</div><div class="kpi-label">' + t("manualSales.revenue", "CA") + '</div></div>' +
+      '<div class="kpi-card"><div class="kpi-value">' + formatCurrency(summary.totalCost) + '</div><div class="kpi-label">' + t("manualSales.cost", "Cout") + '</div></div>' +
+      '<div class="kpi-card"><div class="kpi-value" style="color:' + marginColor + '">' + (summary.totalMargin >= 0 ? "+" : "") + formatCurrency(summary.totalMargin) + '</div><div class="kpi-label">' + t("manualSales.margin", "Marge") + ' (' + summary.marginPercent + '%)</div></div>' +
+      '<div class="kpi-card"><div class="kpi-value">' + formatWeight(summary.totalGrams) + '</div><div class="kpi-label">' + t("manualSales.volume", "Volume") + '</div></div>' +
+      '</div>';
+
+    var rows = sales.map(function(s) {
+      var saleDate = new Date(s.orderDate);
+      var dateStr = saleDate.toLocaleDateString() + " " + saleDate.toLocaleTimeString().substring(0, 5);
+      var sMargin = (Number(s.netRevenue) || 0) - (Number(s.totalCost) || 0);
+      var sMarginPct = Number(s.netRevenue) > 0 ? Math.round((sMargin / Number(s.netRevenue)) * 100) : 0;
+      var sMarginColor = sMargin >= 0 ? "var(--success, #22c55e)" : "var(--danger, #ef4444)";
+      return '<tr>' +
+        '<td style="font-size:12px;color:var(--text-secondary)">' + esc(dateStr) + '</td>' +
+        '<td><strong>' + esc(s.productName || "-") + '</strong>' +
+        (s.orderNumber ? '<br><span style="font-size:11px;color:var(--text-secondary)">' + esc(s.orderNumber) + '</span>' : '') + '</td>' +
+        '<td>' + formatWeight(s.totalGrams || 0) + '</td>' +
+        '<td>' + formatCurrency(s.netRevenue || 0) + '</td>' +
+        '<td style="color:var(--text-secondary)">' + formatCurrency(s.totalCost || 0) + '</td>' +
+        '<td style="color:' + sMarginColor + ';font-weight:500">' + (sMargin >= 0 ? "+" : "") + formatCurrency(sMargin) + ' <span style="font-size:11px">(' + sMarginPct + '%)</span></td>' +
+        '</tr>';
+    }).join("");
+
+    container.innerHTML =
+      kpiHtml +
+      '<div class="card"><div class="card-body" style="padding:0">' +
+      '<table class="data-table">' +
+      '<thead><tr>' +
+      '<th>' + t("manualSales.date", "Date") + '</th>' +
+      '<th>' + t("manualSales.product", "Produit") + '</th>' +
+      '<th>' + t("manualSales.qty", "Qte") + '</th>' +
+      '<th>' + t("manualSales.revenue", "Vente") + '</th>' +
+      '<th>' + t("manualSales.cost", "Cout") + '</th>' +
+      '<th>' + t("manualSales.margin", "Marge") + '</th>' +
+      '</tr></thead><tbody>' + rows + '</tbody>' +
+      '</table></div></div>';
+
+    if (typeof lucide !== "undefined") lucide.createIcons();
+  }
+
+  async function loadOrdersDebugTab() {
+    var container = document.getElementById("analyticsContent");
+    if (!container) return;
+    container.innerHTML = '<div class="text-center" style="padding:60px"><div class="spinner"></div></div>';
+
+    try {
+      var days = parseInt(analyticsPeriod) || 30;
+      var now = new Date();
+      var from = new Date(now.getTime() - days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      var to = now.toISOString().slice(0, 10);
+
+      var res = await authFetch(apiUrl("/analytics/orders-debug?from=" + from + "&to=" + to + "&limit=100"));
+      if (!res.ok) throw new Error("Erreur chargement");
+      var data = await res.json();
+      renderOrdersDebugContent(data);
+    } catch (e) {
+      container.innerHTML = '<div class="card"><div class="card-body"><p class="text-danger">Erreur: ' + esc(e.message) + '</p></div></div>';
+    }
+  }
+
+  function renderOrdersDebugContent(data) {
+    var container = document.getElementById("analyticsContent");
+    if (!container) return;
+
+    var orders = data.orders || [];
+    if (orders.length === 0) {
+      container.innerHTML = '<div class="card"><div class="card-body" style="text-align:center;padding:60px"><p class="text-secondary">' + t("ordersDebug.noOrders", "Aucune commande dans cette periode") + '</p></div></div>';
+      return;
+    }
+
+    var totalAnomalies = orders.filter(function(o) { return o.anomalies && o.anomalies.length > 0; }).length;
+    var currSymbol = getCurrencySymbol();
+
+    var html = '';
+    if (totalAnomalies > 0) {
+      html += '<div class="alert" style="background:var(--danger-bg,#7f1d1d);border:1px solid var(--danger,#ef4444);padding:12px;border-radius:8px;margin-bottom:16px;color:#fca5a5">' +
+        '<i data-lucide="alert-triangle" style="width:16px;height:16px;display:inline;margin-right:6px"></i>' +
+        '<strong>' + totalAnomalies + ' commande(s) avec anomalies detectees</strong> — a verifier ci-dessous' +
+        '</div>';
+    }
+
+    html += '<div style="margin-bottom:12px;color:var(--text-secondary);font-size:13px">' +
+      orders.length + ' commande(s) sur la periode — cliquer sur une ligne pour voir les details' +
+      '</div>';
+
+    html += '<div style="display:flex;flex-direction:column;gap:8px">';
+
+    orders.forEach(function(o, idx) {
+      var hasAnomalies = o.anomalies && o.anomalies.length > 0;
+      var dateStr = new Date(o.orderDate).toLocaleString();
+      var sourceBadge = o.source === "manual" ? 'badge-info' : (o.source === "webhook" ? 'badge-success' : 'badge-secondary');
+      var sourceLabel = o.source === "manual" ? "Manuelle" : (o.source === "webhook" ? "Shopify" : (o.source || "?"));
+
+      var marginColor = o.totalMargin >= 0 ? "var(--success, #22c55e)" : "var(--danger, #ef4444)";
+      var borderColor = hasAnomalies ? "var(--danger, #ef4444)" : "var(--border-color)";
+
+      html += '<div class="order-debug-row" style="border:1px solid ' + borderColor + ';border-radius:8px;background:var(--bg-secondary);overflow:hidden">' +
+        '<div style="padding:10px 14px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap" onclick="app.toggleOrderDebugRow(' + idx + ')">' +
+        '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">' +
+        '<span style="font-weight:600">' + esc(o.orderNumber || o.orderId || "—") + '</span>' +
+        '<span class="badge ' + sourceBadge + '" style="font-size:11px;padding:2px 8px">' + esc(sourceLabel) + '</span>' +
+        '<span style="color:var(--text-secondary);font-size:12px">' + esc(dateStr) + '</span>' +
+        (hasAnomalies ? '<span class="badge badge-danger" style="font-size:11px">!</span>' : '') +
+        '</div>' +
+        '<div style="display:flex;align-items:center;gap:16px;font-size:13px">' +
+        '<span>' + o.lines.length + ' ligne(s)</span>' +
+        '<span>' + formatWeight(o.totalGrams) + '</span>' +
+        '<span>' + formatCurrency(o.totalRevenue) + '</span>' +
+        '<span style="color:' + marginColor + ';font-weight:500">' + (o.totalMargin >= 0 ? "+" : "") + formatCurrency(o.totalMargin) + '</span>' +
+        '<i data-lucide="chevron-down" style="width:16px;height:16px"></i>' +
+        '</div>' +
+        '</div>' +
+        '<div id="order-debug-details-' + idx + '" style="display:none;border-top:1px solid var(--border-color);padding:12px 14px;background:var(--bg-primary)">' +
+        (hasAnomalies ? '<div style="color:var(--danger,#ef4444);font-size:12px;margin-bottom:8px;padding:6px 10px;background:var(--danger-bg,rgba(239,68,68,0.1));border-radius:6px"><strong>Anomalies:</strong><br>' +
+          o.anomalies.map(function(a) { return '• ' + esc(a); }).join('<br>') + '</div>' : '') +
+        '<table style="width:100%;font-size:12px;border-collapse:collapse">' +
+        '<thead><tr style="border-bottom:1px solid var(--border-color);color:var(--text-secondary)">' +
+        '<th style="text-align:left;padding:4px">Produit</th>' +
+        '<th style="text-align:left;padding:4px">Variant</th>' +
+        '<th style="text-align:right;padding:4px">Qte</th>' +
+        '<th style="text-align:right;padding:4px">g/unit</th>' +
+        '<th style="text-align:right;padding:4px">Total g</th>' +
+        '<th style="text-align:right;padding:4px">CMP €/g</th>' +
+        '<th style="text-align:right;padding:4px">Vente</th>' +
+        '<th style="text-align:right;padding:4px">Cout</th>' +
+        '<th style="text-align:right;padding:4px">Marge</th>' +
+        '</tr></thead><tbody>' +
+        o.lines.map(function(l) {
+          var gpu = Number(l.gramsPerUnit) || 0;
+          var gpuWarn = gpu === 1000 || gpu > 100 ? 'style="color:var(--danger,#ef4444);font-weight:600"' : '';
+          return '<tr style="border-bottom:1px solid rgba(255,255,255,0.05)">' +
+            '<td style="padding:4px">' + esc(l.productName || "-") + '</td>' +
+            '<td style="padding:4px;color:var(--text-secondary)">' + esc(l.variantTitle || "-") + '</td>' +
+            '<td style="text-align:right;padding:4px">' + (l.quantity || 1) + '</td>' +
+            '<td style="text-align:right;padding:4px" ' + gpuWarn + '>' + gpu + '</td>' +
+            '<td style="text-align:right;padding:4px">' + formatWeight(l.totalGrams || 0) + '</td>' +
+            '<td style="text-align:right;padding:4px;color:var(--text-secondary)">' + (Number(l.costPerGram) || 0).toFixed(3) + '</td>' +
+            '<td style="text-align:right;padding:4px">' + formatCurrency(l.netRevenue || 0) + '</td>' +
+            '<td style="text-align:right;padding:4px;color:var(--text-secondary)">' + formatCurrency(l.totalCost || 0) + '</td>' +
+            '<td style="text-align:right;padding:4px">' + formatCurrency(l.margin || 0) + '</td>' +
+            '</tr>';
+        }).join("") +
+        '</tbody></table></div></div>';
+    });
+
+    html += '</div>';
+    container.innerHTML = html;
+    if (typeof lucide !== "undefined") lucide.createIcons();
+  }
+
+  function toggleOrderDebugRow(idx) {
+    var el = document.getElementById("order-debug-details-" + idx);
+    if (el) el.style.display = el.style.display === "none" ? "block" : "none";
   }
 
   async function loadAnalyticsSales() {
@@ -9063,6 +9270,9 @@
     changeAnalyticsPeriod: changeAnalyticsPeriod,
     toggleSection: toggleSection,
     switchAnalyticsTab: switchAnalyticsTab,
+    loadManualSalesTab: loadManualSalesTab,
+    loadOrdersDebugTab: loadOrdersDebugTab,
+    toggleOrderDebugRow: toggleOrderDebugRow,
     // Batches / Lots
     onBatchProductChange: onBatchProductChange,
     onBatchStatusChange: onBatchStatusChange,
