@@ -3563,6 +3563,8 @@ router.post("/api/analytics/deduplicate", (req, res) => {
     if (!analyticsStore) return apiError(res, 500, "Analytics non disponible");
 
     const dryRun = req.body?.dryRun !== false; // default true
+    const deleteOrderIds = Array.isArray(req.body?.deleteOrderIds) ? req.body.deleteOrderIds.map(String) : [];
+    const deleteOrderIdsSet = new Set(deleteOrderIds);
 
     const allSales = analyticsStore.listSales({ shop, limit: 50000 });
     
@@ -3591,11 +3593,47 @@ router.post("/api/analytics/deduplicate", (req, res) => {
     }
 
     if (dryRun) {
+      // Group kept sales by orderId for clearer picture
+      const uniqueByOrder = new Map();
+      for (const sale of kept) {
+        const oid = sale.orderId || sale.id;
+        if (!uniqueByOrder.has(oid)) {
+          uniqueByOrder.set(oid, {
+            orderId: sale.orderId,
+            orderNumber: sale.orderNumber,
+            orderDate: sale.orderDate,
+            source: sale.source,
+            products: [],
+            totalRevenue: 0,
+            totalGrams: 0,
+          });
+        }
+        const order = uniqueByOrder.get(oid);
+        order.products.push({
+          productName: sale.productName,
+          quantity: sale.quantity,
+          totalGrams: sale.totalGrams,
+          netRevenue: sale.netRevenue,
+        });
+        order.totalRevenue += Number(sale.netRevenue) || 0;
+        order.totalGrams += Number(sale.totalGrams) || 0;
+      }
+
+      const uniqueOrdersArray = Array.from(uniqueByOrder.values())
+        .map(o => ({
+          ...o,
+          totalRevenue: Math.round(o.totalRevenue * 100) / 100,
+          totalGrams: Math.round(o.totalGrams * 100) / 100,
+          lineCount: o.products.length,
+        }))
+        .sort((a, b) => new Date(b.orderDate) - new Date(a.orderDate));
+
       return res.json({
         dryRun: true,
         totalSales: allSales.length,
         duplicatesFound: duplicates.length,
         wouldKeep: kept.length,
+        uniqueOrders: uniqueOrdersArray,
         sampleDuplicates: duplicates.slice(0, 5).map(d => ({
           orderId: d.orderId,
           orderNumber: d.orderNumber,
@@ -3606,8 +3644,12 @@ router.post("/api/analytics/deduplicate", (req, res) => {
     }
 
     // Actually clean: rewrite the analytics files
-    if (duplicates.length === 0) {
-      return res.json({ success: true, duplicatesRemoved: 0, kept: kept.length });
+    // Also remove entire orders that user selected for deletion
+    const ordersDeletedCount = kept.filter(s => deleteOrderIdsSet.has(String(s.orderId))).length;
+    const keptAfterUserDelete = kept.filter(s => !deleteOrderIdsSet.has(String(s.orderId)));
+
+    if (duplicates.length === 0 && ordersDeletedCount === 0) {
+      return res.json({ success: true, duplicatesRemoved: 0, ordersDeleted: 0, kept: kept.length });
     }
 
     try {
@@ -3616,18 +3658,18 @@ router.post("/api/analytics/deduplicate", (req, res) => {
       const DATA_DIR = process.env.DATA_DIR || "/var/data";
       const analyticsDir = path.join(DATA_DIR, shop.replace(/[^a-z0-9._-]/g, "_"), "analytics");
 
-      // Group kept sales by month file
+      // Group kept sales by month file (excluding user-deleted orders)
       const byMonth = new Map();
-      for (const sale of kept) {
+      for (const sale of keptAfterUserDelete) {
         const d = new Date(sale.orderDate);
         const monthKey = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0");
         if (!byMonth.has(monthKey)) byMonth.set(monthKey, []);
         byMonth.get(monthKey).push(sale);
       }
 
-      // Clear and rewrite each month file
+      // Clear and rewrite each month file (NDJSON format - one JSON per line)
       if (fs.existsSync(analyticsDir)) {
-        const files = fs.readdirSync(analyticsDir).filter(f => f.endsWith(".jsonl"));
+        const files = fs.readdirSync(analyticsDir).filter(f => f.endsWith(".ndjson") || f.endsWith(".jsonl"));
         for (const file of files) {
           fs.unlinkSync(path.join(analyticsDir, file));
         }
@@ -3636,16 +3678,17 @@ router.post("/api/analytics/deduplicate", (req, res) => {
       }
 
       for (const [monthKey, sales] of byMonth) {
-        const filePath = path.join(analyticsDir, monthKey + ".jsonl");
+        const filePath = path.join(analyticsDir, monthKey + ".ndjson");
         const content = sales.map(s => JSON.stringify(s)).join("\n") + "\n";
         fs.writeFileSync(filePath, content, "utf8");
       }
 
-      logEvent("analytics_deduplicated", { shop, removed: duplicates.length, kept: kept.length }, "info");
+      logEvent("analytics_deduplicated", { shop, removed: duplicates.length, ordersDeleted: ordersDeletedCount, kept: keptAfterUserDelete.length }, "info");
       res.json({
         success: true,
         duplicatesRemoved: duplicates.length,
-        kept: kept.length,
+        ordersDeleted: ordersDeletedCount,
+        kept: keptAfterUserDelete.length,
       });
     } catch (e) {
       logEvent("analytics_dedup_error", { shop, error: e.message }, "error");
