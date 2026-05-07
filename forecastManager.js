@@ -21,17 +21,33 @@ const FORECAST_STATUS = {
 };
 
 const DEFAULT_SETTINGS = {
-  windowDays: 30,           // Fenêtre d'analyse des ventes
-  forecastHorizon: 30,      // Horizon de prévision
+  windowDays: 30,           // Fenetre d'analyse des ventes
+  forecastHorizon: 30,      // Horizon de prevision
   alertThresholdDays: 14,   // Seuil d'alerte rupture
-  targetCoverageDays: 30,   // Couverture cible pour réassort
-  reorderPointDays: 14,     // Point de réapprovisionnement
+  targetCoverageDays: 30,   // Couverture cible pour reassort
+  reorderPointDays: 14,     // Point de reapprovisionnement
   includeReturns: false,    // Prendre en compte les retours
   ignoreZeroDays: false,    // Ignorer les jours sans ventes
   useVariants: false,       // Mode variantes
   outlierCapping: false,    // Cappage des outliers (Pro)
   outlierPercentile: 95,    // Percentile pour outliers
+  useSeasonality: true,     // Pondere les jours selon le pattern hebdomadaire
+  seasonalityMinDays: 14,   // Pas de saisonnalite avant N jours observes
+  seasonalityFullDays: 60,  // Confiance max au-dela de N jours observes
 };
+
+const WEEKDAY_LABELS_FR = ["Dim", "Lun", "Mar", "Mer", "Jeu", "Ven", "Sam"];
+
+function defaultWeekdayWeights() {
+  return Array.from({ length: 7 }, (_, i) => ({
+    weekday: i,
+    label: WEEKDAY_LABELS_FR[i],
+    weight: 1,
+    rawWeight: 1,
+    totalQty: 0,
+    daysObserved: 0,
+  }));
+}
 
 // ============================================
 // HELPERS
@@ -218,6 +234,102 @@ function calculateDaysOfStock(currentStock, dailyRate) {
 }
 
 /**
+ * Calculer le pattern de saisonnalite jour-de-semaine sur les ventes observees.
+ * Renvoie 7 multiplicateurs (Dim..Sam) qui pondereront le dailyRate dans la
+ * projection. Avec peu de donnees, on retombe sur des poids = 1 (pas de
+ * saisonnalite) pour eviter de transformer un bruit ponctuel en pattern
+ * d'achat. La confidence est interpolee lineairement entre seasonalityMinDays
+ * et seasonalityFullDays.
+ *
+ * @param {Map<string, number>} dayMap day(YYYY-MM-DD) -> qty
+ * @param {Object} options { minDataPoints, fullConfidenceDays }
+ */
+function computeWeekdayWeights(dayMap, options = {}) {
+  const minDataPoints = Number(options.minDataPoints || 14);
+  const fullConfidenceDays = Number(options.fullConfidenceDays || 60);
+
+  if (!dayMap || dayMap.size === 0) {
+    return { weights: defaultWeekdayWeights(), confidence: 0, totalDays: 0 };
+  }
+
+  const byWeekday = Array.from({ length: 7 }, () => ({ qty: 0, days: 0 }));
+  let totalQty = 0;
+  let totalDays = 0;
+  for (const [day, qty] of dayMap.entries()) {
+    if (!day || qty <= 0) continue;
+    // Midi UTC pour eviter les soucis de fuseau / DST quand on extrait le jour
+    const wd = new Date(day + "T12:00:00Z").getUTCDay();
+    byWeekday[wd].qty += qty;
+    byWeekday[wd].days++;
+    totalQty += qty;
+    totalDays++;
+  }
+
+  if (totalDays < minDataPoints || totalQty <= 0) {
+    return { weights: defaultWeekdayWeights(), confidence: 0, totalDays };
+  }
+
+  // Moyenne par jour-de-semaine en utilisant le nombre de jours OBSERVES
+  // (et non pas les 7 jours de la semaine). Si on n'a jamais vendu un dimanche,
+  // on garde son poids a 1 (donnee inconnue, pas zero forcee).
+  const avgPerWeekday = byWeekday.map((w) => (w.days > 0 ? w.qty / w.days : null));
+  const observedAvgs = avgPerWeekday.filter((v) => v !== null);
+  if (observedAvgs.length < 2) {
+    return { weights: defaultWeekdayWeights(), confidence: 0, totalDays };
+  }
+  const globalAvg = observedAvgs.reduce((s, v) => s + v, 0) / observedAvgs.length;
+
+  if (globalAvg <= 0) {
+    return { weights: defaultWeekdayWeights(), confidence: 0, totalDays };
+  }
+
+  // Confidence : 0 sous minDataPoints, 1 au-dela de fullConfidenceDays, lineaire entre
+  const span = Math.max(1, fullConfidenceDays - minDataPoints);
+  const confidence = Math.max(0, Math.min(1, (totalDays - minDataPoints) / span));
+
+  const weights = byWeekday.map((w, i) => {
+    const avg = avgPerWeekday[i];
+    const rawWeight = avg === null ? 1 : avg / globalAvg;
+    // Damping vers 1.0 selon la confiance
+    const dampedWeight = 1 + confidence * (rawWeight - 1);
+    return {
+      weekday: i,
+      label: WEEKDAY_LABELS_FR[i],
+      weight: Math.round(dampedWeight * 100) / 100,
+      rawWeight: Math.round(rawWeight * 100) / 100,
+      totalQty: Math.round(w.qty * 100) / 100,
+      daysObserved: w.days,
+    };
+  });
+
+  return { weights, confidence: Math.round(confidence * 100) / 100, totalDays };
+}
+
+/**
+ * Calculer la date de rupture en simulant la consommation jour par jour
+ * avec les poids de saisonnalite. Plus precis que la division simple
+ * stock/rate quand la demande varie fortement entre jours de semaine.
+ */
+function calculateStockoutDateSeasonal(currentStock, dailyRate, weekdayWeights, maxDays = 365) {
+  if (dailyRate <= 0 || currentStock <= 0) return null;
+  const weights = Array.isArray(weekdayWeights)
+    ? weekdayWeights
+    : (weekdayWeights && weekdayWeights.weights) || null;
+
+  let stock = currentStock;
+  const today = new Date();
+  for (let i = 1; i <= maxDays; i++) {
+    const d = new Date(today);
+    d.setDate(d.getDate() + i);
+    const wd = d.getUTCDay();
+    const w = weights ? (weights[wd] && weights[wd].weight) || 1 : 1;
+    stock -= dailyRate * w;
+    if (stock <= 0) return d.toISOString().slice(0, 10);
+  }
+  return null;
+}
+
+/**
  * Calculer la date de rupture estimée
  */
 function calculateStockoutDate(daysOfStock) {
@@ -314,6 +426,9 @@ function generateForecast(shop, productsData, salesData, options = {}) {
     ignoreZeroDays,
     outlierCapping,
     outlierPercentile,
+    useSeasonality,
+    seasonalityMinDays,
+    seasonalityFullDays,
   } = settings;
 
   // Pre-agregation O(N) : un seul pass sur la liste des ventes, indexe par
@@ -332,7 +447,22 @@ function generateForecast(shop, productsData, salesData, options = {}) {
 
     const currentStock = product.totalGrams || 0;
     const daysOfStock = calculateDaysOfStock(currentStock, rateData.dailyRate);
-    const stockoutDate = calculateStockoutDate(daysOfStock);
+
+    // Saisonnalite : pondere les projections selon le jour de la semaine
+    let seasonality = null;
+    if (useSeasonality !== false && rateData.hasData) {
+      seasonality = computeWeekdayWeights(dayMap, {
+        minDataPoints: seasonalityMinDays,
+        fullConfidenceDays: seasonalityFullDays,
+      });
+    }
+
+    // Date de rupture : simulation jour-par-jour avec ponderation saisonniere
+    // si confiance > 0, sinon division simple stock/rate.
+    const stockoutDate = (seasonality && seasonality.confidence > 0)
+      ? calculateStockoutDateSeasonal(currentStock, rateData.dailyRate, seasonality)
+      : calculateStockoutDate(daysOfStock);
+
     const status = determineStatus(daysOfStock, rateData.dailyRate, alertThresholdDays);
     const leadTimeDays = product.leadTimeDays || 0;
     const reorderQty = calculateReorderQuantity(
@@ -369,6 +499,11 @@ function generateForecast(shop, productsData, salesData, options = {}) {
       daysOfStock,
       stockoutDate,
       status,
+
+      // Saisonnalite (peut etre null si donnees insuffisantes)
+      seasonality: seasonality
+        ? { confidence: seasonality.confidence, totalDays: seasonality.totalDays }
+        : null,
 
       // Recommandations
       reorderQty,
@@ -415,18 +550,31 @@ function generateProductForecast(shop, product, salesData, options = {}) {
   const rateData = calculateDailyRateFromDayMap(dayMap, windowDays, settings);
   const currentStock = product.totalGrams || 0;
   const daysOfStock = calculateDaysOfStock(currentStock, rateData.dailyRate);
-  const stockoutDate = calculateStockoutDate(daysOfStock);
+
+  // Saisonnalite jour-de-semaine
+  const seasonality = settings.useSeasonality !== false && rateData.hasData
+    ? computeWeekdayWeights(dayMap, {
+        minDataPoints: settings.seasonalityMinDays,
+        fullConfidenceDays: settings.seasonalityFullDays,
+      })
+    : null;
+  const useSeasonal = seasonality && seasonality.confidence > 0;
+
+  const stockoutDate = useSeasonal
+    ? calculateStockoutDateSeasonal(currentStock, rateData.dailyRate, seasonality)
+    : calculateStockoutDate(daysOfStock);
+
   const status = determineStatus(daysOfStock, rateData.dailyRate, settings.alertThresholdDays);
   const leadTimeDays = product.leadTimeDays || 0;
   const reorderQty = calculateReorderQuantity(currentStock, rateData.dailyRate, targetCoverageDays, 0, leadTimeDays);
-  
+
   // Historique journalier (30 derniers jours) reconstruit depuis dayMap
   const dailyHistory = buildDailyHistoryFromDayMap(dayMap, 30);
-  
-  // Scénarios
+
+  // Scenarios
   const scenarios = {
     pessimistic: {
-      multiplier: 1.2, // Ventes plus élevées = rupture plus rapide
+      multiplier: 1.2,
       dailyRate: rateData.dailyRate * 1.2,
       daysOfStock: calculateDaysOfStock(currentStock, rateData.dailyRate * 1.2),
     },
@@ -436,17 +584,17 @@ function generateProductForecast(shop, product, salesData, options = {}) {
       daysOfStock: daysOfStock,
     },
     optimistic: {
-      multiplier: 0.8, // Ventes plus faibles = stock dure plus
+      multiplier: 0.8,
       dailyRate: rateData.dailyRate * 0.8,
       daysOfStock: calculateDaysOfStock(currentStock, rateData.dailyRate * 0.8),
     },
   };
-  
-  // Projection sur l'horizon
-  const projection = buildProjection(currentStock, rateData.dailyRate, forecastHorizon);
-  
+
+  // Projection sur l'horizon (avec saisonnalite si confiance > 0)
+  const projection = buildProjection(currentStock, rateData.dailyRate, forecastHorizon, useSeasonal ? seasonality : null);
+
   // Explication du calcul
-  const explanation = buildExplanation(rateData, windowDays, currentStock, daysOfStock);
+  const explanation = buildExplanation(rateData, windowDays, currentStock, daysOfStock, seasonality);
   
   return {
     productId: product.productId,
@@ -470,7 +618,16 @@ function generateProductForecast(shop, product, salesData, options = {}) {
     scenarios,
     projection,
     explanation,
-    
+
+    // Saisonnalite : poids par jour de la semaine + confidence
+    seasonality: seasonality
+      ? {
+          confidence: seasonality.confidence,
+          totalDays: seasonality.totalDays,
+          weights: seasonality.weights,
+        }
+      : null,
+
     settings,
   };
 }
@@ -522,49 +679,62 @@ function buildDailyHistory(salesData, days) {
 /**
  * Construire la projection de stock
  */
-function buildProjection(currentStock, dailyRate, horizonDays) {
+function buildProjection(currentStock, dailyRate, horizonDays, seasonality = null) {
   const projection = [];
   let stock = currentStock;
   const now = new Date();
-  
+  const weights = seasonality && seasonality.weights ? seasonality.weights : null;
+
   for (let i = 0; i <= horizonDays; i++) {
     const date = new Date(now);
     date.setDate(date.getDate() + i);
-    
+    const dayWeight = weights ? (weights[date.getUTCDay()] && weights[date.getUTCDay()].weight) || 1 : 1;
+
     projection.push({
-      date: date.toISOString().split("T")[0],
+      date: date.toISOString().slice(0, 10),
       stock: Math.max(0, Math.round(stock * 10) / 10),
+      weekdayWeight: weights ? Math.round(dayWeight * 100) / 100 : null,
     });
-    
-    stock -= dailyRate;
+
+    stock -= dailyRate * dayWeight;
   }
-  
+
   return projection;
 }
 
 /**
  * Construire l'explication du calcul
  */
-function buildExplanation(rateData, windowDays, currentStock, daysOfStock) {
+function buildExplanation(rateData, windowDays, currentStock, daysOfStock, seasonality = null) {
   const lines = [];
-  
-  lines.push(`Analyse sur les ${windowDays} derniers jours`);
-  
+  const effective = rateData.effectiveWindow || windowDays;
+  lines.push(`Analyse sur les ${effective} derniers jours${effective !== windowDays ? ` (fenetre demandee : ${windowDays})` : ""}`);
+
   if (!rateData.hasData) {
-    lines.push("Aucune donnée de vente disponible");
+    lines.push("Aucune donnee de vente disponible");
     return lines;
   }
-  
-  lines.push(`Total vendu: ${rateData.totalSold?.toFixed(1) || 0}g sur ${rateData.daysWithSales || 0} jour(s)`);
-  lines.push(`Moyenne journalière: ${rateData.dailyRate?.toFixed(2) || 0}g/jour`);
-  lines.push(`Stock actuel: ${currentStock?.toFixed(1) || 0}g`);
-  
+
+  lines.push(`Total vendu : ${(rateData.totalSold || 0).toFixed(1)} g sur ${rateData.daysWithSales || 0} jour(s)`);
+  lines.push(`Moyenne journaliere : ${(rateData.dailyRate || 0).toFixed(2)} g/jour`);
+  lines.push(`Stock actuel : ${(currentStock || 0).toFixed(1)} g`);
+
   if (daysOfStock === Infinity) {
-    lines.push("Couverture: Illimitée (pas de ventes récentes)");
+    lines.push("Couverture : illimitee (pas de ventes recentes)");
   } else {
-    lines.push(`Couverture estimée: ${daysOfStock?.toFixed(0) || 0} jours`);
+    lines.push(`Couverture estimee : ${(daysOfStock || 0).toFixed(0)} jours`);
   }
-  
+
+  if (seasonality && seasonality.confidence > 0 && Array.isArray(seasonality.weights)) {
+    const sorted = seasonality.weights
+      .filter((w) => w.daysObserved > 0)
+      .map((w) => `${w.label} ${w.weight.toFixed(2)}x`)
+      .join(", ");
+    lines.push(`Saisonnalite (confiance ${Math.round(seasonality.confidence * 100)}%) : ${sorted}`);
+  } else if (seasonality) {
+    lines.push(`Saisonnalite : pas assez de donnees (${seasonality.totalDays} jour(s) observes)`);
+  }
+
   return lines;
 }
 
@@ -703,9 +873,11 @@ module.exports = {
   preaggregateSalesByDay,
   calculateDaysOfStock,
   calculateStockoutDate,
+  calculateStockoutDateSeasonal,
   calculateReorderQuantity,
   calculateOrderDeadline,
   determineStatus,
+  computeWeekdayWeights,
   
   // Forecast
   generateForecast,

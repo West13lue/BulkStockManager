@@ -5526,6 +5526,33 @@
           '</div>';
       }
 
+      // Saisonnalite : pattern jour de la semaine
+      var seasonalityHtml = '';
+      if (data.seasonality && Array.isArray(data.seasonality.weights)) {
+        var conf = Math.round((data.seasonality.confidence || 0) * 100);
+        var maxWeight = Math.max(1, Math.max.apply(null, data.seasonality.weights.map(function(w) { return w.weight || 0; })));
+        var bars = data.seasonality.weights.map(function(w) {
+          var pct = Math.max(4, ((w.weight || 0) / maxWeight) * 100);
+          var heightPct = Math.max(6, pct);
+          var noData = (w.daysObserved || 0) === 0;
+          var barColor = noData ? "var(--surface-2, var(--surface))" : ((w.weight || 0) >= 1 ? "var(--accent-primary)" : "var(--warning)");
+          var label = w.label + '<br><span style="font-size:10px;color:var(--text-secondary)">' + (noData ? "-" : (w.weight || 0).toFixed(2) + 'x') + '</span>';
+          return '<div class="weekday-bar-wrap" style="display:flex;flex-direction:column;align-items:center;gap:6px;flex:1">' +
+            '<div style="display:flex;align-items:flex-end;height:80px">' +
+              '<div style="width:24px;height:' + heightPct + '%;background:' + barColor + ';border-radius:4px 4px 0 0" title="' + w.label + ' : ' + (noData ? 'aucune vente' : (w.weight || 0).toFixed(2) + 'x la moyenne, ' + (w.totalQty || 0).toFixed(1) + ' g sur ' + w.daysObserved + ' jour(s)') + '"></div>' +
+            '</div>' +
+            '<div style="font-size:11px;text-align:center">' + label + '</div>' +
+          '</div>';
+        }).join("");
+        seasonalityHtml =
+          '<div class="section-header mt-lg" style="display:flex;align-items:center;gap:8px">' +
+            '<h3>Saisonnalite hebdomadaire</h3>' +
+            '<span class="badge" style="font-size:10px">confiance ' + conf + '%</span>' +
+          '</div>' +
+          '<div style="display:flex;gap:8px;align-items:flex-end;padding:var(--space-md) 0">' + bars + '</div>' +
+          (conf < 30 ? '<p class="text-secondary" style="font-size:12px">Donnees insuffisantes : la saisonnalite est attenuee tant que la confiance reste basse.</p>' : '');
+      }
+
       // Explication
       var explanationHtml = '';
       if (data.explanation && data.explanation.length > 0) {
@@ -5551,6 +5578,7 @@
           sparklineHtml +
           '<div class="section-header mt-lg"><h3>Scenarios</h3></div>' +
           scenariosHtml +
+          seasonalityHtml +
           explanationHtml,
         footer: '<button class="btn btn-secondary" onclick="app.closeModal()">Fermer</button>'
       });
