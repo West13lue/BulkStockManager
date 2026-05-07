@@ -926,6 +926,9 @@ router.get("/api/stock", (req, res) => {
     // que le frontend affiche "X unites" plutot que "X g" (les variantes ont
     // ete enregistrees avec gramsPerUnit=1 par la sync).
     const overridesMap = (productOverridesStore.listOverrides && productOverridesStore.listOverrides(shop)) || {};
+    const includeArchived = String(req.query.includeArchived || "").toLowerCase() === "true";
+    const archivedOnly = String(req.query.archivedOnly || "").toLowerCase() === "true";
+
     products = products.map((p) => {
       const ovr = overridesMap[String(p.productId || p.id || "")];
       if (!ovr) return p;
@@ -937,8 +940,19 @@ router.get("/api/stock", (req, res) => {
       if (Number(ovr.gramsPerUnit) > 0) {
         enriched.gramsPerUnitOverride = Number(ovr.gramsPerUnit);
       }
+      if (ovr.archived === true) {
+        enriched.archived = true;
+        enriched.archivedAt = ovr.archivedAt || null;
+      }
       return enriched;
     });
+
+    // Filtrer selon le mode archived
+    if (archivedOnly) {
+      products = products.filter((p) => p.archived === true);
+    } else if (!includeArchived) {
+      products = products.filter((p) => p.archived !== true);
+    }
 
     // Filtre par recherche (nom produit)
     if (q && q.trim()) {

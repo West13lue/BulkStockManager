@@ -35,6 +35,7 @@
     'toggleBatchSection', 'calcPurchaseTotal', 'calcCmpFromTotal',
     'showEditCMPModal', 'saveCMP',
     'showProductOverrideModal', 'saveProductOverride', 'resetProductOverride',
+    'archiveProduct', 'unarchiveProduct', 'showArchivedProductsModal',
     'showShopHealthModal', 'refreshShopHealth', 'refreshHealthBadge',
     'runAutoFix', 'applyAutoFix',
     'showAnomaliesModal', 'toggleAllAnomalies', 'updateAnomalyPurgeBtn', 'purgeSelectedAnomalies',
@@ -2647,6 +2648,7 @@
       '<button class="btn btn-ghost" onclick="app.exportStockCSV()" title="' + t("export.stock", "Export CSV") + '"><i data-lucide="download"></i></button>' +
       '<button class="btn btn-ghost" onclick="app.showScannerModal()" title="' + t("scanner.title", "Scanner code-barres") + '"><i data-lucide="scan-barcode"></i></button>' +
       '<button class="btn btn-ghost" onclick="app.showCategoriesModal()">' + t("categories.title", "Categories") + '</button>' +
+      '<button class="btn btn-ghost" onclick="app.showArchivedProductsModal()" title="' + t("products.archivedTitle", "Produits hors catalogue") + '"><i data-lucide="archive"></i></button>' +
       '<button class="btn btn-ghost" onclick="app.showManualSaleModal()" title="' + t("dashboard.manualSale", "Vente manuelle") + '"><i data-lucide="shopping-cart"></i></button>' +
       '<button class="btn btn-secondary" onclick="app.showImportModal()">' + t("products.importShopify", "Import Shopify") + '</button>' +
       '<button class="btn btn-primary" onclick="app.showAddProductModal()">+ ' + t("action.add", "Add") + '</button></div></div>' +
@@ -5258,6 +5260,7 @@
           '<button class="btn btn-ghost btn-xs" onclick="app.showRestockModal(\'' + p.productId + '\')">+</button>' +
           '<button class="btn btn-ghost btn-xs" onclick="app.showAdjustModal(\'' + p.productId + '\')">' + t("action.edit", "Edit") + '</button>' +
           '<button class="btn btn-ghost btn-xs" onclick="app.openProductDetails(\'' + p.productId + '\')">' + t("action.details", "Details") + '</button>' +
+          '<button class="btn btn-ghost btn-xs" onclick="app.archiveProduct(\'' + p.productId + '\')" title="' + t("products.archive", "Mettre hors catalogue") + '"><i data-lucide="archive" style="width:12px;height:12px"></i></button>' +
           '<button class="btn btn-ghost btn-xs text-danger" onclick="app.deleteProduct(\'' + p.productId + '\')" title="' + t("action.delete", "Supprimer") + '"><i data-lucide="trash-2" style="width:12px;height:12px"></i></button></td></tr>'
         );
       })
@@ -8526,6 +8529,7 @@
       '<button class="btn btn-secondary btn-sm" onclick="app.closeModal();app.showAdjustModal(\'' + p.productId + '\')"><i data-lucide="sliders"></i> ' + t("action.adjust", "Ajuster") + '</button>' +
       '<button class="btn btn-ghost btn-sm" onclick="app.showEditCMPModal(\'' + p.productId + '\',' + p.averageCostPerGram + ')"><i data-lucide="coins"></i> ' + t("action.editCMP", "Modifier CMP") + '</button>' +
       '<button class="btn btn-ghost btn-sm" onclick="app.showProductOverrideModal(\'' + p.productId + '\')"><i data-lucide="settings-2"></i> ' + t("products.config", "Configuration") + '</button>' +
+      '<button class="btn btn-ghost btn-sm" onclick="app.archiveProduct(\'' + p.productId + '\')"><i data-lucide="archive"></i> ' + t("products.archive", "Hors catalogue") + '</button>' +
       (hasFeature("hasBatchTracking") ? '<button class="btn btn-ghost btn-sm" onclick="app.closeModal();app.showAddBatchForProduct(\'' + p.productId + '\',\'' + esc(p.name).replace(/'/g, "\\'") + '\')"><i data-lucide="layers"></i> + ' + t("batches.addBatch", "Lot") + '</button>' : '') +
       '</div>' +
 
@@ -8848,6 +8852,129 @@
     } catch (e) {
       showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
     }
+  }
+
+  // ============================================
+  // Archive temporaire des produits (hors catalogue)
+  // ============================================
+  async function archiveProduct(productId) {
+    var product = (state.products || []).find(function(p) {
+      return String(p.productId || p.id) === String(productId);
+    });
+    var productName = product ? (product.name || product.title || productId) : productId;
+
+    var ok = await showConfirmDialog(
+      t("products.archiveConfirm", "Mettre temporairement hors catalogue ?") + "\n\n" +
+      escPlain(productName) + "\n\n" +
+      t("products.archiveDetail", "Le produit reste synchronise avec Shopify mais disparait du catalogue principal. Tu pourras le restaurer a tout moment via 'Hors catalogue'."),
+      { confirmText: t("products.archiveBtn", "Mettre hors catalogue") }
+    );
+    if (!ok) return;
+
+    try {
+      var res = await authFetch(apiUrl("/products/" + encodeURIComponent(productId) + "/override"), {
+        method: "PATCH",
+        body: JSON.stringify({ archived: true })
+      });
+      if (res.ok) {
+        showToast(t("products.archived", "Produit hors catalogue"), "success");
+        closeModal();
+        await loadProducts(true);
+        renderTab(state.currentTab);
+      } else {
+        var e = await res.json().catch(function() { return {}; });
+        showToast(e.error || t("msg.error", "Erreur"), "error");
+      }
+    } catch (e) {
+      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
+    }
+  }
+
+  async function unarchiveProduct(productId) {
+    try {
+      var res = await authFetch(apiUrl("/products/" + encodeURIComponent(productId) + "/override"), {
+        method: "PATCH",
+        body: JSON.stringify({ archived: false })
+      });
+      if (res.ok) {
+        showToast(t("products.unarchived", "Produit remis dans le catalogue"), "success");
+        await loadProducts(true);
+        renderTab(state.currentTab);
+      } else {
+        showToast(t("msg.error", "Erreur"), "error");
+      }
+    } catch (e) {
+      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
+    }
+  }
+
+  async function showArchivedProductsModal() {
+    closeModal();
+    showModal({
+      title: '<i data-lucide="archive"></i> ' + t("products.archivedTitle", "Produits hors catalogue"),
+      size: "lg",
+      content: '<div id="archivedBody"><div class="text-center py-lg"><div class="spinner"></div></div></div>',
+      footer: '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.close", "Fermer") + '</button>'
+    });
+    if (typeof lucide !== "undefined") lucide.createIcons();
+    try {
+      var res = await authFetch(apiUrl("/stock?archivedOnly=true&limit=500"));
+      if (!res.ok) {
+        document.getElementById("archivedBody").innerHTML = '<p class="text-secondary">' + t("msg.error", "Erreur") + '</p>';
+        return;
+      }
+      var data = await res.json();
+      var archived = data.products || [];
+      renderArchivedProducts(archived);
+    } catch (e) {
+      document.getElementById("archivedBody").innerHTML = '<p class="text-secondary">' + escPlain(e.message) + '</p>';
+    }
+  }
+
+  function renderArchivedProducts(products) {
+    var body = document.getElementById("archivedBody");
+    if (!body) return;
+    if (!products || products.length === 0) {
+      body.innerHTML = '<div class="health-clear">' +
+        '<i data-lucide="archive" style="width:48px;height:48px;color:var(--text-secondary)"></i>' +
+        '<h3>' + t("products.archivedEmpty", "Aucun produit hors catalogue") + '</h3>' +
+        '<p class="text-secondary">' + t("products.archivedEmptyDetail", "Les produits que tu mets temporairement hors catalogue apparaitront ici.") + '</p>' +
+      '</div>';
+      if (typeof lucide !== "undefined") lucide.createIcons();
+      return;
+    }
+
+    var rows = products.map(function(p) {
+      var pid = p.productId || p.id;
+      var dateStr = p.archivedAt ? new Date(p.archivedAt).toLocaleString() : "-";
+      return '<tr>' +
+        '<td>' + escPlain(p.name || p.title) + '</td>' +
+        '<td style="text-align:right">' + formatWeight(p.totalGrams || 0) + '</td>' +
+        '<td style="text-align:right">' + formatPricePerUnit(p.averageCostPerGram || 0) + '</td>' +
+        '<td style="font-size:11px;color:var(--text-secondary)">' + escPlain(dateStr) + '</td>' +
+        '<td style="text-align:right">' +
+          '<button class="btn btn-primary btn-xs" onclick="app.unarchiveProduct(\'' + escPlain(pid) + '\')"><i data-lucide="undo-2" style="width:12px;height:12px"></i> ' + t("products.restore", "Restaurer") + '</button>' +
+        '</td>' +
+      '</tr>';
+    }).join("");
+
+    body.innerHTML =
+      '<p class="text-secondary mb-md" style="font-size:13px">' +
+        products.length + ' ' + t("products.archivedHint", "produit(s) actuellement hors catalogue. Restaure-les pour les remettre dans le catalogue principal.") +
+      '</p>' +
+      '<div style="max-height:55vh;overflow:auto;border:1px solid var(--border);border-radius:var(--radius-md)">' +
+        '<table class="table table-compact" style="margin:0;font-size:13px">' +
+          '<thead><tr>' +
+            '<th>' + t("table.product", "Produit") + '</th>' +
+            '<th style="text-align:right">' + t("table.stock", "Stock") + '</th>' +
+            '<th style="text-align:right">' + t("table.cmp", "CMP") + '</th>' +
+            '<th>' + t("products.archivedAt", "Archive le") + '</th>' +
+            '<th style="text-align:right"></th>' +
+          '</tr></thead>' +
+          '<tbody>' + rows + '</tbody>' +
+        '</table>' +
+      '</div>';
+    if (typeof lucide !== "undefined") lucide.createIcons();
   }
 
   async function resetProductOverride(productId) {
@@ -10580,6 +10707,9 @@
     showProductOverrideModal: showProductOverrideModal,
     saveProductOverride: saveProductOverride,
     resetProductOverride: resetProductOverride,
+    archiveProduct: archiveProduct,
+    unarchiveProduct: unarchiveProduct,
+    showArchivedProductsModal: showArchivedProductsModal,
     showShopHealthModal: showShopHealthModal,
     refreshShopHealth: refreshShopHealth,
     refreshHealthBadge: refreshHealthBadge,

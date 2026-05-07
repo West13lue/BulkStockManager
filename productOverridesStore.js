@@ -92,6 +92,16 @@ function setOverride(shop, productId, patch = {}) {
     }
   }
 
+  if (patch.archived !== undefined) {
+    if (patch.archived === false || patch.archived === null) {
+      delete next.archived;
+      delete next.archivedAt;
+    } else {
+      next.archived = true;
+      next.archivedAt = new Date().toISOString();
+    }
+  }
+
   next.updatedAt = new Date().toISOString();
 
   if (Object.keys(next).filter((k) => k !== "updatedAt").length === 0) {
