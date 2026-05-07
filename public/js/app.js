@@ -36,6 +36,8 @@
     'showEditCMPModal', 'saveCMP',
     'showProductOverrideModal', 'saveProductOverride', 'resetProductOverride',
     'showShopHealthModal', 'refreshShopHealth', 'refreshHealthBadge',
+    'runAutoFix', 'applyAutoFix',
+    'showAnomaliesModal', 'toggleAllAnomalies', 'updateAnomalyPurgeBtn', 'purgeSelectedAnomalies',
     'setShopifyLocation', 'refreshShopifyLocations',
     'onSearchChange', 'onCategoryChange', 'onSortChange', 'sortByColumn', 'showCategoriesModal',
     'createCategory', 'deleteCategory', 'renameCategory', 'showRenameCategoryModal',
@@ -1858,7 +1860,25 @@
     var totalCost = 0;
     lines.forEach(function(l) { totalCost += l.qtyGrams * l.cmp; });
 
-    // Sanity check: catastrophic-margin warning. If total cost dwarfs the
+    // Sanity check 1: quantity > stock disponible × 100 = saisie certainement
+    // dans la mauvaise unite (kg au lieu de g typiquement).
+    var unitMistakeLines = lines.filter(function(l) {
+      return l.stock > 0 && l.qtyGrams > l.stock * 100 && l.qtyGrams > 1000;
+    });
+    if (unitMistakeLines.length > 0) {
+      var weightUnit = getWeightUnit();
+      var first = unitMistakeLines[0];
+      var msgQty =
+        t("sale.unitMistakeTitle", "Quantite suspecte") + "\n\n" +
+        first.productName + " : " + t("sale.unitMistakeYouEntered", "tu as saisi") + " " + formatWeight(first.qtyGrams) +
+        " " + t("sale.unitMistakeButStock", "alors que le stock est") + " " + formatWeight(first.stock) + ".\n\n" +
+        t("sale.unitMistakeHint", "L'unite actuelle est") + " '" + weightUnit + "'. " +
+        t("sale.unitMistakeFix", "Si tu voulais saisir des grammes, repasse l'unite a 'g' dans Parametres ou ressaisis la quantite.");
+      var okQty = await showConfirmDialog(msgQty, { danger: true, confirmText: t("sale.unitMistakeConfirm", "Enregistrer (la quantite est correcte)") });
+      if (!okQty) return;
+    }
+
+    // Sanity check 2: catastrophic-margin warning. If total cost dwarfs the
     // selling price (>5x), the user almost certainly entered a wrong unit
     // (kg vs g, or per-line vs total). Ask before submitting.
     if (totalCost > priceTotal * 5) {
@@ -8824,10 +8844,239 @@
       content: '<div id="shopHealthBody"><div class="text-center py-lg"><div class="spinner"></div><p class="text-secondary mt-md">' + t("health.loading", "Audit en cours...") + '</p></div></div>',
       footer:
         '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.close", "Fermer") + '</button>' +
-        '<button class="btn btn-secondary" onclick="app.refreshShopHealth()"><i data-lucide="refresh-cw"></i> ' + t("health.refresh", "Re-auditer") + '</button>'
+        '<button class="btn btn-secondary" onclick="app.refreshShopHealth()"><i data-lucide="refresh-cw"></i> ' + t("health.refresh", "Re-auditer") + '</button>' +
+        '<button class="btn btn-primary" onclick="app.runAutoFix()" id="autoFixBtn"><i data-lucide="wand-2"></i> ' + t("health.autoFix", "Corriger automatiquement") + '</button>'
     });
     if (typeof lucide !== "undefined") lucide.createIcons();
     await loadShopHealth();
+  }
+
+  async function runAutoFix() {
+    showToast(t("health.autoFixDryRun", "Analyse des corrections possibles..."), "info");
+    try {
+      var dry = await authFetch(apiUrl("/shop-health/auto-fix"), {
+        method: "POST",
+        body: JSON.stringify({ dryRun: true })
+      });
+      if (!dry.ok) {
+        showToast(t("health.autoFixError", "Echec de l'analyse"), "error");
+        return;
+      }
+      var preview = await dry.json();
+      var proposed = Array.isArray(preview.proposed) ? preview.proposed : [];
+      if (proposed.length === 0) {
+        showToast(t("health.autoFixNothing", "Aucune correction automatique disponible"), "info");
+        return;
+      }
+      showAutoFixPreview(preview);
+    } catch (e) {
+      showToast(t("health.autoFixError", "Echec de l'analyse") + ": " + e.message, "error");
+    }
+  }
+
+  function showAutoFixPreview(preview) {
+    var proposed = preview.proposed || [];
+    var skipped = (preview.skipped || []).filter(function(s) {
+      return s.reason !== "Override manuel deja present";
+    });
+
+    var rows = proposed.map(function(p) {
+      var icon = p.type === "trackByUnit" ? "package-2" : "scale";
+      var badge = p.type === "trackByUnit"
+        ? '<span class="badge badge-info">Suivi unite</span>'
+        : '<span class="badge badge-success">' + (p.patch && p.patch.gramsPerUnit) + ' g/unite</span>';
+      return '<tr>' +
+        '<td><i data-lucide="' + icon + '" style="width:14px;height:14px"></i> ' + escPlain(p.productName) + '</td>' +
+        '<td>' + badge + '</td>' +
+        '<td class="text-secondary" style="font-size:12px">' + escPlain(p.reason) + '</td>' +
+      '</tr>';
+    }).join("");
+
+    var skippedSection = skipped.length > 0
+      ? '<details style="margin-top:var(--space-md)"><summary style="cursor:pointer;color:var(--text-secondary);font-size:13px">' +
+        skipped.length + ' ' + t("health.autoFixSkipped", "produits non corriges automatiquement") +
+        '</summary><ul style="margin-top:var(--space-xs);font-size:12px;color:var(--text-secondary);padding-left:20px">' +
+        skipped.map(function(s) {
+          return '<li>' + escPlain(s.productName || s.productId) + ' — ' + escPlain(s.reason) + '</li>';
+        }).join("") + '</ul></details>'
+      : "";
+
+    closeModal();
+    showModal({
+      title: '<i data-lucide="wand-2"></i> ' + t("health.autoFixPreviewTitle", "Apercu des corrections"),
+      size: "lg",
+      content:
+        '<p class="text-secondary mb-md">' +
+          t("health.autoFixPreviewIntro", "Le systeme va appliquer les overrides ci-dessous. Tu pourras les revoir un par un dans la fiche de chaque produit (Configuration).") +
+        '</p>' +
+        '<div style="max-height:50vh;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius-md)">' +
+          '<table class="table table-compact" style="margin:0">' +
+            '<thead><tr><th>' + t("health.product", "Produit") + '</th><th>' + t("health.fix", "Correction") + '</th><th>' + t("health.reason", "Raison") + '</th></tr></thead>' +
+            '<tbody>' + rows + '</tbody>' +
+          '</table>' +
+        '</div>' +
+        skippedSection +
+        '<p class="form-hint" style="margin-top:var(--space-md)">' +
+          t("health.autoFixApplyHint", "Apres application, lance une synchronisation Shopify pour que les nouveaux poids prennent effet sur les variantes.") +
+        '</p>',
+      footer:
+        '<button class="btn btn-ghost" onclick="app.showShopHealthModal()">' + t("action.cancel", "Annuler") + '</button>' +
+        '<button class="btn btn-primary" onclick="app.applyAutoFix()"><i data-lucide="check"></i> ' + t("health.autoFixApply", "Appliquer les") + ' ' + proposed.length + ' ' + t("health.autoFixCorrections", "corrections") + '</button>'
+    });
+    if (typeof lucide !== "undefined") lucide.createIcons();
+  }
+
+  async function applyAutoFix() {
+    try {
+      var res = await authFetch(apiUrl("/shop-health/auto-fix"), {
+        method: "POST",
+        body: JSON.stringify({ dryRun: false })
+      });
+      if (!res.ok) {
+        showToast(t("health.autoFixError", "Echec de l'application"), "error");
+        return;
+      }
+      var data = await res.json();
+      var n = (data.applied || []).length;
+      showToast(n + " " + t("health.autoFixApplied", "correction(s) appliquee(s). Lance une sync Shopify."), "success");
+      closeModal();
+      await loadProducts(true);
+      refreshHealthBadge();
+    } catch (e) {
+      showToast(t("health.autoFixError", "Echec") + ": " + e.message, "error");
+    }
+  }
+
+  // ============================================
+  // Analytics anomalies : vente avec quantite ou CMP aberrants
+  // ============================================
+  var _anomaliesCache = null;
+
+  async function showAnomaliesModal() {
+    closeModal();
+    showModal({
+      title: '<i data-lucide="alert-octagon"></i> ' + t("anomalies.title", "Ventes aberrantes"),
+      size: "lg",
+      content: '<div id="anomaliesBody"><div class="text-center py-lg"><div class="spinner"></div></div></div>',
+      footer:
+        '<button class="btn btn-ghost" onclick="app.showShopHealthModal()">' + t("action.back", "Retour") + '</button>' +
+        '<button class="btn btn-danger" id="purgeAnomaliesBtn" onclick="app.purgeSelectedAnomalies()" disabled><i data-lucide="trash-2"></i> ' + t("anomalies.purgeSelected", "Supprimer les ventes cochees") + '</button>'
+    });
+    if (typeof lucide !== "undefined") lucide.createIcons();
+
+    try {
+      var res = await authFetch(apiUrl("/analytics/anomalies"));
+      if (!res.ok) {
+        document.getElementById("anomaliesBody").innerHTML = '<p class="text-secondary">' + t("anomalies.loadError", "Erreur de chargement") + '</p>';
+        return;
+      }
+      var data = await res.json();
+      _anomaliesCache = data.anomalies || [];
+      renderAnomaliesTable(_anomaliesCache);
+    } catch (e) {
+      document.getElementById("anomaliesBody").innerHTML = '<p class="text-secondary">' + escPlain(e.message) + '</p>';
+    }
+  }
+
+  function renderAnomaliesTable(anomalies) {
+    var body = document.getElementById("anomaliesBody");
+    if (!body) return;
+    if (!anomalies || anomalies.length === 0) {
+      body.innerHTML = '<div class="health-clear">' +
+        '<i data-lucide="shield-check" style="width:48px;height:48px;color:var(--success)"></i>' +
+        '<h3>' + t("anomalies.none", "Aucune anomalie detectee") + '</h3>' +
+        '<p class="text-secondary">' + t("anomalies.noneDetail", "Toutes les ventes enregistrees ont des valeurs coherentes.") + '</p>' +
+      '</div>';
+      if (typeof lucide !== "undefined") lucide.createIcons();
+      return;
+    }
+
+    var rows = anomalies.map(function(a, idx) {
+      var dateStr = a.orderDate ? new Date(a.orderDate).toLocaleString() : "-";
+      var reasons = (a.reasons || []).join(" · ");
+      var loss = a.totalCost > a.netRevenue ? '<span style="color:var(--danger)">-' + (a.totalCost - a.netRevenue).toFixed(2) + ' ' + getCurrencySymbol() + '</span>' : '+' + (a.netRevenue - a.totalCost).toFixed(2);
+      var sourceBadge = (a.source === "manual" || (a.orderId && String(a.orderId).indexOf("manual_") === 0))
+        ? '<span class="badge badge-info" style="font-size:10px">manual</span>'
+        : '<span class="badge" style="font-size:10px">' + escPlain(a.source || "?") + '</span>';
+      return '<tr>' +
+        '<td><input type="checkbox" class="anomaly-cb" data-id="' + escPlain(a.id || "") + '" data-order="' + escPlain(a.orderId || "") + '" onchange="app.updateAnomalyPurgeBtn()"></td>' +
+        '<td style="font-size:12px">' + escPlain(dateStr) + '</td>' +
+        '<td>' + escPlain(a.productName || "-") + ' ' + sourceBadge + '</td>' +
+        '<td style="text-align:right;font-variant-numeric:tabular-nums">' + formatWeight(a.totalGrams) + '</td>' +
+        '<td style="text-align:right;font-variant-numeric:tabular-nums">' + (a.netRevenue || 0).toFixed(2) + '</td>' +
+        '<td style="text-align:right;font-variant-numeric:tabular-nums">' + (a.totalCost || 0).toFixed(2) + '</td>' +
+        '<td style="text-align:right;font-variant-numeric:tabular-nums">' + loss + '</td>' +
+        '<td class="text-secondary" style="font-size:11px">' + escPlain(reasons) + '</td>' +
+      '</tr>';
+    }).join("");
+
+    body.innerHTML =
+      '<p class="text-secondary mb-md">' +
+        anomalies.length + ' ' + t("anomalies.detected", "vente(s) potentiellement erronnee(s) detectee(s). Coche les lignes a purger des analytics.") +
+      '</p>' +
+      '<div style="margin-bottom:var(--space-sm)"><label style="cursor:pointer;font-size:13px"><input type="checkbox" onchange="app.toggleAllAnomalies(this.checked)"> ' + t("anomalies.selectAll", "Tout cocher") + '</label></div>' +
+      '<div style="max-height:55vh;overflow:auto;border:1px solid var(--border);border-radius:var(--radius-md)">' +
+        '<table class="table table-compact" style="margin:0;font-size:12px">' +
+          '<thead><tr>' +
+            '<th></th>' +
+            '<th>' + t("anomalies.date", "Date") + '</th>' +
+            '<th>' + t("anomalies.product", "Produit") + '</th>' +
+            '<th style="text-align:right">' + t("anomalies.qty", "Qte") + '</th>' +
+            '<th style="text-align:right">' + t("anomalies.revenue", "CA") + '</th>' +
+            '<th style="text-align:right">' + t("anomalies.cost", "Cout") + '</th>' +
+            '<th style="text-align:right">' + t("anomalies.margin", "Marge") + '</th>' +
+            '<th>' + t("anomalies.reason", "Raison") + '</th>' +
+          '</tr></thead>' +
+          '<tbody>' + rows + '</tbody>' +
+        '</table>' +
+      '</div>';
+    if (typeof lucide !== "undefined") lucide.createIcons();
+  }
+
+  function toggleAllAnomalies(checked) {
+    document.querySelectorAll(".anomaly-cb").forEach(function(cb) { cb.checked = checked; });
+    updateAnomalyPurgeBtn();
+  }
+
+  function updateAnomalyPurgeBtn() {
+    var btn = document.getElementById("purgeAnomaliesBtn");
+    if (!btn) return;
+    var n = document.querySelectorAll(".anomaly-cb:checked").length;
+    btn.disabled = n === 0;
+    btn.innerHTML = '<i data-lucide="trash-2"></i> ' + t("anomalies.purge", "Supprimer") + ' (' + n + ')';
+    if (typeof lucide !== "undefined") lucide.createIcons();
+  }
+
+  async function purgeSelectedAnomalies() {
+    var checked = Array.from(document.querySelectorAll(".anomaly-cb:checked"));
+    if (checked.length === 0) return;
+    var saleIds = checked.map(function(cb) { return cb.dataset.id; }).filter(Boolean);
+    var orderIds = checked.map(function(cb) { return cb.dataset.order; }).filter(Boolean);
+
+    var ok = await showConfirmDialog(
+      t("anomalies.confirm", "Supprimer definitivement ces ventes des analytics ? Le stock physique n'est PAS modifie, seuls les enregistrements analytics sont purges.") + " (" + checked.length + ")",
+      { danger: true, confirmText: t("anomalies.confirmBtn", "Supprimer") }
+    );
+    if (!ok) return;
+
+    try {
+      var res = await authFetch(apiUrl("/analytics/anomalies/purge"), {
+        method: "POST",
+        body: JSON.stringify({ saleIds: saleIds, orderIds: orderIds })
+      });
+      if (!res.ok) {
+        var err = await res.json().catch(function() { return {}; });
+        showToast(err.error || t("anomalies.purgeError", "Echec de la purge"), "error");
+        return;
+      }
+      var data = await res.json();
+      showToast(data.removed + " " + t("anomalies.removed", "vente(s) supprimee(s)"), "success");
+      // Reload modal
+      await showAnomaliesModal();
+      refreshHealthBadge();
+    } catch (e) {
+      showToast(t("anomalies.purgeError", "Echec") + ": " + e.message, "error");
+    }
   }
 
   async function refreshShopHealth() {
@@ -8934,6 +9183,8 @@
         actionBtn = '<button class="btn btn-secondary btn-sm" onclick="app.closeModal();app.syncShopifyProducts()"><i data-lucide="refresh-cw"></i> ' + t("health.sync", "Synchroniser") + '</button>';
       } else if (c.action.type === "open_settings") {
         actionBtn = '<button class="btn btn-secondary btn-sm" onclick="app.closeModal();app.navigateTo(\'settings\')"><i data-lucide="settings"></i> ' + t("health.openSettings", "Parametres") + '</button>';
+      } else if (c.action.type === "open_anomalies") {
+        actionBtn = '<button class="btn btn-secondary btn-sm" onclick="app.showAnomaliesModal()"><i data-lucide="trash-2"></i> ' + t("health.cleanupAnomalies", "Examiner") + '</button>';
       }
     }
     var prodLine = c.productName
@@ -10026,6 +10277,12 @@
     showShopHealthModal: showShopHealthModal,
     refreshShopHealth: refreshShopHealth,
     refreshHealthBadge: refreshHealthBadge,
+    runAutoFix: runAutoFix,
+    applyAutoFix: applyAutoFix,
+    showAnomaliesModal: showAnomaliesModal,
+    toggleAllAnomalies: toggleAllAnomalies,
+    updateAnomalyPurgeBtn: updateAnomalyPurgeBtn,
+    purgeSelectedAnomalies: purgeSelectedAnomalies,
     setShopifyLocation: setShopifyLocation,
     refreshShopifyLocations: refreshShopifyLocations,
     // Filtres

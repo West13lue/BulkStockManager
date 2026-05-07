@@ -1801,6 +1801,45 @@ router.get("/api/shop-health", (req, res) => {
       if (isTrackByUnit) trackedProducts++;
     }
 
+    // ----- Analytics : detection de ventes aberrantes -----
+    let anomalousSales = 0;
+    if (analyticsStore && analyticsStore.listSales) {
+      try {
+        const recentSales = analyticsStore.listSales({ shop, limit: 5000 });
+        const aberrant = recentSales.filter((s) => {
+          const grams = Number(s.totalGrams) || 0;
+          const qty = Number(s.quantity) || 1;
+          const cost = Number(s.totalCost) || 0;
+          const rev = Number(s.netRevenue) || 0;
+          const cpg = Number(s.costPerGram) || 0;
+          // Heuristiques :
+          //  a) > 5 kg vendus en une ligne = saisie unite probablement fausse
+          //  b) costPerGram > 100 EUR/g = CMP figÃ© sous bug x1000
+          //  c) Perte > 1000 EUR sur une seule ligne = aberration
+          return (
+            (grams > 5000 && qty <= 1) ||
+            cpg > 100 ||
+            (cost - rev) > 1000
+          );
+        });
+        anomalousSales = aberrant.length;
+        if (aberrant.length > 0) {
+          checks.push({
+            id: "anomalous_sales",
+            severity: "critical",
+            category: "analytics",
+            title: aberrant.length + " vente(s) aberrante(s) en analytics",
+            detail: "Des enregistrements ont des quantites > 5 kg, un CMP > 100 EUR/g, ou une perte > 1000 EUR par ligne. Probable saisie en mauvaise unite ou bug CMP historique.",
+            action: { type: "open_anomalies" },
+            anomalousIds: aberrant.slice(0, 50).map((s) => s.id).filter(Boolean),
+            anomalousOrderIds: Array.from(new Set(aberrant.map((s) => s.orderId).filter(Boolean))).slice(0, 50)
+          });
+        }
+      } catch (e) {
+        // pas bloquant
+      }
+    }
+
     // Resume
     const summary = {
       totalProducts: products.length,
@@ -1814,12 +1853,252 @@ router.get("/api/shop-health", (req, res) => {
         fallback1000,
         masterOrphan,
         cmpSuspect,
+        anomalousSales,
       },
       locationConfigured: Boolean(settings.locationId),
       locationId: settings.locationId || null,
     };
 
     res.json({ shop, summary, checks });
+  });
+});
+
+// =====================================================
+// Lister + purger les ventes analytics aberrantes
+// =====================================================
+router.get("/api/analytics/anomalies", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    if (!analyticsStore || !analyticsStore.listSales) return apiError(res, 500, "Analytics non disponible");
+
+    const allSales = analyticsStore.listSales({ shop, limit: 50000 });
+    const anomalies = [];
+    for (const s of allSales) {
+      const grams = Number(s.totalGrams) || 0;
+      const qty = Number(s.quantity) || 1;
+      const cost = Number(s.totalCost) || 0;
+      const rev = Number(s.netRevenue) || 0;
+      const cpg = Number(s.costPerGram) || 0;
+      const reasons = [];
+      if (grams > 5000 && qty <= 1) reasons.push(`quantite ${grams} g pour 1 unite`);
+      if (cpg > 100) reasons.push(`CMP ${cpg.toFixed(2)} EUR/g (= ${(cpg * 1000).toFixed(0)} EUR/kg)`);
+      if ((cost - rev) > 1000) reasons.push(`perte ${(cost - rev).toFixed(2)} EUR sur la ligne`);
+      if (reasons.length > 0) {
+        anomalies.push({
+          id: s.id,
+          orderId: s.orderId,
+          orderNumber: s.orderNumber,
+          orderDate: s.orderDate,
+          productName: s.productName,
+          quantity: qty,
+          totalGrams: grams,
+          netRevenue: rev,
+          totalCost: cost,
+          costPerGram: cpg,
+          margin: Number(s.margin) || (rev - cost),
+          source: s.source,
+          reasons,
+        });
+      }
+    }
+
+    anomalies.sort((a, b) => new Date(b.orderDate || 0) - new Date(a.orderDate || 0));
+    res.json({ shop, total: anomalies.length, anomalies });
+  });
+});
+
+router.post("/api/analytics/anomalies/purge", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    if (!analyticsStore || !analyticsStore.listSales) return apiError(res, 500, "Analytics non disponible");
+
+    const idsRaw = Array.isArray(req.body?.saleIds) ? req.body.saleIds : null;
+    const orderIdsRaw = Array.isArray(req.body?.orderIds) ? req.body.orderIds : null;
+    if (!idsRaw && !orderIdsRaw) return apiError(res, 400, "Fournis saleIds ou orderIds");
+
+    const idSet = new Set((idsRaw || []).map(String));
+    const orderSet = new Set((orderIdsRaw || []).map(String));
+
+    const allSales = analyticsStore.listSales({ shop, limit: 50000 });
+    const kept = [];
+    let removed = 0;
+    for (const s of allSales) {
+      const matchId = s.id && idSet.has(String(s.id));
+      const matchOrder = s.orderId && orderSet.has(String(s.orderId));
+      if (matchId || matchOrder) {
+        removed++;
+      } else {
+        kept.push(s);
+      }
+    }
+
+    if (removed === 0) return res.json({ success: true, removed: 0, kept: kept.length });
+
+    try {
+      const fs = require("fs");
+      const path = require("path");
+      const DATA_DIR = process.env.DATA_DIR || "/var/data";
+      const analyticsDir = path.join(DATA_DIR, shop.replace(/[^a-z0-9._-]/g, "_"), "analytics");
+
+      const byMonth = new Map();
+      for (const sale of kept) {
+        const d = new Date(sale.orderDate || sale.ts || Date.now());
+        const monthKey = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0");
+        if (!byMonth.has(monthKey)) byMonth.set(monthKey, []);
+        byMonth.get(monthKey).push(sale);
+      }
+
+      if (fs.existsSync(analyticsDir)) {
+        const files = fs.readdirSync(analyticsDir).filter((f) => f.endsWith(".ndjson") || f.endsWith(".jsonl"));
+        for (const file of files) fs.unlinkSync(path.join(analyticsDir, file));
+      } else {
+        fs.mkdirSync(analyticsDir, { recursive: true });
+      }
+
+      for (const [monthKey, sales] of byMonth) {
+        const filePath = path.join(analyticsDir, monthKey + ".ndjson");
+        const content = sales.map((s) => JSON.stringify(s)).join("\n") + (sales.length ? "\n" : "");
+        fs.writeFileSync(filePath, content, "utf8");
+      }
+
+      logEvent("analytics_anomalies_purged", { shop, removed, kept: kept.length });
+      res.json({ success: true, removed, kept: kept.length });
+    } catch (e) {
+      logEvent("analytics_anomalies_purge_error", { shop, error: e.message }, "error");
+      return apiError(res, 500, "Erreur purge: " + e.message);
+    }
+  });
+});
+
+// =====================================================
+// Shop health : auto-fix base sur des heuristiques de noms
+// =====================================================
+function inferProductFix(productName) {
+  const name = String(productName || "").toLowerCase();
+  if (!name) return null;
+
+  // Accessoires (suivi a l'unite)
+  const accessoryPatterns = [
+    /briquet/, /lighter/, /grinder/, /plateau/, /tray/, /cendrier/, /ashtray/,
+    /sticker/, /t-?shirt/, /casquette/, /\bcap\b/, /mug/,
+    /\bocb\b/, /\bpapers?\b/, /\brolling\b/, /\bfeuilles?\b/, /\bfiltres?\b/, /\btips?\b/,
+    /\bkit\b/, /accessoire/, /accessories/, /\bbong\b/, /\bpipe\b/, /vaporisateur/, /vapo\b/,
+    /\bsac\b/, /\bbag\b/, /pochette/
+  ];
+  for (const pat of accessoryPatterns) {
+    if (pat.test(name)) {
+      return {
+        type: "trackByUnit",
+        patch: { trackByUnit: true, gramsPerUnit: null },
+        reason: "Accessoire detecte (suivi a l'unite, pas au gramme)"
+      };
+    }
+  }
+
+  // Pre-roules : detecter "joint", "pre-roll", "spliff", "cone"
+  // Avec multipack : "duo" / "(x2)" / "x 3" / "pack de N"
+  const isPreRoll = /\bjoint\b|\bpre[\s-]?roll/i.test(name) || /spliff|\bcone\b/i.test(name);
+  if (isPreRoll) {
+    let multiplier = 1;
+    const xMatch = name.match(/\(?x\s*(\d+)\)?|\bduo\b|\btrio\b|\bquatuor\b|pack\s+de\s+(\d+)/i);
+    if (xMatch) {
+      if (/duo/.test(name)) multiplier = 2;
+      else if (/trio/.test(name)) multiplier = 3;
+      else if (/quatuor/.test(name)) multiplier = 4;
+      else if (xMatch[1]) multiplier = parseInt(xMatch[1], 10) || 1;
+      else if (xMatch[2]) multiplier = parseInt(xMatch[2], 10) || 1;
+    }
+    const grams = 0.5 * multiplier;
+    return {
+      type: "gramsPerUnit",
+      patch: { gramsPerUnit: grams, trackByUnit: false },
+      reason: `Pre-roule detecte (${multiplier} x 0.5 g = ${grams} g/unite)`
+    };
+  }
+
+  return null;
+}
+
+router.post("/api/shop-health/auto-fix", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+
+    const dryRun = req.body && req.body.dryRun === true;
+    const overrides = (productOverridesStore.listOverrides && productOverridesStore.listOverrides(shop)) || {};
+    const snapshot = stock.getCatalogSnapshot ? stock.getCatalogSnapshot(shop) : { products: [] };
+    const products = Array.isArray(snapshot.products) ? snapshot.products : [];
+
+    const proposed = [];
+    const applied = [];
+    const skipped = [];
+
+    for (const p of products) {
+      const pid = String(p.productId || p.id || "");
+      if (!pid) continue;
+
+      // Skip si override deja configure manuellement
+      if (overrides[pid]) {
+        skipped.push({ productId: pid, productName: p.name, reason: "Override manuel deja present" });
+        continue;
+      }
+
+      // Skip si le produit n'a pas de variantes en fallback 1000g (= deja correctement parse)
+      const variants = p.variants || {};
+      const hasFallback1000 = Object.entries(variants).some(([label, v]) => {
+        if (Number(v.gramsPerUnit) !== 1000) return false;
+        return !/1000|1\s*kg|kilo/i.test(String(label));
+      });
+      if (!hasFallback1000) {
+        // Parsing OK, rien a faire
+        continue;
+      }
+
+      const fix = inferProductFix(p.name);
+      if (!fix) {
+        skipped.push({ productId: pid, productName: p.name, reason: "Aucun pattern reconnu" });
+        continue;
+      }
+
+      proposed.push({
+        productId: pid,
+        productName: p.name,
+        type: fix.type,
+        patch: fix.patch,
+        reason: fix.reason
+      });
+
+      if (!dryRun) {
+        try {
+          productOverridesStore.setOverride(shop, pid, fix.patch);
+          applied.push({ productId: pid, productName: p.name, type: fix.type, reason: fix.reason });
+        } catch (e) {
+          skipped.push({ productId: pid, productName: p.name, reason: "Erreur application: " + e.message });
+        }
+      }
+    }
+
+    if (!dryRun) {
+      logEvent("shop_health_auto_fix", {
+        shop,
+        applied: applied.length,
+        skipped: skipped.length,
+      });
+    }
+
+    res.json({
+      dryRun,
+      proposed,
+      applied,
+      skipped,
+      summary: {
+        proposedCount: proposed.length,
+        appliedCount: applied.length,
+        skippedCount: skipped.length,
+      }
+    });
   });
 });
 
