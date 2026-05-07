@@ -6491,9 +6491,16 @@ router.get("/api/forecast", (req, res) => {
     const windowDays = parseInt(req.query.windowDays) || 30;
     const categoryId = req.query.categoryId || null;
 
-    // Recuperer les produits
+    // Recuperer les produits puis exclure :
+    //  - accessoires (trackByUnit) : pas de sens de prevoir au gramme
+    //  - produits archives : hors catalogue
     const snapshot = stock.getCatalogSnapshot ? stock.getCatalogSnapshot(shop) : { products: [] };
-    let products = snapshot.products || [];
+    const overridesMap = (productOverridesStore.listOverrides && productOverridesStore.listOverrides(shop)) || {};
+    let products = (snapshot.products || []).filter((p) => {
+      const ovr = overridesMap[String(p.productId || "")];
+      if (!ovr) return true;
+      return !ovr.trackByUnit && !ovr.archived;
+    });
 
     // Filtrer par categorie
     if (categoryId) {
@@ -6570,9 +6577,14 @@ router.get("/api/forecast/recommendations", (req, res) => {
 
     const windowDays = parseInt(req.query.windowDays) || 30;
 
-    // Recuperer les produits
+    // Recuperer les produits puis filtrer accessoires/archives
     const snapshot = stock.getCatalogSnapshot ? stock.getCatalogSnapshot(shop) : { products: [] };
-    const products = snapshot.products || [];
+    const overridesMap = (productOverridesStore.listOverrides && productOverridesStore.listOverrides(shop)) || {};
+    const products = (snapshot.products || []).filter((p) => {
+      const ovr = overridesMap[String(p.productId || "")];
+      if (!ovr) return true;
+      return !ovr.trackByUnit && !ovr.archived;
+    });
 
     // Recuperer les ventes
     let salesData = [];

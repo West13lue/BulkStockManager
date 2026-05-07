@@ -1293,17 +1293,23 @@
   }
 
   function renderDashboard(c) {
-    var totalProducts = state.products.length;
-    var totalStock = state.products.reduce(function (s, p) {
+    // Le dashboard ne montre que les produits actifs au gramme :
+    // exclure les accessoires (trackByUnit) et les produits archives.
+    var dashProducts = (state.products || []).filter(function(p) {
+      return !p.trackByUnit && !p.archived;
+    });
+
+    var totalProducts = dashProducts.length;
+    var totalStock = dashProducts.reduce(function (s, p) {
       return s + (p.totalGrams || 0);
     }, 0);
-    var totalValue = state.products.reduce(function (s, p) {
+    var totalValue = dashProducts.reduce(function (s, p) {
       return s + (p.totalGrams || 0) * (p.averageCostPerGram || 0);
     }, 0);
-    var outOfStockProducts = state.products.filter(function (p) {
+    var outOfStockProducts = dashProducts.filter(function (p) {
       return (p.totalGrams || 0) === 0;
     });
-    var lowStockProducts = state.products.filter(function (p) {
+    var lowStockProducts = dashProducts.filter(function (p) {
       var g = p.totalGrams || 0;
       return g > 0 && g < 100;
     });
@@ -1466,7 +1472,7 @@
           '<div class="card-header"><h3 class="card-title"><i data-lucide="boxes" aria-hidden="true"></i> ' + t("dashboard.products", "Produits") + '</h3>' +
           '<button class="btn btn-ghost btn-sm" onclick="app.navigateTo(\'products\')">' + t("dashboard.viewAll", "Voir tout") + '</button></div>' +
           '<div class="card-body" style="padding:0">' +
-            (state.products.length ? renderTable(state.products.slice(0, 5)) : renderEmpty()) +
+            (dashProducts.length ? renderTable(dashProducts.slice(0, 5)) : renderEmpty()) +
           '</div>' +
         '</div>' +
       '</div>';

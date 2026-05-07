@@ -101,61 +101,110 @@ function saveCache(shop, data) {
 // ============================================
 
 /**
- * Calculer le taux de vente journalier
- * @param {Array} salesData - Données de ventes [{date, qty}, ...]
- * @param {number} windowDays - Fenêtre d'analyse
- * @param {Object} options - Options (ignoreZeroDays, outlierCapping)
+ * Pre-agreger toutes les ventes par productId puis par jour, en un seul pass
+ * sur la liste de ventes. Coupe les O(N x M) en O(N + M) pour generateForecast
+ * qui sinon refiltre la liste complete pour chaque produit.
+ *
+ * @param {Array} salesData - [{ productId, date, qty }, ...]
+ * @returns {Map<string, Map<string, number>>} productId -> day(YYYY-MM-DD) -> qty
+ */
+function preaggregateSalesByDay(salesData) {
+  const byProduct = new Map();
+  if (!Array.isArray(salesData)) return byProduct;
+  for (const sale of salesData) {
+    const pid = sale && sale.productId;
+    if (!pid || !sale.date) continue;
+    const day = String(sale.date).slice(0, 10);
+    let dayMap = byProduct.get(pid);
+    if (!dayMap) {
+      dayMap = new Map();
+      byProduct.set(pid, dayMap);
+    }
+    dayMap.set(day, (dayMap.get(day) || 0) + (Number(sale.qty) || 0));
+  }
+  return byProduct;
+}
+
+/**
+ * Calculer le taux de vente journalier a partir d'une dayMap pre-aggregee.
+ * Utilise une fenetre effective : si les donnees couvrent moins que
+ * windowDays, on divise par le nombre reel de jours observes pour
+ * eviter de sous-estimer le rythme d'un produit recent.
+ */
+function calculateDailyRateFromDayMap(dayMap, windowDays, options = {}) {
+  if (!dayMap || dayMap.size === 0) {
+    return { dailyRate: 0, hasData: false, dataPoints: 0, totalSold: 0, daysWithSales: 0, effectiveWindow: windowDays };
+  }
+  const { ignoreZeroDays = false, outlierCapping = false, outlierPercentile = 95 } = options;
+
+  const now = new Date();
+  const windowStart = new Date(now);
+  windowStart.setDate(windowStart.getDate() - windowDays);
+  const windowStartStr = windowStart.toISOString().slice(0, 10);
+
+  // Filtrer par fenetre + collecter
+  let totalQty = 0;
+  let daysWithSales = 0;
+  let firstDay = null;
+  const dayValues = [];
+  for (const [day, qty] of dayMap.entries()) {
+    if (day < windowStartStr) continue;
+    dayValues.push(qty);
+    totalQty += qty;
+    if (qty > 0) daysWithSales++;
+    if (!firstDay || day < firstDay) firstDay = day;
+  }
+
+  if (dayValues.length === 0) {
+    return { dailyRate: 0, hasData: false, dataPoints: 0, totalSold: 0, daysWithSales: 0, effectiveWindow: windowDays };
+  }
+
+  // Cappage des outliers (Pro)
+  if (outlierCapping && dayValues.length > 5) {
+    const sorted = dayValues.slice().sort((a, b) => a - b);
+    const idx = Math.floor(sorted.length * (outlierPercentile / 100));
+    const cap = sorted[idx] || sorted[sorted.length - 1];
+    totalQty = 0;
+    for (let i = 0; i < dayValues.length; i++) {
+      if (dayValues[i] > cap) dayValues[i] = cap;
+      totalQty += dayValues[i];
+    }
+  }
+
+  // Fenetre effective : min(windowDays, jours depuis premiere vente)
+  let effectiveWindow = windowDays;
+  if (firstDay) {
+    const firstDate = new Date(firstDay + "T00:00:00Z");
+    const diffDays = Math.max(1, Math.ceil((now.getTime() - firstDate.getTime()) / 86400000));
+    effectiveWindow = Math.min(windowDays, diffDays);
+  }
+  const denominator = ignoreZeroDays ? Math.max(1, daysWithSales) : effectiveWindow;
+  const dailyRate = totalQty / denominator;
+
+  return {
+    dailyRate: Math.round(dailyRate * 100) / 100,
+    hasData: true,
+    dataPoints: dayValues.length,
+    totalSold: Math.round(totalQty * 100) / 100,
+    daysWithSales,
+    effectiveWindow,
+  };
+}
+
+/**
+ * Wrapper retro-compatible : prend l'ancienne forme [{date, qty}] et delegue.
  */
 function calculateDailyRate(salesData, windowDays, options = {}) {
   if (!salesData || salesData.length === 0) {
     return { dailyRate: 0, hasData: false, dataPoints: 0 };
   }
-  
-  const { ignoreZeroDays = false, outlierCapping = false, outlierPercentile = 95 } = options;
-  
-  const now = new Date();
-  const windowStart = new Date(now);
-  windowStart.setDate(windowStart.getDate() - windowDays);
-  
-  // Filtrer par fenêtre
-  let filtered = salesData.filter(s => new Date(s.date) >= windowStart);
-  
-  if (filtered.length === 0) {
-    return { dailyRate: 0, hasData: false, dataPoints: 0 };
+  const dayMap = new Map();
+  for (const s of salesData) {
+    if (!s || !s.date) continue;
+    const day = String(s.date).slice(0, 10);
+    dayMap.set(day, (dayMap.get(day) || 0) + (Number(s.qty) || 0));
   }
-  
-  // Agréger par jour
-  const dailyTotals = {};
-  for (const sale of filtered) {
-    const day = sale.date.split("T")[0];
-    dailyTotals[day] = (dailyTotals[day] || 0) + (sale.qty || 0);
-  }
-  
-  let dailyValues = Object.values(dailyTotals);
-  
-  // Cappage des outliers (Pro)
-  if (outlierCapping && dailyValues.length > 5) {
-    const sorted = [...dailyValues].sort((a, b) => a - b);
-    const percentileIndex = Math.floor(sorted.length * (outlierPercentile / 100));
-    const cap = sorted[percentileIndex] || sorted[sorted.length - 1];
-    dailyValues = dailyValues.map(v => Math.min(v, cap));
-  }
-  
-  // Calcul de la moyenne
-  let totalQty = dailyValues.reduce((sum, v) => sum + v, 0);
-  let daysCount = ignoreZeroDays ? dailyValues.filter(v => v > 0).length : windowDays;
-  
-  if (daysCount === 0) daysCount = 1;
-  
-  const dailyRate = totalQty / daysCount;
-  
-  return {
-    dailyRate: Math.round(dailyRate * 100) / 100,
-    hasData: true,
-    dataPoints: filtered.length,
-    totalSold: totalQty,
-    daysWithSales: Object.keys(dailyTotals).length,
-  };
+  return calculateDailyRateFromDayMap(dayMap, windowDays, options);
 }
 
 /**
@@ -182,26 +231,26 @@ function calculateStockoutDate(daysOfStock) {
 }
 
 /**
- * Calculer la quantité à recommander
+ * Calculer la quantite a recommander.
+ * Lead-time-aware : on commande de quoi tenir le lead time PUIS la couverture
+ * cible apres reception, moins ce qui est deja en stock. Sans lead time, on
+ * retombe sur l'ancien comportement (juste la couverture cible).
  */
-function calculateReorderQuantity(currentStock, dailyRate, targetCoverageDays, minOrderQty = 0) {
-  if (dailyRate <= 0) {
-    return 0;
-  }
-  
-  const targetStock = dailyRate * targetCoverageDays;
+function calculateReorderQuantity(currentStock, dailyRate, targetCoverageDays, minOrderQty = 0, leadTimeDays = 0) {
+  if (dailyRate <= 0) return 0;
+
+  const lt = Math.max(0, Number(leadTimeDays) || 0);
+  // Stock necessaire = ce qui sera consomme pendant le lead time + couverture
+  // cible apres reception. currentStock va couvrir le lead time, le delta
+  // sert a remplir jusqu'a la couverture cible.
+  const targetStock = dailyRate * (lt + Math.max(1, targetCoverageDays));
   const needed = Math.max(0, targetStock - currentStock);
-  
-  // Arrondir selon la quantité
+
   let rounded;
-  if (needed < 10) {
-    rounded = Math.ceil(needed * 10) / 10; // Arrondi à 0.1
-  } else if (needed < 100) {
-    rounded = Math.ceil(needed); // Arrondi à 1
-  } else {
-    rounded = Math.ceil(needed / 10) * 10; // Arrondi à 10
-  }
-  
+  if (needed < 10) rounded = Math.ceil(needed * 10) / 10;
+  else if (needed < 100) rounded = Math.ceil(needed);
+  else rounded = Math.ceil(needed / 10) * 10;
+
   return Math.max(rounded, minOrderQty);
 }
 
@@ -266,90 +315,85 @@ function generateForecast(shop, productsData, salesData, options = {}) {
     outlierCapping,
     outlierPercentile,
   } = settings;
-  
-  // Indexer les ventes par produit
-  const salesByProduct = {};
-  for (const sale of salesData) {
-    const pid = sale.productId;
-    if (!salesByProduct[pid]) salesByProduct[pid] = [];
-    salesByProduct[pid].push(sale);
-  }
-  
+
+  // Pre-agregation O(N) : un seul pass sur la liste des ventes, indexe par
+  // produit puis par jour. La boucle des produits ne refiltre plus la liste.
+  const salesByProductDay = preaggregateSalesByDay(salesData);
+  const todayStr = new Date().toISOString().slice(0, 10);
   const forecasts = [];
-  
+
   for (const product of productsData) {
-    const productSales = salesByProduct[product.productId] || [];
-    
-    const rateData = calculateDailyRate(productSales, windowDays, {
+    const dayMap = salesByProductDay.get(product.productId);
+    const rateData = calculateDailyRateFromDayMap(dayMap, windowDays, {
       ignoreZeroDays,
       outlierCapping,
       outlierPercentile,
     });
-    
+
     const currentStock = product.totalGrams || 0;
     const daysOfStock = calculateDaysOfStock(currentStock, rateData.dailyRate);
     const stockoutDate = calculateStockoutDate(daysOfStock);
     const status = determineStatus(daysOfStock, rateData.dailyRate, alertThresholdDays);
-    const reorderQty = calculateReorderQuantity(currentStock, rateData.dailyRate, targetCoverageDays);
-    
-    // Lead time fournisseur (si disponible)
-    const leadTimeDays = product.leadTimeDays || null;
-    const orderDeadline = calculateOrderDeadline(stockoutDate, leadTimeDays);
-    
-    // Calculer si commande urgente
-    let isOrderUrgent = false;
-    if (orderDeadline) {
-      const today = new Date().toISOString().split("T")[0];
-      isOrderUrgent = orderDeadline <= today;
-    }
-    
+    const leadTimeDays = product.leadTimeDays || 0;
+    const reorderQty = calculateReorderQuantity(
+      currentStock,
+      rateData.dailyRate,
+      targetCoverageDays,
+      0,
+      leadTimeDays
+    );
+
+    const orderDeadline = calculateOrderDeadline(stockoutDate, leadTimeDays || null);
+    const isOrderUrgent = orderDeadline ? orderDeadline <= todayStr : false;
+
     forecasts.push({
       productId: product.productId,
       productName: product.name,
       sku: product.sku || null,
       categoryIds: product.categoryIds || [],
       supplierId: product.supplierId || null,
-      
+
       // Stock
       currentStock,
       averageCostPerGram: product.averageCostPerGram || 0,
       stockValue: currentStock * (product.averageCostPerGram || 0),
-      
+
       // Ventes
       dailyRate: rateData.dailyRate,
       hasData: rateData.hasData,
       dataPoints: rateData.dataPoints,
       totalSoldInWindow: rateData.totalSold || 0,
-      
-      // Prévisions
+      effectiveWindow: rateData.effectiveWindow || windowDays,
+
+      // Previsions
       daysOfStock,
       stockoutDate,
       status,
-      
+
       // Recommandations
       reorderQty,
       reorderValue: reorderQty * (product.averageCostPerGram || 0),
       targetCoverageDays,
-      
+
       // Lead time
-      leadTimeDays,
+      leadTimeDays: leadTimeDays || null,
       orderDeadline,
       isOrderUrgent,
-      
+
       // Meta
       windowDays,
     });
   }
-  
-  // Trier par urgence (date de rupture la plus proche)
+
+  // Tri par urgence : ruptures, puis stock le plus court, puis sans donnees
   forecasts.sort((a, b) => {
-    if (a.status === FORECAST_STATUS.OUT_OF_STOCK) return -1;
-    if (b.status === FORECAST_STATUS.OUT_OF_STOCK) return 1;
+    if (a.status === FORECAST_STATUS.OUT_OF_STOCK && b.status !== FORECAST_STATUS.OUT_OF_STOCK) return -1;
+    if (b.status === FORECAST_STATUS.OUT_OF_STOCK && a.status !== FORECAST_STATUS.OUT_OF_STOCK) return 1;
     if (a.daysOfStock === Infinity && b.daysOfStock !== Infinity) return 1;
     if (b.daysOfStock === Infinity && a.daysOfStock !== Infinity) return -1;
     return a.daysOfStock - b.daysOfStock;
   });
-  
+
   return forecasts;
 }
 
@@ -359,20 +403,25 @@ function generateForecast(shop, productsData, salesData, options = {}) {
 function generateProductForecast(shop, product, salesData, options = {}) {
   const settings = { ...loadForecastSettings(shop), ...options };
   const { windowDays, forecastHorizon, targetCoverageDays } = settings;
-  
-  // Filtrer les ventes de ce produit
-  const productSales = salesData.filter(s => s.productId === product.productId);
-  
-  // Calcul de base
-  const rateData = calculateDailyRate(productSales, windowDays, settings);
+
+  // Pre-aggreger uniquement les ventes du produit (un pass)
+  const dayMap = new Map();
+  for (const s of salesData || []) {
+    if (!s || s.productId !== product.productId || !s.date) continue;
+    const day = String(s.date).slice(0, 10);
+    dayMap.set(day, (dayMap.get(day) || 0) + (Number(s.qty) || 0));
+  }
+
+  const rateData = calculateDailyRateFromDayMap(dayMap, windowDays, settings);
   const currentStock = product.totalGrams || 0;
   const daysOfStock = calculateDaysOfStock(currentStock, rateData.dailyRate);
   const stockoutDate = calculateStockoutDate(daysOfStock);
   const status = determineStatus(daysOfStock, rateData.dailyRate, settings.alertThresholdDays);
-  const reorderQty = calculateReorderQuantity(currentStock, rateData.dailyRate, targetCoverageDays);
+  const leadTimeDays = product.leadTimeDays || 0;
+  const reorderQty = calculateReorderQuantity(currentStock, rateData.dailyRate, targetCoverageDays, 0, leadTimeDays);
   
-  // Historique journalier (30 derniers jours)
-  const dailyHistory = buildDailyHistory(productSales, 30);
+  // Historique journalier (30 derniers jours) reconstruit depuis dayMap
+  const dailyHistory = buildDailyHistoryFromDayMap(dayMap, 30);
   
   // Scénarios
   const scenarios = {
@@ -427,7 +476,22 @@ function generateProductForecast(shop, product, salesData, options = {}) {
 }
 
 /**
- * Construire l'historique journalier
+ * Construire l'historique journalier directement depuis une dayMap pre-aggregee
+ */
+function buildDailyHistoryFromDayMap(dayMap, days) {
+  const history = [];
+  const now = new Date();
+  for (let i = days - 1; i >= 0; i--) {
+    const date = new Date(now);
+    date.setDate(date.getDate() - i);
+    const dayStr = date.toISOString().slice(0, 10);
+    history.push({ date: dayStr, qty: (dayMap && dayMap.get(dayStr)) || 0 });
+  }
+  return history;
+}
+
+/**
+ * Construire l'historique journalier (legacy - prend [{date, qty}])
  */
 function buildDailyHistory(salesData, days) {
   const history = [];
@@ -635,6 +699,8 @@ module.exports = {
   
   // Calculs
   calculateDailyRate,
+  calculateDailyRateFromDayMap,
+  preaggregateSalesByDay,
   calculateDaysOfStock,
   calculateStockoutDate,
   calculateReorderQuantity,
