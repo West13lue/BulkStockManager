@@ -72,7 +72,7 @@
     'openSODetails', 'showReceivePOModal', 'receivePO',
     'showFullActivityLog',
     'exportStockCSV', 'exportMovementsCSV', 'exportAnalyticsCSV',
-    'cancelPlan', 'changeAnalyticsPeriod', 'switchAnalyticsTab', 'loadManualSalesTab', 'loadOrdersDebugTab', 'toggleOrderDebugRow', 'analyzeDuplicates', 'toggleAllDedupOrders', 'executeDedup',
+    'cancelPlan', 'changeAnalyticsPeriod', 'switchAnalyticsTab', 'loadManualSalesTab', 'loadOrdersDebugTab', 'toggleOrderDebugRow', 'toggleManualSaleRow', 'analyzeDuplicates', 'toggleAllDedupOrders', 'executeDedup',
     'switchOrdersTab', 'onOrderStatusChange', 'onOrderPeriodChange', 'onOrderSourceChange',
     'importShopifyOrders',
     'showCreatePOModal', 'savePO', 'openPODetails', 'confirmPO', 'sendPO',
@@ -1698,6 +1698,8 @@
         '</div>' +
 
         '<div style="border-top:1px solid var(--border-color);padding-top:12px;margin-top:8px">' +
+        '<div class="form-group"><label class="form-label">' + t("sale.name", "Nom de la vente") + ' <small class="text-secondary">(' + t("labels.optional", "optionnel") + ')</small></label>' +
+        '<input type="text" class="form-input" id="saleName" placeholder="' + t("sale.namePlaceholder", "Ex: Marche du samedi, Tournee nord, Livraison Pierre...") + '"></div>' +
         '<div class="form-row-mobile">' +
         '<div class="form-group" style="flex:1"><label class="form-label">' + t("sale.sellingPrice", "Prix de vente global") + ' (' + currSymbol + ') *</label>' +
         '<input type="number" class="form-input" id="salePriceTotal" value="" step="0.01" min="0" placeholder="45.00" onchange="app.updateSaleSummary()" style="font-size:16px;font-weight:600"></div>' +
@@ -1826,6 +1828,7 @@
     var priceTotal = parseFloat((document.getElementById("salePriceTotal") || {}).value) || 0;
     var customer = (document.getElementById("saleCustomer") || {}).value || "";
     var note = (document.getElementById("saleNote") || {}).value || "";
+    var saleName = (document.getElementById("saleName") || {}).value || "";
 
     if (priceTotal <= 0) {
       showToast(t("sale.priceRequired", "Saisissez le prix de vente"), "error");
@@ -1849,12 +1852,35 @@
     var totalCost = 0;
     lines.forEach(function(l) { totalCost += l.qtyGrams * l.cmp; });
 
+    // Sanity check: catastrophic-margin warning. If total cost dwarfs the
+    // selling price (>5x), the user almost certainly entered a wrong unit
+    // (kg vs g, or per-line vs total). Ask before submitting.
+    if (totalCost > priceTotal * 5) {
+      var lossEur = (totalCost - priceTotal).toFixed(2);
+      var unitMsg =
+        t("sale.marginWarning1", "Marge negative inhabituelle.") + "\n\n" +
+        t("sale.marginWarning2", "Cout total estime") + " : " + totalCost.toFixed(2) + " " + getCurrencySymbol() + "\n" +
+        t("sale.marginWarning3", "Prix de vente") + " : " + priceTotal.toFixed(2) + " " + getCurrencySymbol() + "\n" +
+        t("sale.marginWarning4", "Perte") + " : " + lossEur + " " + getCurrencySymbol() + "\n\n" +
+        t("sale.marginWarning5", "Verifie : (1) la quantite est-elle dans la bonne unite ? (2) le prix saisi est-il bien le total et non par produit ? (3) le CMP des produits est-il correct ?");
+      var ok2 = await showConfirmDialog(unitMsg, { danger: true, confirmText: t("sale.marginWarningConfirm", "Enregistrer quand meme") });
+      if (!ok2) return;
+    }
+
     var profileData = {};
     if (typeof activeProfile !== "undefined" && activeProfile) {
       profileData.profileId = activeProfile.id;
       profileData.profileName = activeProfile.name;
       profileData.profileColor = activeProfile.color;
     }
+
+    // ONE orderId for the entire multi-line sale so analytics groups them
+    // correctly. Previously each POST generated its own orderId server-side,
+    // so a 4-line sale appeared as 4 separate orders in the recap.
+    var sharedOrderId = "manual_" + Date.now() + "_" + Math.random().toString(36).slice(2, 6);
+    var sharedOrderNumber = saleName
+      ? saleName
+      : "MANUAL-" + Date.now().toString(36).toUpperCase();
 
     showToast(t("sale.processing", "Enregistrement..."), "info");
     var success = 0;
@@ -1863,7 +1889,6 @@
 
     for (var i = 0; i < lines.length; i++) {
       var l = lines[i];
-      // Distribute price proportionally
       var lineCost = l.qtyGrams * l.cmp;
       var linePrice = totalCost > 0 ? (lineCost / totalCost) * priceTotal : priceTotal / lines.length;
 
@@ -1875,7 +1900,10 @@
             grams: l.qtyGrams,
             sellingPriceTotal: Math.round(linePrice * 100) / 100,
             customerName: customer,
-            orderNote: note + (lines.length > 1 ? " [" + (i + 1) + "/" + lines.length + "]" : ""),
+            orderNote: note,
+            orderId: sharedOrderId,
+            orderNumber: sharedOrderNumber,
+            orderName: saleName,
             ...profileData
           }),
         });
@@ -8650,7 +8678,6 @@
 
     var summary = data.summary || {};
     var sales = data.sales || [];
-    var currSymbol = getCurrencySymbol();
 
     if (sales.length === 0) {
       container.innerHTML =
@@ -8664,49 +8691,119 @@
       return;
     }
 
-    var marginColor = summary.totalMargin >= 0 ? "var(--success, #22c55e)" : "var(--danger, #ef4444)";
+    // Group sale lines by orderId so each multi-product manual sale becomes
+    // one collapsible row instead of N flat rows.
+    var groups = {};
+    sales.forEach(function (s) {
+      var key = s.orderId || s.orderNumber || ("solo_" + (s.id || Math.random()));
+      if (!groups[key]) {
+        groups[key] = {
+          orderId:     s.orderId || key,
+          orderNumber: s.orderNumber || "",
+          orderName:   s.orderName || "",
+          orderDate:   s.orderDate,
+          customerName: s.customerName || "",
+          lines:       [],
+          totalGrams:  0,
+          totalRevenue: 0,
+          totalCost:   0
+        };
+      }
+      var g = groups[key];
+      g.lines.push(s);
+      g.totalGrams   += Number(s.totalGrams)  || 0;
+      g.totalRevenue += Number(s.netRevenue)  || 0;
+      g.totalCost    += Number(s.totalCost)   || 0;
+      // Take the most recent fields if different lines disagree.
+      if (s.orderName && !g.orderName) g.orderName = s.orderName;
+      if (s.customerName && !g.customerName) g.customerName = s.customerName;
+    });
+
+    var orders = Object.keys(groups).map(function (k) {
+      var g = groups[k];
+      g.totalMargin = g.totalRevenue - g.totalCost;
+      g.marginPct = g.totalRevenue > 0 ? Math.round((g.totalMargin / g.totalRevenue) * 100) : 0;
+      return g;
+    }).sort(function (a, b) {
+      return new Date(b.orderDate) - new Date(a.orderDate);
+    });
+
+    var marginColor = summary.totalMargin >= 0 ? "var(--success)" : "var(--danger)";
 
     var kpiHtml =
       '<div class="kpi-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:20px">' +
-      '<div class="kpi-card"><div class="kpi-value">' + summary.count + '</div><div class="kpi-label">' + t("manualSales.count", "Ventes") + '</div></div>' +
+      '<div class="kpi-card"><div class="kpi-value">' + orders.length + '</div><div class="kpi-label">' + t("manualSales.orders", "Commandes") + '</div></div>' +
       '<div class="kpi-card"><div class="kpi-value">' + formatCurrency(summary.totalRevenue) + '</div><div class="kpi-label">' + t("manualSales.revenue", "CA") + '</div></div>' +
       '<div class="kpi-card"><div class="kpi-value">' + formatCurrency(summary.totalCost) + '</div><div class="kpi-label">' + t("manualSales.cost", "Cout") + '</div></div>' +
       '<div class="kpi-card"><div class="kpi-value" style="color:' + marginColor + '">' + (summary.totalMargin >= 0 ? "+" : "") + formatCurrency(summary.totalMargin) + '</div><div class="kpi-label">' + t("manualSales.margin", "Marge") + ' (' + summary.marginPercent + '%)</div></div>' +
       '<div class="kpi-card"><div class="kpi-value">' + formatWeight(summary.totalGrams) + '</div><div class="kpi-label">' + t("manualSales.volume", "Volume") + '</div></div>' +
       '</div>';
 
-    var rows = sales.map(function(s) {
-      var saleDate = new Date(s.orderDate);
-      var dateStr = saleDate.toLocaleDateString() + " " + saleDate.toLocaleTimeString().substring(0, 5);
-      var sMargin = (Number(s.netRevenue) || 0) - (Number(s.totalCost) || 0);
-      var sMarginPct = Number(s.netRevenue) > 0 ? Math.round((sMargin / Number(s.netRevenue)) * 100) : 0;
-      var sMarginColor = sMargin >= 0 ? "var(--success, #22c55e)" : "var(--danger, #ef4444)";
-      return '<tr>' +
-        '<td style="font-size:12px;color:var(--text-secondary)">' + esc(dateStr) + '</td>' +
-        '<td><strong>' + esc(s.productName || "-") + '</strong>' +
-        (s.orderNumber ? '<br><span style="font-size:11px;color:var(--text-secondary)">' + esc(s.orderNumber) + '</span>' : '') + '</td>' +
-        '<td>' + formatWeight(s.totalGrams || 0) + '</td>' +
-        '<td>' + formatCurrency(s.netRevenue || 0) + '</td>' +
-        '<td style="color:var(--text-secondary)">' + formatCurrency(s.totalCost || 0) + '</td>' +
-        '<td style="color:' + sMarginColor + ';font-weight:500">' + (sMargin >= 0 ? "+" : "") + formatCurrency(sMargin) + ' <span style="font-size:11px">(' + sMarginPct + '%)</span></td>' +
-        '</tr>';
+    var orderRows = orders.map(function (o, idx) {
+      var d = new Date(o.orderDate);
+      var dateStr = d.toLocaleDateString() + " " + d.toLocaleTimeString().substring(0, 5);
+      var orderTitle = o.orderName || o.orderNumber || (t("manualSales.order", "Vente") + " #" + (idx + 1));
+      var moMarginColor = o.totalMargin >= 0 ? "var(--success)" : "var(--danger)";
+
+      var detailRows = o.lines.map(function (l) {
+        var lMargin = (Number(l.netRevenue) || 0) - (Number(l.totalCost) || 0);
+        var lMarginPct = Number(l.netRevenue) > 0 ? Math.round((lMargin / Number(l.netRevenue)) * 100) : 0;
+        var lMarginColor = lMargin >= 0 ? "var(--success)" : "var(--danger)";
+        return '<tr>' +
+          '<td><strong>' + esc(l.productName || "-") + '</strong></td>' +
+          '<td>' + formatWeight(l.totalGrams || 0) + '</td>' +
+          '<td>' + formatCurrency(l.netRevenue || 0) + '</td>' +
+          '<td style="color:var(--text-secondary)">' + formatCurrency(l.totalCost || 0) + '</td>' +
+          '<td style="color:' + lMarginColor + ';font-weight:600">' + (lMargin >= 0 ? "+" : "") + formatCurrency(lMargin) + ' <span style="font-size:11px;font-weight:400">(' + lMarginPct + '%)</span></td>' +
+          '</tr>';
+      }).join("");
+
+      return '<div class="manual-sale-row" style="border:1px solid var(--border);border-radius:var(--radius-md);background:var(--bg-secondary);overflow:hidden">' +
+        '<button type="button" class="manual-sale-row__head" onclick="app.toggleManualSaleRow(' + idx + ')" aria-expanded="false" aria-controls="manual-sale-detail-' + idx + '" style="all:unset;display:flex;width:100%;cursor:pointer;padding:12px 16px;align-items:center;gap:12px;flex-wrap:wrap;box-sizing:border-box">' +
+          '<i data-lucide="chevron-right" id="manual-sale-chevron-' + idx + '" class="manual-sale-row__chevron" style="width:16px;height:16px;flex-shrink:0;transition:transform var(--transition-fast)" aria-hidden="true"></i>' +
+          '<div style="display:flex;flex-direction:column;gap:2px;flex:1;min-width:160px">' +
+            '<div style="font-weight:700;font-size:14px">' + esc(orderTitle) + '</div>' +
+            '<div style="font-size:12px;color:var(--text-secondary)">' + esc(dateStr) +
+              (o.customerName ? ' &middot; ' + esc(o.customerName) : '') +
+              ' &middot; ' + o.lines.length + ' ' + t("manualSales.lineCount", "ligne(s)") +
+            '</div>' +
+          '</div>' +
+          '<div style="display:flex;gap:18px;align-items:center;font-variant-numeric:tabular-nums">' +
+            '<span style="font-size:13px;color:var(--text-secondary)">' + formatWeight(o.totalGrams) + '</span>' +
+            '<span style="font-size:14px;font-weight:600">' + formatCurrency(o.totalRevenue) + '</span>' +
+            '<span style="font-size:13px;color:' + moMarginColor + ';font-weight:600;min-width:90px;text-align:right">' + (o.totalMargin >= 0 ? "+" : "") + formatCurrency(o.totalMargin) + '</span>' +
+          '</div>' +
+        '</button>' +
+        '<div id="manual-sale-detail-' + idx + '" class="manual-sale-row__detail" style="display:none;border-top:1px solid var(--border);padding:0">' +
+          '<table class="data-table" style="margin:0">' +
+            '<thead><tr>' +
+              '<th>' + t("manualSales.product", "Produit") + '</th>' +
+              '<th>' + t("manualSales.qty", "Qte") + '</th>' +
+              '<th>' + t("manualSales.revenue", "Vente") + '</th>' +
+              '<th>' + t("manualSales.cost", "Cout") + '</th>' +
+              '<th>' + t("manualSales.margin", "Marge") + '</th>' +
+            '</tr></thead><tbody>' + detailRows + '</tbody>' +
+          '</table>' +
+        '</div>' +
+      '</div>';
     }).join("");
 
     container.innerHTML =
       kpiHtml +
-      '<div class="card"><div class="card-body" style="padding:0">' +
-      '<table class="data-table">' +
-      '<thead><tr>' +
-      '<th>' + t("manualSales.date", "Date") + '</th>' +
-      '<th>' + t("manualSales.product", "Produit") + '</th>' +
-      '<th>' + t("manualSales.qty", "Qte") + '</th>' +
-      '<th>' + t("manualSales.revenue", "Vente") + '</th>' +
-      '<th>' + t("manualSales.cost", "Cout") + '</th>' +
-      '<th>' + t("manualSales.margin", "Marge") + '</th>' +
-      '</tr></thead><tbody>' + rows + '</tbody>' +
-      '</table></div></div>';
+      '<div style="display:flex;flex-direction:column;gap:8px">' + orderRows + '</div>';
 
     if (typeof lucide !== "undefined") lucide.createIcons();
+  }
+
+  function toggleManualSaleRow(idx) {
+    var detail = document.getElementById("manual-sale-detail-" + idx);
+    var chev   = document.getElementById("manual-sale-chevron-" + idx);
+    if (!detail) return;
+    var open = detail.style.display !== "none";
+    detail.style.display = open ? "none" : "block";
+    if (chev) chev.style.transform = open ? "rotate(0deg)" : "rotate(90deg)";
+    var head = detail.previousElementSibling;
+    if (head && head.setAttribute) head.setAttribute("aria-expanded", String(!open));
   }
 
   async function loadOrdersDebugTab() {
@@ -9551,6 +9648,7 @@
     loadManualSalesTab: loadManualSalesTab,
     loadOrdersDebugTab: loadOrdersDebugTab,
     toggleOrderDebugRow: toggleOrderDebugRow,
+    toggleManualSaleRow: toggleManualSaleRow,
     analyzeDuplicates: analyzeDuplicates,
     toggleAllDedupOrders: toggleAllDedupOrders,
     executeDedup: executeDedup,

@@ -2096,6 +2096,9 @@ router.post("/api/sales/manual", (req, res) => {
     const sellingPriceTotal = Number(req.body?.sellingPriceTotal || 0);
     const customerName = String(req.body?.customerName || "").trim();
     const orderNote = String(req.body?.orderNote || "").trim();
+    const orderName = String(req.body?.orderName || "").trim();
+    const orderIdInput = String(req.body?.orderId || "").trim();
+    const orderNumberInput = String(req.body?.orderNumber || "").trim();
     const profileId = req.body?.profileId || null;
     const profileName = req.body?.profileName || "User";
     const profileColor = req.body?.profileColor || "#6366f1";
@@ -2124,8 +2127,12 @@ router.post("/api/sales/manual", (req, res) => {
       }
     }
 
-    // 2. Record movement
-    const orderId = `manual_${Date.now()}`;
+    // 2. Record movement.
+    // Honor a client-supplied orderId/orderNumber so multi-line manual sales
+    // share one logical order instead of generating one per line.
+    const orderId = orderIdInput || `manual_${Date.now()}`;
+    const orderNumber = orderNumberInput || ("MANUAL-" + Date.now().toString(36).toUpperCase());
+
     if (movementStore && movementStore.addMovement) {
       movementStore.addMovement({
         source: "sale",
@@ -2135,6 +2142,8 @@ router.post("/api/sales/manual", (req, res) => {
         gramsDelta: -Math.abs(grams),
         totalAfter: (productSnapshot.totalGrams || 0) - grams,
         orderId,
+        orderNumber,
+        orderName: orderName || undefined,
         sellingPricePerGram,
         sellingPriceTotal,
         customerName: customerName || undefined,
@@ -2150,7 +2159,8 @@ router.post("/api/sales/manual", (req, res) => {
     if (analyticsStore && analyticsStore.addSale) {
       analyticsStore.addSale({
         orderId,
-        orderNumber: "MANUAL-" + Date.now().toString(36).toUpperCase(),
+        orderNumber,
+        orderName: orderName || undefined,
         orderDate: new Date().toISOString(),
         productId,
         productName,
@@ -2165,6 +2175,7 @@ router.post("/api/sales/manual", (req, res) => {
         margin,
         marginPercent,
         source: "manual",
+        customerName: customerName || undefined,
         shop,
       }, shop);
     }

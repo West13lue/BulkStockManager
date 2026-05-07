@@ -107,6 +107,7 @@ function addSale(sale = {}, shop = sale.shop) {
     orderDate: saleDate.toISOString(),
     orderId: sale.orderId || null,
     orderNumber: sale.orderNumber || null,
+    orderName: sale.orderName || null, // user-supplied label for manual sales
     
     // Produit
     productId: String(sale.productId || ""),
