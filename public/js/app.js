@@ -8865,13 +8865,51 @@
       var preview = await dry.json();
       var proposed = Array.isArray(preview.proposed) ? preview.proposed : [];
       if (proposed.length === 0) {
-        showToast(t("health.autoFixNothing", "Aucune correction automatique disponible"), "info");
+        showAutoFixEmpty(preview);
         return;
       }
       showAutoFixPreview(preview);
     } catch (e) {
       showToast(t("health.autoFixError", "Echec de l'analyse") + ": " + e.message, "error");
     }
+  }
+
+  function showAutoFixEmpty(preview) {
+    var skipped = (preview.skipped || []);
+    var manualCount = skipped.filter(function(s) { return s.reason === "Override manuel deja present"; }).length;
+    var noPattern = skipped.filter(function(s) { return s.reason === "Aucun pattern reconnu"; });
+    closeModal();
+    showModal({
+      title: '<i data-lucide="wand-2"></i> ' + t("health.autoFixNothing", "Aucune correction automatique disponible"),
+      size: "md",
+      content:
+        '<p class="text-secondary">' +
+          t("health.autoFixNothingDetail", "Aucun produit ne correspond aux patterns d'auto-correction (joints pre-roules, accessoires).") +
+        '</p>' +
+        '<div class="card" style="background:var(--surface-2);border:1px solid var(--border);padding:var(--space-md);margin-top:var(--space-md)">' +
+          '<p style="font-size:13px;margin:0 0 var(--space-sm) 0"><strong><i data-lucide="info" style="width:14px;height:14px;color:var(--accent-primary)"></i> ' + t("health.causesTitle", "Causes possibles") + '</strong></p>' +
+          '<ul style="font-size:12px;color:var(--text-secondary);margin:0;padding-left:20px">' +
+            '<li>' + t("health.cause1", "Tous les produits problematiques ont deja un override configure manuellement") + ' (' + manualCount + ')</li>' +
+            '<li>' + t("health.cause2", "Les produits restants ne matchent aucun pattern (noms inhabituels)") + ' (' + noPattern.length + ')</li>' +
+            '<li>' + t("health.cause3", "Le shop n'a pas encore ete synchronise depuis Shopify : les produits problematiques (pre-roules, accessoires) ne sont peut-etre pas dans le catalogue local") + '</li>' +
+          '</ul>' +
+        '</div>' +
+        (noPattern.length > 0
+          ? '<details style="margin-top:var(--space-md)"><summary style="cursor:pointer;font-size:13px;color:var(--text-secondary)">' +
+              t("health.unmatchedSamples", "Echantillon des produits non reconnus") + ' (' + noPattern.length + ')' +
+            '</summary><ul style="margin-top:var(--space-xs);font-size:12px;color:var(--text-secondary);padding-left:20px">' +
+            noPattern.slice(0, 10).map(function(s) {
+              return '<li>' + escPlain(s.productName || s.productId) + '</li>';
+            }).join("") +
+            '</ul><p class="text-secondary" style="font-size:12px;margin-top:var(--space-sm)">' +
+              t("health.unmatchedHint", "Pour ces produits, utilise la fiche produit > Configuration manuellement.") +
+            '</p></details>'
+          : ''),
+      footer:
+        '<button class="btn btn-ghost" onclick="app.showShopHealthModal()">' + t("action.back", "Retour") + '</button>' +
+        '<button class="btn btn-primary" onclick="app.closeModal();app.syncShopifyProducts()"><i data-lucide="refresh-cw"></i> ' + t("health.runSync", "Lancer une synchronisation Shopify") + '</button>'
+    });
+    if (typeof lucide !== "undefined") lucide.createIcons();
   }
 
   function showAutoFixPreview(preview) {
@@ -9146,6 +9184,15 @@
           '<i data-lucide="shield-check" style="width:48px;height:48px;color:var(--success)"></i>' +
           '<h3>' + t("health.allClear", "Tout est en ordre") + '</h3>' +
           '<p class="text-secondary">' + t("health.allClearDetail", "Aucune incoherence detectee dans la configuration de ton shop.") + '</p>' +
+          '<div class="card" style="background:var(--surface-2);border:1px solid var(--border);padding:var(--space-md);margin-top:var(--space-lg);text-align:left;max-width:520px;margin-left:auto;margin-right:auto">' +
+            '<p style="font-size:13px;margin:0 0 var(--space-sm) 0"><i data-lucide="info" style="width:14px;height:14px;color:var(--accent-primary)"></i> ' +
+              '<strong>' + t("health.notSeeingProducts", "Tous tes produits ne sont peut-etre pas synchronises.") + '</strong>' +
+            '</p>' +
+            '<p style="font-size:12px;color:var(--text-secondary);margin:0 0 var(--space-md) 0">' +
+              t("health.notSeeingProductsDetail", "L'audit n'analyse que les produits importes dans Bulk Stock Manager. Si Shopify contient plus de produits que ce compteur, lance une synchronisation pour tout rapatrier puis re-audite.") +
+            '</p>' +
+            '<button class="btn btn-primary btn-sm" onclick="app.closeModal();app.syncShopifyProducts()"><i data-lucide="refresh-cw"></i> ' + t("health.runSync", "Lancer une synchronisation Shopify") + '</button>' +
+          '</div>' +
         '</div>';
       if (typeof lucide !== "undefined") lucide.createIcons();
       return;
