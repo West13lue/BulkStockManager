@@ -1484,10 +1484,16 @@
         '</div>' +
 
         '<div class="card card-full-row">' +
-          '<div class="card-header"><h3 class="card-title"><i data-lucide="boxes" aria-hidden="true"></i> ' + t("dashboard.products", "Produits") + '</h3>' +
+          '<div class="card-header"><h3 class="card-title"><i data-lucide="boxes" aria-hidden="true"></i> ' + t("dashboard.lowestStock", "Stocks les plus bas") + '</h3>' +
           '<button class="btn btn-ghost btn-sm" onclick="app.navigateTo(\'products\')">' + t("dashboard.viewAll", "Voir tout") + '</button></div>' +
           '<div class="card-body" style="padding:0">' +
-            (dashProducts.length ? renderTable(dashProducts.slice(0, 5)) : renderEmpty()) +
+            (dashProducts.length
+              ? renderTable(
+                  dashProducts.slice().sort(function(a, b) {
+                    return (a.totalGrams || 0) - (b.totalGrams || 0);
+                  }).slice(0, 5)
+                )
+              : renderEmpty()) +
           '</div>' +
         '</div>' +
       '</div>';
