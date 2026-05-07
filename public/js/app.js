@@ -8538,13 +8538,18 @@
   function showEditCMPModal(productId, currentCMP) {
     var weightUnit = getWeightUnit();
     var currSymbol = getCurrencySymbol();
+    var unitFactors = { g: 1, kg: 1000, oz: 28.3495, lb: 453.592 };
+    var displayCMP = (Number(currentCMP) || 0) * (unitFactors[weightUnit] || 1);
+    var displayStr = displayCMP > 0
+      ? displayCMP.toFixed(4).replace(/\.?0+$/, '')
+      : '';
     closeModal();
     showModal({
       title: t("products.editCMP", "Edit average cost (CMP)"),
       content:
         '<p class="text-secondary mb-md">' + t("products.currentCMP", "Current CMP is") + ' <strong>' + formatPricePerUnit(currentCMP) + '</strong>.</p>' +
         '<div class="form-group"><label class="form-label">' + t("products.newCMP", "New CMP") + ' (' + currSymbol + '/' + weightUnit + ')</label>' +
-        '<input type="number" class="form-input" id="newCMP" value="' + currentCMP + '" step="0.01" min="0"></div>' +
+        '<input type="number" class="form-input" id="newCMP" value="' + displayStr + '" step="0.01" min="0"></div>' +
         '<p class="form-hint">' + t("products.cmpWarning", "Manual CMP change overrides automatic calculation.") + '</p>',
       footer:
         '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.cancel", "Cancel") + '</button>' +
@@ -8554,11 +8559,12 @@
 
   async function saveCMP(productId) {
     var input = document.getElementById("newCMP");
-    var newCMP = parseFloat(input ? input.value : 0);
-    if (!Number.isFinite(newCMP) || newCMP < 0) {
+    var raw = parseFloat(input ? input.value : 0);
+    if (!Number.isFinite(raw) || raw < 0) {
       showToast(t("msg.invalidValue", "Invalid value"), "error");
       return;
     }
+    var newCMP = toPricePerGram(raw);
     try {
       var res = await authFetch(apiUrl("/products/" + encodeURIComponent(productId) + "/average-cost"), {
         method: "PATCH",
