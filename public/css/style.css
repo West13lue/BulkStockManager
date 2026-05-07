@@ -5857,6 +5857,52 @@ button.stat-card:hover {
 }
 
 /* ============================================
+   STOCK OUT-OF-STOCK COLORING
+   ----------------------------------------------
+   Two states differentiated by averageCostPerGram :
+     - .is-stock-out-empty   : importe vide (jamais eu de stock,
+                               CMP=0)        => rouge
+     - .is-stock-out-recent  : a eu du stock (CMP>0) puis ecoule
+                               recemment      => orange
+   ============================================ */
+
+.product-row.is-stock-out-empty td {
+  color: var(--danger);
+}
+.product-row.is-stock-out-empty td:first-child,
+.product-row.is-stock-out-empty td.cell-actions,
+.product-row.is-stock-out-empty td.cell-categories {
+  color: inherit;
+}
+
+.product-row.is-stock-out-recent td {
+  color: var(--warning);
+}
+.product-row.is-stock-out-recent td:first-child,
+.product-row.is-stock-out-recent td.cell-actions,
+.product-row.is-stock-out-recent td.cell-categories {
+  color: inherit;
+}
+
+/* Petit point indicateur a gauche du nom */
+.product-row.is-stock-out-empty td:nth-child(2)::before,
+.product-row.is-stock-out-recent td:nth-child(2)::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-right: 8px;
+  vertical-align: middle;
+}
+.product-row.is-stock-out-empty td:nth-child(2)::before {
+  background: var(--danger);
+}
+.product-row.is-stock-out-recent td:nth-child(2)::before {
+  background: var(--warning);
+}
+
+/* ============================================
    CATALOG SECTIONS (split au gramme / a l'unite)
    ============================================ */
 

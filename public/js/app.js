@@ -5220,7 +5220,14 @@
         var s = p.totalGrams || 0,
           cost = p.averageCostPerGram || 0;
         var st = getStatus(s);
-        
+
+        // Stock-out coloring : rouge = jamais eu de stock (CMP=0, importe vide)
+        // Orange = fraichement hors stock (a deja eu un CMP suite a un restock)
+        var stockClass = "";
+        if (s === 0) {
+          stockClass = cost > 0 ? " is-stock-out-recent" : " is-stock-out-empty";
+        }
+
         // Generer les chips categories
         var catChips = "";
         if (Array.isArray(p.categoryIds) && p.categoryIds.length > 0) {
@@ -5234,11 +5241,11 @@
         } else {
           catChips = '<span class="category-chip category-chip-empty">-</span>';
         }
-        
+
         var isChecked = selectedProducts.has(p.productId) ? " checked" : "";
-        
+
         return (
-          '<tr class="product-row" data-product-id="' + esc(p.productId) + '" onclick="app.openProductDetails(\'' + esc(p.productId) + '\')" style="cursor:pointer">' +
+          '<tr class="product-row' + stockClass + '" data-product-id="' + esc(p.productId) + '" onclick="app.openProductDetails(\'' + esc(p.productId) + '\')" style="cursor:pointer">' +
           '<td onclick="event.stopPropagation()"><input type="checkbox" class="product-cb" data-id="' + esc(p.productId) + '"' + isChecked + ' onchange="app.toggleProductSelect(\'' + esc(p.productId) + '\', event)" style="cursor:pointer;width:16px;height:16px"></td>' +
           "<td>" + esc(p.name || p.title || t("products.unnamed", "Sans nom")) + "</td>" +
           '<td class="cell-categories" onclick="event.stopPropagation();app.showAssignCategoriesModal(\'' + esc(p.productId) + '\')">' + catChips + '</td>' +
