@@ -4038,13 +4038,14 @@
 
       var statusBadge = getSupplierStatusBadge(sup.status);
 
-      // Onglets
-      var tabs = 
+      // Onglets - data-tab pour identification fiable (pas un match sur le texte
+      // traduit, qui casserait des qu'une langue change "Infos" en "Information").
+      var tabs =
         '<div class="detail-tabs">' +
-        '<button class="detail-tab active" onclick="app.switchSupplierTab(\'info\')">' + t("suppliers.tabInfo", "Infos") + '</button>' +
-        '<button class="detail-tab" onclick="app.switchSupplierTab(\'products\')">' + t("suppliers.tabProducts", "Produits") + '</button>' +
-        '<button class="detail-tab" onclick="app.switchSupplierTab(\'lots\')">' + t("suppliers.tabLots", "Lots") + '</button>' +
-        '<button class="detail-tab" onclick="app.switchSupplierTab(\'analytics\')">' + t("suppliers.tabAnalytics", "Analytics") + '</button>' +
+        '<button class="detail-tab active" data-tab="info" onclick="app.switchSupplierTab(\'info\')">' + t("suppliers.tabInfo", "Infos") + '</button>' +
+        '<button class="detail-tab" data-tab="products" onclick="app.switchSupplierTab(\'products\')">' + t("suppliers.tabProducts", "Produits") + '</button>' +
+        '<button class="detail-tab" data-tab="lots" onclick="app.switchSupplierTab(\'lots\')">' + t("suppliers.tabLots", "Lots") + '</button>' +
+        '<button class="detail-tab" data-tab="analytics" onclick="app.switchSupplierTab(\'analytics\')">' + t("suppliers.tabAnalytics", "Analytics") + '</button>' +
         '</div>';
 
       // Contenu Info
@@ -4074,17 +4075,22 @@
             '<td>' + (p.lastUpdated || '-').slice(0, 10) + '</td>' +
             '</tr>';
         }).join('');
-        productsContent = '<table class="data-table data-table-compact"><thead><tr><th>Produit</th><th>Prix</th><th>Stock actuel</th><th>Maj</th></tr></thead><tbody>' + prodRows + '</tbody></table>';
+        productsContent = '<table class="data-table data-table-compact"><thead><tr>' +
+          '<th>' + t("suppliers.products", "Produit") + '</th>' +
+          '<th>' + t("suppliers.price", "Prix") + '</th>' +
+          '<th>' + t("suppliers.currentStock", "Stock actuel") + '</th>' +
+          '<th>' + t("suppliers.updated", "Maj") + '</th>' +
+          '</tr></thead><tbody>' + prodRows + '</tbody></table>';
       } else {
         productsContent = '<div class="empty-state-small"><p class="text-secondary">' + t("suppliers.noProducts", "Aucun produit lie") + '</p>' +
-          '<button class="btn btn-sm btn-primary mt-sm" onclick="app.showLinkProductModal(\'' + supplierId + '\')">' + t("suppliers.linkProduct", "Lier un produit") + '</button></div>';
+          '<button class="btn btn-sm btn-primary mt-sm" onclick="app.showLinkProductModal(\'' + esc(supplierId) + '\')">' + t("suppliers.linkProduct", "Lier un produit") + '</button></div>';
       }
 
       // Contenu Lots
       var lotsContent = '';
       if (lots.length > 0) {
         var lotRows = lots.slice(0, 10).map(function(l) {
-          return '<tr onclick="app.closeModal();app.openBatchDetails(\'' + l.productId + '\',\'' + l.id + '\')">' +
+          return '<tr onclick="app.closeModal();app.openBatchDetails(\'' + esc(l.productId) + '\',\'' + esc(l.id) + '\')">' +
             '<td><span class="batch-id">' + esc(l.id) + '</span></td>' +
             '<td>' + esc(l.productName || '-') + '</td>' +
             '<td>' + formatWeight(l.initialGrams) + '</td>' +
@@ -4092,19 +4098,26 @@
             '<td>' + (l.createdAt || '').slice(0, 10) + '</td>' +
             '</tr>';
         }).join('');
-        lotsContent = '<table class="data-table data-table-compact"><thead><tr><th>Lot</th><th>Produit</th><th>Quantite</th><th>Prix</th><th>Date</th></tr></thead><tbody>' + lotRows + '</tbody></table>';
-        if (lots.length > 10) lotsContent += '<p class="text-secondary text-sm mt-sm">' + (lots.length - 10) + ' autres lots...</p>';
+        lotsContent = '<table class="data-table data-table-compact"><thead><tr>' +
+          '<th>' + t("suppliers.lot", "Lot") + '</th>' +
+          '<th>' + t("suppliers.products", "Produit") + '</th>' +
+          '<th>' + t("suppliers.qty", "Quantite") + '</th>' +
+          '<th>' + t("suppliers.price", "Prix") + '</th>' +
+          '<th>' + t("suppliers.date", "Date") + '</th>' +
+          '</tr></thead><tbody>' + lotRows + '</tbody></table>';
+        if (lots.length > 10) lotsContent += '<p class="text-secondary text-sm mt-sm">' + (lots.length - 10) + ' ' + t("suppliers.moreLots", "autres lots...") + '</p>';
       } else {
         lotsContent = '<div class="empty-state-small"><p class="text-secondary">' + t("suppliers.noLots", "Aucun lot de ce fournisseur") + '</p></div>';
       }
 
-      // Contenu Analytics
-      var analyticsContent = 
+      // Contenu Analytics. Fallback || 0 partout : analytics peut etre vide
+      // pour un fournisseur sans achats -> on affiche 0 plutot que "undefined".
+      var analyticsContent =
         '<div class="analytics-mini-grid">' +
-        '<div class="analytics-mini-card"><div class="analytics-mini-value">' + analytics.totalLots + '</div><div class="analytics-mini-label">' + t("suppliers.totalLots", "Lots") + '</div></div>' +
-        '<div class="analytics-mini-card"><div class="analytics-mini-value">' + formatWeight(analytics.totalPurchased) + '</div><div class="analytics-mini-label">' + t("suppliers.totalPurchased", "Achete") + '</div></div>' +
-        '<div class="analytics-mini-card"><div class="analytics-mini-value">' + formatCurrency(analytics.totalSpent) + '</div><div class="analytics-mini-label">' + t("suppliers.totalSpent", "Depense") + '</div></div>' +
-        '<div class="analytics-mini-card"><div class="analytics-mini-value">' + formatPricePerUnit(analytics.avgPricePerGram) + '</div><div class="analytics-mini-label">' + t("suppliers.avgPrice", "Prix moyen") + '</div></div>' +
+        '<div class="analytics-mini-card"><div class="analytics-mini-value">' + (analytics.totalLots || 0) + '</div><div class="analytics-mini-label">' + t("suppliers.totalLots", "Lots") + '</div></div>' +
+        '<div class="analytics-mini-card"><div class="analytics-mini-value">' + formatWeight(analytics.totalPurchased || 0) + '</div><div class="analytics-mini-label">' + t("suppliers.totalPurchased", "Achete") + '</div></div>' +
+        '<div class="analytics-mini-card"><div class="analytics-mini-value">' + formatCurrency(analytics.totalSpent || 0) + '</div><div class="analytics-mini-label">' + t("suppliers.totalSpent", "Depense") + '</div></div>' +
+        '<div class="analytics-mini-card"><div class="analytics-mini-value">' + formatPricePerUnit(analytics.avgPricePerGram || 0) + '</div><div class="analytics-mini-label">' + t("suppliers.avgPrice", "Prix moyen") + '</div></div>' +
         '</div>' +
         (analytics.lastPurchase ? '<p class="text-secondary text-sm mt-md">' + t("suppliers.lastPurchase", "Dernier achat") + ': ' + analytics.lastPurchase.slice(0, 10) + '</p>' : '');
 
@@ -4124,9 +4137,9 @@
         size: "xl",
         content: content,
         footer:
-          '<button class="btn btn-ghost text-danger" onclick="app.deleteSupplier(\'' + supplierId + '\')" style="margin-right:auto"><i data-lucide="trash-2"></i> ' + t("action.delete", "Supprimer") + '</button>' +
+          '<button class="btn btn-ghost text-danger" onclick="app.deleteSupplier(\'' + esc(supplierId) + '\')" style="margin-right:auto"><i data-lucide="trash-2"></i> ' + t("action.delete", "Supprimer") + '</button>' +
           '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.close", "Fermer") + '</button>' +
-          '<button class="btn btn-secondary" onclick="app.showEditSupplierModal(\'' + supplierId + '\')">' + t("action.edit", "Modifier") + '</button>'
+          '<button class="btn btn-secondary" onclick="app.showEditSupplierModal(\'' + esc(supplierId) + '\')">' + t("action.edit", "Modifier") + '</button>'
       });
 
     } catch (e) {
@@ -4136,7 +4149,7 @@
 
   function switchSupplierTab(tab) {
     document.querySelectorAll('.detail-tab').forEach(function(btn) {
-      btn.classList.toggle('active', btn.textContent.toLowerCase().includes(tab.toLowerCase().slice(0, 4)));
+      btn.classList.toggle('active', btn.dataset.tab === tab);
     });
     document.querySelectorAll('.supplier-tab-content').forEach(function(content) {
       content.style.display = 'none';
@@ -4175,10 +4188,10 @@
         // Modifier le bouton pour update
         var footer = document.querySelector('.modal-footer');
         if (footer) {
-          footer.innerHTML = 
+          footer.innerHTML =
             '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.cancel", "Annuler") + '</button>' +
-            '<button class="btn btn-danger" onclick="app.deleteSupplier(\'' + supplierId + '\')">' + t("action.delete", "Supprimer") + '</button>' +
-            '<button class="btn btn-primary" onclick="app.updateSupplier(\'' + supplierId + '\')">' + t("action.save", "Enregistrer") + '</button>';
+            '<button class="btn btn-danger" onclick="app.deleteSupplier(\'' + esc(supplierId) + '\')">' + t("action.delete", "Supprimer") + '</button>' +
+            '<button class="btn btn-primary" onclick="app.updateSupplier(\'' + esc(supplierId) + '\')">' + t("action.save", "Enregistrer") + '</button>';
         }
       }, 100);
 
