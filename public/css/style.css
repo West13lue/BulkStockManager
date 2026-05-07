@@ -160,8 +160,21 @@ body {
   font-family: var(--font-family);
   background: var(--bg-primary);
   color: var(--text-primary);
-  line-height: 1.6;
+  line-height: 1.55;
+  font-feature-settings: "cv11", "ss01", "ss03"; /* Inter stylistic sets — cleaner numerals + glyphs */
+  font-variant-numeric: lining-nums;
   overflow: hidden;
+}
+
+/* Tabular numerals for any data-display context — ensures vertical alignment */
+.stat-value,
+.kpi-value,
+.cell-mono,
+.cell-numeric,
+[data-tabular],
+.data-table td,
+.data-table th {
+  font-variant-numeric: tabular-nums lining-nums slashed-zero;
 }
 
 a {
@@ -596,14 +609,18 @@ input, select, textarea {
 }
 
 .page-title {
-  font-size: 28px;
-  font-weight: 700;
+  font-size: 32px;
+  font-weight: 800;
+  letter-spacing: -0.022em;
+  line-height: 1.15;
+  color: var(--text-primary);
 }
 
 .page-subtitle {
   font-size: 14px;
   color: var(--text-secondary);
   margin-top: var(--space-xs);
+  letter-spacing: -0.005em;
 }
 
 .page-actions {
@@ -620,12 +637,13 @@ input, select, textarea {
   align-items: center;
   justify-content: center;
   gap: var(--space-sm);
-  height: 44px;
+  height: 40px;
   padding: 0 var(--space-lg);
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 700;
+  letter-spacing: -0.005em;
   border-radius: var(--radius-md);
-  transition: all var(--transition-fast);
+  transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast), box-shadow var(--transition-fast), transform var(--transition-fast);
   white-space: nowrap;
 }
 
@@ -649,13 +667,19 @@ input, select, textarea {
 
 .btn-primary {
   background: var(--accent-primary);
-  color: white;
+  color: var(--accent-on);
 }
 
 .btn-primary:hover {
   background: var(--accent-primary-hover);
   transform: translateY(-1px);
-  box-shadow: var(--shadow-md);
+  box-shadow: 0 8px 20px color-mix(in oklch, var(--accent-primary) 35%, transparent);
+}
+
+.btn-primary:active {
+  background: var(--accent-primary-active);
+  transform: translateY(0);
+  box-shadow: none;
 }
 
 .btn-secondary {
@@ -746,8 +770,10 @@ input, select, textarea {
 }
 
 .card-title {
-  font-size: 16px;
-  font-weight: 600;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: -0.005em;
+  color: var(--text-primary);
   display: flex;
   align-items: center;
   gap: var(--space-sm);
@@ -819,14 +845,19 @@ input, select, textarea {
 }
 
 .stat-value {
-  font-size: 32px;
-  font-weight: 700;
-  line-height: 1.2;
+  font-size: 40px;
+  font-weight: 800;
+  line-height: 1.05;
+  letter-spacing: -0.025em;
+  color: var(--text-primary);
 }
 
 .stat-label {
-  font-size: 13px;
-  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
 }
 
 /* ============================================
@@ -844,20 +875,21 @@ input, select, textarea {
 
 .data-table th {
   text-align: left;
-  padding: var(--space-md) var(--space-lg);
-  font-size: 12px;
-  font-weight: 600;
+  padding: 10px var(--space-lg);
+  font-size: 11px;
+  font-weight: 700;
   color: var(--text-tertiary);
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.08em;
   background: var(--bg-tertiary);
   border-bottom: 1px solid var(--border);
 }
 
 .data-table td {
-  padding: var(--space-md) var(--space-lg);
+  padding: 12px var(--space-lg);
   border-bottom: 1px solid var(--border);
-  font-size: 14px;
+  font-size: 13.5px;
+  line-height: 1.4;
 }
 
 .data-table tbody tr {
@@ -1924,8 +1956,11 @@ input, select, textarea {
 }
 
 .section-title {
-  font-size: 16px;
-  font-weight: 600;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-tertiary);
   margin-bottom: var(--space-md);
   display: flex;
   align-items: center;
