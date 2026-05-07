@@ -5857,6 +5857,52 @@ button.stat-card:hover {
 }
 
 /* ============================================
+   CATALOG SECTIONS (split au gramme / a l'unite)
+   ============================================ */
+
+.catalog-section {
+  margin-bottom: var(--space-xl);
+}
+
+.catalog-section-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin: 0 0 var(--space-md) 0;
+  padding-bottom: var(--space-xs);
+  border-bottom: 1px solid var(--border);
+}
+
+.catalog-section-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.catalog-section-title .icon,
+.catalog-section-title svg {
+  width: 14px;
+  height: 14px;
+}
+
+.catalog-section-count {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-tertiary, var(--text-secondary));
+  background: var(--surface-2, var(--surface));
+  border: 1px solid var(--border);
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ============================================
    SHOP HEALTH MODAL
    ============================================ */
 

@@ -2661,12 +2661,44 @@
       '<div class="filter-group">' +
       '<select class="form-select" id="sortFilter" onchange="app.onSortChange(this.value)">' + sortOptionsHtml + '</select>' +
       '</div>' +
-      '</div>' +
-      
-      '<div class="card"><div class="card-body" style="padding:0">' +
-      (state.products.length ? renderTable(state.products) : renderEmpty()) +
-      "</div></div>";
-    
+      '</div>';
+
+    // Split en deux sections : produits au gramme + accessoires (suivi a l'unite)
+    var weightProducts = state.products.filter(function(p) { return !p.trackByUnit; });
+    var accessoryProducts = state.products.filter(function(p) { return p.trackByUnit; });
+
+    var sectionsHtml = "";
+    if (state.products.length === 0) {
+      sectionsHtml = '<div class="card"><div class="card-body" style="padding:0">' + renderEmpty() + '</div></div>';
+    } else {
+      if (weightProducts.length > 0) {
+        sectionsHtml +=
+          '<div class="catalog-section">' +
+            '<div class="catalog-section-header">' +
+              '<h3 class="catalog-section-title"><i data-lucide="scale" aria-hidden="true"></i> ' +
+                t("products.weightSection", "Produits au gramme") +
+              '</h3>' +
+              '<span class="catalog-section-count">' + weightProducts.length + '</span>' +
+            '</div>' +
+            '<div class="card"><div class="card-body" style="padding:0">' + renderTable(weightProducts) + '</div></div>' +
+          '</div>';
+      }
+      if (accessoryProducts.length > 0) {
+        sectionsHtml +=
+          '<div class="catalog-section">' +
+            '<div class="catalog-section-header">' +
+              '<h3 class="catalog-section-title"><i data-lucide="package-2" aria-hidden="true"></i> ' +
+                t("products.accessorySection", "Accessoires (a l\'unite)") +
+              '</h3>' +
+              '<span class="catalog-section-count">' + accessoryProducts.length + '</span>' +
+            '</div>' +
+            '<div class="card"><div class="card-body" style="padding:0">' + renderTable(accessoryProducts) + '</div></div>' +
+          '</div>';
+      }
+    }
+
+    c.innerHTML += sectionsHtml;
+
     if (typeof lucide !== "undefined") lucide.createIcons();
   }
 
