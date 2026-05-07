@@ -89,7 +89,9 @@
     'selectSearchResultByIndex', 'toggleSection',
     // Analytics ventes refonte
     'switchSalesChartMetric', 'sortAnalyticsProducts', 'searchAnalyticsProducts',
-    'goAnalyticsProductsPage', 'viewProductInCatalog'
+    'goAnalyticsProductsPage', 'viewProductInCatalog',
+    // Dashboard refonte
+    'switchDashboardActivity'
   ];
   
   // Créer window.app avec des proxies pour toutes les fonctions
@@ -1299,6 +1301,22 @@
     if (typeof lucide !== "undefined") lucide.createIcons();
   }
 
+  // État local pour la carte Activité fusionnée
+  var dashboardActivityFilter = "all"; // all | sale | restock | adjustment
+  var dashboardActivityCache = null;
+
+  function _formatLastSync() {
+    var ts = Number(localStorage.getItem("lastShopifySyncAt") || 0);
+    if (!ts) return { label: t("dashboard.neverSynced", "Jamais synchro"), stale: true };
+    var diffMin = Math.floor((Date.now() - ts) / 60000);
+    if (diffMin < 1)   return { label: t("dashboard.syncJustNow", "Sync à l'instant"), stale: false };
+    if (diffMin < 60)  return { label: t("dashboard.syncMinAgo", "Sync il y a {n} min").replace("{n}", diffMin), stale: diffMin > 30 };
+    var diffH = Math.floor(diffMin / 60);
+    if (diffH < 24)    return { label: t("dashboard.syncHAgo",   "Sync il y a {n} h").replace("{n}", diffH),   stale: true };
+    var diffD = Math.floor(diffH / 24);
+    return { label: t("dashboard.syncDAgo", "Sync il y a {n} j").replace("{n}", diffD), stale: true };
+  }
+
   function renderDashboard(c) {
     // Le dashboard ne montre que les produits actifs au gramme :
     // exclure les accessoires (trackByUnit) et les produits archives.
@@ -1329,11 +1347,12 @@
           return g >= Math.max(criticalThreshold, 0) && g < lowThreshold && g > 0;
         })
       : [];
+    // Produits sous seuil (rupture+critique+bas) : utilisé pour la card watchlist
+    var watchlistProducts = outOfStockProducts.concat(lowStockProducts).sort(function(a, b) {
+      return (a.totalGrams || 0) - (b.totalGrams || 0);
+    });
 
     // ----- Urgency state machine -----
-    // Rupture/critique base sur les seuils configures par l'utilisateur
-    // dans Parametres > Gestion du stock. Pas de seuil hardcode :
-    // l'utilisateur sait mieux que nous ce qui compte sur son catalogue.
     var isEmpty = totalProducts === 0;
     var isCritical = !isEmpty && outOfStockProducts.length > 0;
     var isWarning = !isEmpty && !isCritical && lowStockProducts.length > 0;
@@ -1348,6 +1367,7 @@
     } catch (_) {
       dateStr = new Date().toLocaleDateString();
     }
+    var sync = _formatLastSync();
 
     // ----- Build urgency block HTML -----
     var urgencyHtml;
@@ -1427,7 +1447,8 @@
         '</section>';
     }
 
-    // ----- KPI strip -----
+    // ----- KPI strip enrichi -----
+    // 3 KPI universels + 2 KPI ventes (si plan PRO+) avec sparkline placeholder
     var kpiStrip =
       '<div class="kpi-strip" role="group" aria-label="' + t("dashboard.kpis", "Indicateurs") + '">' +
         '<button type="button" class="kpi-strip__item is-link" onclick="app.navigateTo(\'products\')" ' +
@@ -1443,19 +1464,71 @@
           '<span class="kpi-strip__label">' + t("dashboard.value", "Valeur") + '</span>' +
           '<span class="kpi-strip__value">' + formatCurrency(totalValue) + '</span>' +
         '</div>' +
+        // Slots ventes 7j et commandes 7j (rendus async si plan PRO+)
+        (hasFeature("hasAnalytics")
+          ? '<div class="kpi-strip__item is-link" id="kpiSales7" role="button" tabindex="0" onclick="app.navigateTo(\'analytics\')" aria-label="' + t("dashboard.sales7d", "Ventes 7j") + '">' +
+              '<span class="kpi-strip__label"><i data-lucide="trending-up" aria-hidden="true"></i> ' + t("dashboard.sales7d", "Ventes 7j") + '</span>' +
+              '<span class="kpi-strip__value" id="kpiSales7Value">—</span>' +
+              '<div class="kpi-strip__sparkline" id="kpiSales7Spark"></div>' +
+            '</div>' +
+            '<div class="kpi-strip__item is-link" id="kpiOrders7" role="button" tabindex="0" onclick="app.navigateTo(\'analytics\')" aria-label="' + t("dashboard.orders7d", "Commandes 7j") + '">' +
+              '<span class="kpi-strip__label"><i data-lucide="shopping-bag" aria-hidden="true"></i> ' + t("dashboard.orders7d", "Commandes 7j") + '</span>' +
+              '<span class="kpi-strip__value" id="kpiOrders7Value">—</span>' +
+              '<div class="kpi-strip__sparkline" id="kpiOrders7Spark"></div>' +
+            '</div>'
+          : '<button type="button" class="kpi-strip__item is-locked" onclick="app.showUpgradeModal()" aria-label="' + t("dashboard.unlockSales", "Debloquer ventes PRO") + '">' +
+              '<i data-lucide="lock" class="kpi-strip__lock" aria-hidden="true"></i>' +
+              '<span class="kpi-strip__label">' + t("dashboard.sales7d", "Ventes 7j") + '</span>' +
+              '<span class="kpi-strip__value" style="opacity:0.5">PRO</span>' +
+            '</button>'
+        ) +
       '</div>';
 
-    // ----- Compose -----
+    // ----- CTA principal du header : Réappro rapide (action #1 du matin) -----
+    var primaryCta = isEmpty
+      ? ''
+      : '<button class="btn btn-primary btn-sm" onclick="app.showQuickRestockModal()">' +
+          '<i data-lucide="package-plus" aria-hidden="true"></i> ' + t("dashboard.quickRestock", "Réappro rapide") +
+        '</button>';
+
+    // ----- Watchlist : produits sous seuil uniquement (pas "les 5 plus bas" arbitraires) -----
+    var watchlistHtml;
+    if (watchlistProducts.length === 0) {
+      watchlistHtml =
+        '<div class="dashboard-watchlist-empty">' +
+          '<i data-lucide="check-circle" aria-hidden="true"></i>' +
+          '<p style="margin:4px 0">' + t("dashboard.watchlistEmpty", "Aucun produit sous seuil") + '</p>' +
+          '<p class="text-tertiary" style="font-size:12px;margin:0">' + t("dashboard.watchlistEmptyHint", "Tous les stocks sont au-dessus du seuil bas configure dans Parametres.") + '</p>' +
+        '</div>';
+    } else {
+      watchlistHtml = renderTable(watchlistProducts.slice(0, 8));
+    }
+
+    // ----- Card Lots qui expirent (PRO uniquement) -----
+    var batchesCardHtml = '';
+    if (hasFeature("hasBatchTracking")) {
+      batchesCardHtml =
+        '<div class="card">' +
+          '<div class="card-header">' +
+            '<h3 class="card-title"><i data-lucide="calendar-clock" aria-hidden="true"></i> ' + t("dashboard.expiringBatches", "Lots qui expirent < 30j") + '</h3>' +
+            '<button class="btn btn-ghost btn-sm" onclick="app.navigateTo(\'batches\')">' + t("dashboard.viewAll", "Voir tout") + '</button>' +
+          '</div>' +
+          '<div class="card-body" id="dashboardExpiringBatches"><div class="text-center py-lg"><div class="spinner"></div></div></div>' +
+        '</div>';
+    }
+
+    // ----- Compose final -----
     c.innerHTML =
       '<header class="dashboard-today">' +
-        '<p class="dashboard-today__date">' +
-          '<strong>' + t("dashboard.today", "Aujourd'hui") + '</strong> · ' + dateStr +
-        '</p>' +
-        '<div class="dashboard-today__actions">' +
-          '<button class="btn btn-primary btn-sm" onclick="app.showAddProductModal()">' +
-            '<i data-lucide="plus" aria-hidden="true"></i> ' + t("dashboard.addProduct", "Produit") +
+        '<div class="dashboard-today__meta">' +
+          '<p style="margin:0"><strong>' + t("dashboard.today", "Aujourd'hui") + '</strong> · ' + dateStr + '</p>' +
+          '<button type="button" class="dashboard-today__sync' + (sync.stale ? ' is-stale' : '') + '" onclick="app.syncShopifyProducts()" ' +
+            'title="' + t("dashboard.syncTitle", "Cliquer pour synchroniser maintenant") + '" aria-label="' + esc(sync.label) + '">' +
+            '<i data-lucide="refresh-cw" aria-hidden="true"></i>' +
+            '<span>' + esc(sync.label) + '</span>' +
           '</button>' +
         '</div>' +
+        '<div class="dashboard-today__actions">' + primaryCta + '</div>' +
       '</header>' +
 
       urgencyHtml +
@@ -1470,72 +1543,225 @@
           '<button class="btn btn-ghost btn-sm" onclick="app.showQuickAdjustModal()"><i data-lucide="sliders" aria-hidden="true"></i> ' + t("dashboard.quickAdjust", "Ajustement") + '</button>' +
           '<button class="btn btn-ghost btn-sm" onclick="app.showManualSaleModal()"><i data-lucide="shopping-cart" aria-hidden="true"></i> ' + t("dashboard.manualSale", "Vente manuelle") + '</button>' +
           (hasFeature("hasInventoryCount") ? '<button class="btn btn-ghost btn-sm" onclick="app.navigateTo(\'inventory\')"><i data-lucide="clipboard-check" aria-hidden="true"></i> ' + t("dashboard.inventory", "Inventaire") + '</button>' : '') +
+          '<button class="btn btn-ghost btn-sm" onclick="app.showAddProductModal()"><i data-lucide="plus" aria-hidden="true"></i> ' + t("dashboard.addProduct", "Produit") + '</button>' +
         '</div>' +
       '</div>' +
 
-      // Below-the-fold cards (sante / context)
-      // Row 1 : Activite (gauche) + Mouvements (droite)
-      // Row 2 : Produits (pleine largeur)
+      // Card unifiée Activité (Tout / Ventes / Restocks / Ajustements)
       '<div class="dashboard-grid">' +
-        '<div class="card card-activity">' +
-          '<div class="card-header"><h3 class="card-title"><i data-lucide="history" aria-hidden="true"></i> ' + t("dashboard.activityLog", "Activite recente") + '</h3>' +
-          '<button class="btn btn-ghost btn-sm" onclick="app.showFullActivityLog()">' + t("dashboard.viewAll", "Voir tout") + '</button></div>' +
+        '<div class="card card-activity activity-card">' +
+          '<div class="card-header">' +
+            '<h3 class="card-title"><i data-lucide="history" aria-hidden="true"></i> ' + t("dashboard.activityLog", "Activite recente") + '</h3>' +
+            '<div style="display:flex;gap:8px;align-items:center">' +
+              '<button class="btn btn-ghost btn-sm" onclick="app.exportMovementsCSV()" title="' + t("export.movements", "Export CSV") + '" aria-label="' + t("export.movements", "Export CSV") + '"><i data-lucide="download" aria-hidden="true"></i></button>' +
+              '<button class="btn btn-ghost btn-sm" onclick="app.showFullActivityLog()">' + t("dashboard.viewAll", "Voir tout") + '</button>' +
+            '</div>' +
+          '</div>' +
+          '<div class="activity-tabs" role="tablist" id="dashboardActivityTabs">' +
+            '<button type="button" role="tab" data-filter="all"        class="active" onclick="app.switchDashboardActivity(\'all\')">' + t("activity.all",  "Tout")                  + ' <span class="badge-count" id="actCount-all">0</span></button>' +
+            '<button type="button" role="tab" data-filter="sale"       onclick="app.switchDashboardActivity(\'sale\')">'                    + t("activity.sales", "Ventes")               + ' <span class="badge-count" id="actCount-sale">0</span></button>' +
+            '<button type="button" role="tab" data-filter="restock"    onclick="app.switchDashboardActivity(\'restock\')">'                 + t("activity.restocks", "Restocks")          + ' <span class="badge-count" id="actCount-restock">0</span></button>' +
+            '<button type="button" role="tab" data-filter="adjustment" onclick="app.switchDashboardActivity(\'adjustment\')">'              + t("activity.adjustments", "Ajustements")    + ' <span class="badge-count" id="actCount-adjustment">0</span></button>' +
+          '</div>' +
           '<div class="card-body" id="dashboardActivity"><div class="text-center py-lg"><div class="spinner"></div></div></div>' +
         '</div>' +
 
+        // Card Watchlist : produits sous seuil bas/critique (filtré, pas "les 5 plus bas" aveugles)
         '<div class="card">' +
-          '<div class="card-header"><h3 class="card-title"><i data-lucide="activity" aria-hidden="true"></i> ' + t("dashboard.recentMovements", "Recent movements") + '</h3>' +
-          '<button class="btn btn-ghost btn-sm" onclick="app.exportMovementsCSV()" title="' + t("export.movements", "Export CSV") + '"><i data-lucide="download" aria-hidden="true"></i></button></div>' +
-          '<div class="card-body" id="dashboardMovements"><div class="text-center py-lg"><div class="spinner"></div></div></div>' +
+          '<div class="card-header">' +
+            '<h3 class="card-title"><i data-lucide="boxes" aria-hidden="true"></i> ' + t("dashboard.watchlistTitle", "Stocks à surveiller") +
+              (watchlistProducts.length ? ' <span class="badge-count" style="margin-left:6px">' + watchlistProducts.length + '</span>' : '') +
+            '</h3>' +
+            '<button class="btn btn-ghost btn-sm" onclick="app.navigateTo(\'products\')">' + t("dashboard.viewAll", "Voir tout") + '</button>' +
+          '</div>' +
+          '<div class="card-body" style="padding:0">' + watchlistHtml + '</div>' +
         '</div>' +
 
-        '<div class="card card-full-row">' +
-          '<div class="card-header"><h3 class="card-title"><i data-lucide="boxes" aria-hidden="true"></i> ' + t("dashboard.lowestStock", "Stocks les plus bas") + '</h3>' +
-          '<button class="btn btn-ghost btn-sm" onclick="app.navigateTo(\'products\')">' + t("dashboard.viewAll", "Voir tout") + '</button></div>' +
-          '<div class="card-body" style="padding:0">' +
-            (dashProducts.length
-              ? renderTable(
-                  dashProducts.slice().sort(function(a, b) {
-                    return (a.totalGrams || 0) - (b.totalGrams || 0);
-                  }).slice(0, 5)
-                )
-              : renderEmpty()) +
-          '</div>' +
-        '</div>' +
+        batchesCardHtml +
       '</div>';
 
-    // Une seule requete /movements partagee entre les deux cartes (Activite +
-    // Mouvements). Avant ce regroupement, chaque carte appelait l'API
-    // independamment -> 2x la meme requete a chaque render dashboard.
+    // Async loaders
     loadDashboardMovementsAndActivity();
+    if (hasFeature("hasAnalytics")) loadDashboardSalesKpis();
+    if (hasFeature("hasBatchTracking")) loadDashboardExpiringBatches();
     if (typeof lucide !== "undefined") lucide.createIcons();
   }
 
-  // Fetch unique des mouvements pour les deux cartes du dashboard.
-  // Affiche un message d'erreur identique dans les deux containers si l'API
-  // echoue, et laisse chaque container rendre dans son propre style.
+  // Fetch unique des mouvements pour la card Activité fusionnée.
+  // Met à jour les compteurs des onglets et rend le filtre actif.
   async function loadDashboardMovementsAndActivity() {
     var actC = document.getElementById("dashboardActivity");
-    var movC = document.getElementById("dashboardMovements");
-    if (!actC && !movC) return;
+    if (!actC) return;
 
     try {
-      var res = await authFetch(apiUrl("/movements?limit=20"));
+      var res = await authFetch(apiUrl("/movements?limit=30"));
       if (!res.ok) {
-        var errHtml = '<p class="text-secondary text-center">' + t("msg.error", "Erreur") + '</p>';
-        if (actC) actC.innerHTML = errHtml;
-        if (movC) movC.innerHTML = errHtml;
+        actC.innerHTML = '<p class="text-secondary text-center py-lg">' + t("msg.error", "Erreur") + '</p>';
         return;
       }
       var data = await res.json();
       var movements = data.movements || [];
-      renderDashboardActivityList(movements, actC);
-      renderDashboardMovementsList(movements, movC);
+      dashboardActivityCache = movements;
+      _updateActivityCounts(movements);
+      _renderActivityFiltered(dashboardActivityFilter);
       if (typeof lucide !== "undefined") lucide.createIcons();
     } catch (e) {
-      var errHtml2 = '<p class="text-secondary text-center">' + t("msg.error", "Erreur") + '</p>';
-      if (actC) actC.innerHTML = errHtml2;
-      if (movC) movC.innerHTML = errHtml2;
+      actC.innerHTML = '<p class="text-secondary text-center py-lg">' + t("msg.error", "Erreur") + '</p>';
+    }
+  }
+
+  function _updateActivityCounts(movements) {
+    var counts = { all: movements.length, sale: 0, restock: 0, adjustment: 0 };
+    movements.forEach(function(m) {
+      var typ = m.type || m.source || "adjustment";
+      if (counts.hasOwnProperty(typ)) counts[typ]++;
+    });
+    Object.keys(counts).forEach(function(k) {
+      var el = document.getElementById("actCount-" + k);
+      if (el) el.textContent = counts[k];
+    });
+  }
+
+  function _renderActivityFiltered(filter) {
+    var actC = document.getElementById("dashboardActivity");
+    if (!actC) return;
+    var movements = dashboardActivityCache || [];
+    if (filter && filter !== "all") {
+      movements = movements.filter(function(m) {
+        var typ = m.type || m.source || "adjustment";
+        return typ === filter;
+      });
+    }
+    if (movements.length === 0) {
+      actC.innerHTML = '<div class="empty-state-small"><div class="empty-icon"><i data-lucide="history"></i></div><p class="text-secondary">' + t("dashboard.noActivity", "Aucune activite") + '</p></div>';
+      if (typeof lucide !== "undefined") lucide.createIcons();
+      return;
+    }
+    renderDashboardActivityList(movements, actC);
+  }
+
+  function switchDashboardActivity(filter) {
+    dashboardActivityFilter = filter || "all";
+    document.querySelectorAll("#dashboardActivityTabs button").forEach(function(b) {
+      var on = b.getAttribute("data-filter") === dashboardActivityFilter;
+      b.classList.toggle("active", on);
+      b.setAttribute("aria-selected", on ? "true" : "false");
+    });
+    _renderActivityFiltered(dashboardActivityFilter);
+  }
+
+  // ----- KPI ventes 7j (PRO+) avec sparkline -----
+  async function loadDashboardSalesKpis() {
+    try {
+      var res = await authFetch(apiUrl("/analytics/sales?period=7"));
+      if (!res.ok) return; // silencieux : déjà rendu placeholder, le user upgrade autrement
+      var data = await res.json();
+      var k = data.kpis || {};
+      var timeline = data.timeline || [];
+
+      var v1 = document.getElementById("kpiSales7Value");
+      var v2 = document.getElementById("kpiOrders7Value");
+      if (v1) v1.textContent = formatCurrency(k.totalRevenue || 0);
+      if (v2) v2.textContent = String(k.totalOrders || 0);
+
+      _drawSparkline(document.getElementById("kpiSales7Spark"),
+        timeline.map(function(d) { return Number(d.revenue) || 0; }), { color: "success" });
+      _drawSparkline(document.getElementById("kpiOrders7Spark"),
+        timeline.map(function(d) { return Number(d.orders) || 0; }), { color: "accent" });
+    } catch (e) {
+      // ignore : KPI ventes laissés à "—"
+    }
+  }
+
+  function _drawSparkline(host, values, opts) {
+    if (!host || !values || !values.length) return;
+    if (typeof Chart === "undefined") {
+      // Chart.js pas encore chargé : on patiente
+      var tries = 0;
+      var retry = function() {
+        if (typeof Chart !== "undefined") return _drawSparkline(host, values, opts);
+        if (tries++ < 30) setTimeout(retry, 100);
+      };
+      return retry();
+    }
+    // Réutilisation : on supprime un précédent canvas si présent
+    host.innerHTML = '<canvas></canvas>';
+    var canvas = host.querySelector("canvas");
+    var styles = getComputedStyle(document.documentElement);
+    var color = (opts && opts.color === "success")
+      ? (styles.getPropertyValue("--success") || "#22c55e").trim()
+      : (styles.getPropertyValue("--accent-primary") || "#22c55e").trim();
+    try {
+      new Chart(canvas, {
+        type: "line",
+        data: {
+          labels: values.map(function(_, i) { return i; }),
+          datasets: [{
+            data: values,
+            borderColor: color,
+            backgroundColor: "transparent",
+            borderWidth: 1.5,
+            tension: 0.35,
+            pointRadius: 0,
+            fill: false
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false }, tooltip: { enabled: false } },
+          scales: { x: { display: false }, y: { display: false, beginAtZero: true } },
+          elements: { line: { borderJoinStyle: "round" } }
+        }
+      });
+    } catch (e) {
+      // Si Chart explose pour une raison X, on n'affiche rien (pas grave : valeur affichée à côté).
+    }
+  }
+
+  // ----- Lots qui expirent (PRO) -----
+  async function loadDashboardExpiringBatches() {
+    var c = document.getElementById("dashboardExpiringBatches");
+    if (!c) return;
+    try {
+      var res = await authFetch(apiUrl("/batches?expiringSoon=30&status=active"));
+      if (!res.ok) {
+        c.innerHTML = '<p class="text-secondary text-center py-lg">' + t("msg.error", "Erreur") + '</p>';
+        return;
+      }
+      var data = await res.json();
+      var batches = (data.batches || data || []).slice().sort(function(a, b) {
+        var da = a.expirationDate ? new Date(a.expirationDate).getTime() : Infinity;
+        var db = b.expirationDate ? new Date(b.expirationDate).getTime() : Infinity;
+        return da - db;
+      }).slice(0, 6);
+
+      if (batches.length === 0) {
+        c.innerHTML = '<div class="dashboard-watchlist-empty"><i data-lucide="check-circle"></i><p style="margin:4px 0">' + t("dashboard.noExpiringBatches", "Aucun lot a surveiller") + '</p></div>';
+        if (typeof lucide !== "undefined") lucide.createIcons();
+        return;
+      }
+
+      var now = Date.now();
+      var html = '<div class="dashboard-batches-list">' + batches.map(function(b) {
+        var exp = b.expirationDate ? new Date(b.expirationDate).getTime() : null;
+        var days = exp ? Math.floor((exp - now) / 86400000) : null;
+        var isExpired = days !== null && days < 0;
+        var label = isExpired
+          ? t("dashboard.batchExpired", "Expire") + " (" + Math.abs(days) + "j)"
+          : (days === null ? "—" : (days === 0 ? t("dashboard.batchExpToday", "Aujourd'hui") : "J-" + days));
+        var name = (b.productName || b.productId || b.batchNumber || "Lot");
+        return '<div class="dashboard-batch-item' + (isExpired ? ' is-expired' : '') + '">' +
+          '<i data-lucide="calendar-clock" style="width:14px;height:14px;color:var(--text-tertiary);flex-shrink:0"></i>' +
+          '<span class="dashboard-batch-item__name" title="' + esc(name) + '">' + esc(name) + (b.batchNumber ? ' · <span style="color:var(--text-tertiary)">#' + esc(b.batchNumber) + '</span>' : '') + '</span>' +
+          '<span class="dashboard-batch-item__qty">' + formatWeight(b.quantityGrams || b.totalGrams || 0) + '</span>' +
+          '<span class="dashboard-batch-item__days">' + label + '</span>' +
+          '</div>';
+      }).join("") + '</div>';
+      c.innerHTML = html;
+      if (typeof lucide !== "undefined") lucide.createIcons();
+    } catch (e) {
+      c.innerHTML = '<p class="text-secondary text-center py-lg">' + t("msg.error", "Erreur") + '</p>';
     }
   }
 
@@ -8027,6 +8253,7 @@
       
       if (res.ok) {
         var data = await res.json();
+        try { localStorage.setItem("lastShopifySyncAt", String(Date.now())); } catch(_) {}
         showToast(t("sync.success", "Synchronisation terminee") + (data.imported ? " - " + data.imported + " " + t("products.title", "produits") : ""), "success");
         await loadProducts();
         renderTab(state.currentTab);
@@ -11542,6 +11769,8 @@
     searchAnalyticsProducts: searchAnalyticsProducts,
     goAnalyticsProductsPage: goAnalyticsProductsPage,
     viewProductInCatalog:    viewProductInCatalog,
+    // Dashboard refonte
+    switchDashboardActivity: switchDashboardActivity,
   };
   
   // Stocker les vraies fonctions

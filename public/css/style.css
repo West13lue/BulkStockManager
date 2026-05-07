@@ -6419,3 +6419,220 @@ table.analytics-table td.col-num.danger  { color: var(--danger); }
   opacity: 0.4;
   cursor: not-allowed;
 }
+
+/* ============================================
+   DASHBOARD — Refonte v2
+   ============================================ */
+
+/* Header dashboard : date + sync indicator + CTA principal */
+.dashboard-today {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-lg);
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+.dashboard-today__meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  flex-wrap: wrap;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+.dashboard-today__meta strong { color: var(--text-primary); }
+.dashboard-today__sync {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-tertiary);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+.dashboard-today__sync:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+.dashboard-today__sync svg {
+  width: 12px;
+  height: 12px;
+}
+.dashboard-today__sync.is-stale {
+  color: var(--warning);
+  border-color: rgba(251,191,36,0.3);
+}
+
+/* KPI strip enrichi (jusqu'à 5 cards avec sparkline) */
+.kpi-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: var(--space-sm);
+  margin-bottom: var(--space-lg);
+}
+.kpi-strip__item {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 12px var(--space-md);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  position: relative;
+  text-align: left;
+  cursor: default;
+  transition: border-color var(--transition-fast), background var(--transition-fast);
+}
+.kpi-strip__item.is-link {
+  cursor: pointer;
+  border: 1px solid var(--border);
+}
+.kpi-strip__item.is-link:hover {
+  border-color: var(--accent-primary);
+  background: var(--surface-hover);
+}
+.kpi-strip__item.is-locked {
+  opacity: 0.7;
+  cursor: pointer;
+}
+.kpi-strip__item.is-locked:hover { opacity: 1; }
+.kpi-strip__label {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.kpi-strip__label svg { width: 12px; height: 12px; }
+.kpi-strip__value {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+.kpi-strip__sparkline {
+  height: 28px;
+  margin-top: 2px;
+  position: relative;
+}
+.kpi-strip__sparkline canvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+}
+.kpi-strip__lock {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 16px;
+  height: 16px;
+  color: var(--text-tertiary);
+}
+
+/* Activity feed unifiée : card avec tabs */
+.activity-card .card-header {
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+.activity-tabs {
+  display: flex;
+  gap: 4px;
+  margin: 0;
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.activity-tabs button {
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: 8px 14px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color var(--transition-fast), border-color var(--transition-fast);
+}
+.activity-tabs button:hover { color: var(--text-primary); }
+.activity-tabs button.active {
+  color: var(--accent-primary);
+  border-bottom-color: var(--accent-primary);
+}
+.activity-tabs button .badge-count {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: var(--bg-tertiary);
+  color: var(--text-tertiary);
+}
+.activity-tabs button.active .badge-count {
+  background: var(--accent-primary);
+  color: white;
+}
+
+/* Stocks à surveiller — empty state plus accueillant */
+.dashboard-watchlist-empty {
+  padding: 32px 16px;
+  text-align: center;
+  color: var(--text-secondary);
+}
+.dashboard-watchlist-empty svg {
+  width: 32px;
+  height: 32px;
+  color: var(--success);
+  margin-bottom: 8px;
+}
+
+/* Card Lots qui expirent (PRO) */
+.dashboard-batches-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 280px;
+  overflow-y: auto;
+}
+.dashboard-batch-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  border-left: 3px solid var(--warning);
+}
+.dashboard-batch-item.is-expired { border-left-color: var(--danger); }
+.dashboard-batch-item__name {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dashboard-batch-item__days {
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--warning);
+  white-space: nowrap;
+}
+.dashboard-batch-item.is-expired .dashboard-batch-item__days { color: var(--danger); }
+.dashboard-batch-item__qty {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
