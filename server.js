@@ -1976,6 +1976,63 @@ router.delete("/api/analytics/sales/:id", (req, res) => {
   });
 });
 
+// Fusionner plusieurs commandes en une seule (analytics seulement)
+// Utile quand l'utilisateur a fait plusieurs ventes manuelles separees
+// qui auraient du etre une seule commande multi-produits.
+router.post("/api/analytics/merge-orders", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    if (!analyticsStore || !analyticsStore.listSales || !analyticsStore.rewriteAllSales) {
+      return apiError(res, 500, "Editeur indisponible");
+    }
+
+    const orderIds = Array.isArray(req.body?.orderIds) ? req.body.orderIds.map(String) : [];
+    if (orderIds.length < 2) return apiError(res, 400, "Au moins 2 commandes a fusionner");
+
+    const targetName = String(req.body?.targetOrderName || "").trim();
+    const orderIdSet = new Set(orderIds);
+
+    const allSales = analyticsStore.listSales({ shop, limit: 50000 });
+    const matched = allSales.filter((s) => orderIdSet.has(String(s.orderId)));
+    if (matched.length === 0) return apiError(res, 404, "Aucune vente trouvee pour ces orderIds");
+
+    // Canonique = la plus ancienne (premiere chronologiquement) pour ne pas
+    // creer de nouvel orderId, on garde le premier vrai. On reattribue son
+    // orderId, orderNumber et orderName aux autres lignes.
+    matched.sort((a, b) => new Date(a.orderDate || a.ts || 0) - new Date(b.orderDate || b.ts || 0));
+    const canonical = matched[0];
+    const targetOrderId = canonical.orderId;
+    const targetOrderNumber = canonical.orderNumber || canonical.orderId;
+    const finalOrderName = targetName || canonical.orderName || "";
+
+    let touched = 0;
+    const next = allSales.map((s) => {
+      if (!orderIdSet.has(String(s.orderId))) return s;
+      touched++;
+      return {
+        ...s,
+        orderId: targetOrderId,
+        orderNumber: targetOrderNumber,
+        orderName: finalOrderName || s.orderName || "",
+        updatedAt: new Date().toISOString(),
+      };
+    });
+
+    analyticsStore.rewriteAllSales(shop, next);
+    logEvent("analytics_orders_merged", { shop, mergedCount: orderIds.length, lineCount: touched, targetOrderId });
+
+    res.json({
+      success: true,
+      mergedCount: orderIds.length,
+      lineCount: touched,
+      targetOrderId,
+      targetOrderNumber,
+      targetOrderName: finalOrderName || null,
+    });
+  });
+});
+
 router.post("/api/analytics/wipe", (req, res) => {
   safeJson(req, res, () => {
     const shop = getShop(req);

@@ -80,6 +80,7 @@
     'showFullActivityLog',
     'exportStockCSV', 'exportMovementsCSV', 'exportAnalyticsCSV',
     'cancelPlan', 'changeAnalyticsPeriod', 'switchAnalyticsTab', 'loadManualSalesTab', 'loadOrdersDebugTab', 'toggleOrderDebugRow', 'toggleManualSaleRow', 'analyzeDuplicates', 'toggleAllDedupOrders', 'executeDedup',
+    'updateMergeBtn', 'mergeSelectedOrders',
     'switchOrdersTab', 'onOrderStatusChange', 'onOrderPeriodChange', 'onOrderSourceChange',
     'importShopifyOrders',
     'showCreatePOModal', 'savePO', 'openPODetails', 'confirmPO', 'sendPO',
@@ -9955,6 +9956,62 @@
     }
   }
 
+  function updateMergeBtn() {
+    var checked = document.querySelectorAll(".order-merge-cb:checked");
+    var btn = document.getElementById("mergeOrdersBtn");
+    var count = document.getElementById("mergeOrdersCount");
+    if (!btn) return;
+    if (checked.length >= 2) {
+      btn.style.display = "";
+      if (count) count.textContent = "(" + checked.length + ")";
+    } else {
+      btn.style.display = "none";
+    }
+  }
+
+  async function mergeSelectedOrders() {
+    var checked = Array.from(document.querySelectorAll(".order-merge-cb:checked"));
+    if (checked.length < 2) {
+      showToast(t("ordersDebug.mergeMinTwo", "Selectionne au moins 2 commandes"), "info");
+      return;
+    }
+    var orderIds = checked.map(function(cb) { return cb.dataset.orderId; }).filter(Boolean);
+
+    var name = await showPromptDialog(
+      t("ordersDebug.mergePromptName", "Nom optionnel pour la commande fusionnee (laisse vide pour garder le numero le plus ancien)"),
+      { defaultValue: "", placeholder: t("ordersDebug.mergeNamePlaceholder", "Nom (optionnel)") }
+    );
+    if (name === null) return; // user cancelled
+
+    var ok = await showConfirmDialog(
+      t("ordersDebug.mergeFinalConfirm", "Fusionner ces") + " " + checked.length + " " + t("ordersDebug.mergeFinalConfirm2", "commande(s) en une seule ? Les ventes existantes seront reattribuees au numero de la plus ancienne. Le stock physique n'est pas modifie."),
+      { danger: true, confirmText: t("ordersDebug.mergeConfirm", "Fusionner") }
+    );
+    if (!ok) return;
+
+    try {
+      var res = await authFetch(apiUrl("/analytics/merge-orders"), {
+        method: "POST",
+        body: JSON.stringify({ orderIds: orderIds, targetOrderName: name || undefined })
+      });
+      if (!res.ok) {
+        var err = await res.json().catch(function() { return {}; });
+        showToast(err.error || t("ordersDebug.mergeError", "Echec de la fusion"), "error");
+        return;
+      }
+      var data = await res.json();
+      showToast(
+        t("ordersDebug.mergeDone", "Fusion reussie") + " : " + data.lineCount + " ligne(s) sur " + data.mergedCount + " commandes",
+        "success"
+      );
+      // Recharger la vue
+      if (typeof loadOrdersDebug === "function") loadOrdersDebug();
+      else loadAnalyticsTab();
+    } catch (e) {
+      showToast(t("ordersDebug.mergeError", "Echec") + ": " + e.message, "error");
+    }
+  }
+
   function renderOrdersDebugContent(data) {
     var container = document.getElementById("analyticsContent");
     if (!container) return;
@@ -9980,7 +10037,10 @@
       '<div style="color:var(--text-secondary);font-size:13px">' +
       orders.length + ' commande(s) sur la periode — cliquer sur une ligne pour voir les details' +
       '</div>' +
-      '<button class="btn btn-ghost btn-sm" onclick="app.analyzeDuplicates()" style="font-size:12px"><i data-lucide="search" style="width:12px;height:12px"></i> ' + t("ordersDebug.detectDups", "Detecter doublons") + '</button>' +
+      '<div style="display:flex;gap:8px;align-items:center">' +
+        '<button class="btn btn-primary btn-sm" id="mergeOrdersBtn" onclick="app.mergeSelectedOrders()" style="font-size:12px;display:none"><i data-lucide="git-merge" style="width:12px;height:12px"></i> ' + t("ordersDebug.merge", "Fusionner") + ' <span id="mergeOrdersCount">0</span></button>' +
+        '<button class="btn btn-ghost btn-sm" onclick="app.analyzeDuplicates()" style="font-size:12px"><i data-lucide="search" style="width:12px;height:12px"></i> ' + t("ordersDebug.detectDups", "Detecter doublons") + '</button>' +
+      '</div>' +
       '</div>';
 
     html += '<div style="display:flex;flex-direction:column;gap:8px">';
@@ -9997,6 +10057,7 @@
       html += '<div class="order-debug-row" style="border:1px solid ' + borderColor + ';border-radius:8px;background:var(--bg-secondary);overflow:hidden">' +
         '<div style="padding:10px 14px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap" onclick="app.toggleOrderDebugRow(' + idx + ')">' +
         '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">' +
+        '<input type="checkbox" class="order-merge-cb" data-order-id="' + esc(o.orderId || "") + '" onclick="event.stopPropagation();app.updateMergeBtn()" style="cursor:pointer;width:16px;height:16px">' +
         '<span style="font-weight:600">' + esc(o.orderNumber || o.orderId || "—") + '</span>' +
         '<span class="badge ' + sourceBadge + '" style="font-size:11px;padding:2px 8px">' + esc(sourceLabel) + '</span>' +
         '<span style="color:var(--text-secondary);font-size:12px">' + esc(dateStr) + '</span>' +
@@ -10799,6 +10860,8 @@
     loadManualSalesTab: loadManualSalesTab,
     loadOrdersDebugTab: loadOrdersDebugTab,
     toggleOrderDebugRow: toggleOrderDebugRow,
+    updateMergeBtn: updateMergeBtn,
+    mergeSelectedOrders: mergeSelectedOrders,
     toggleManualSaleRow: toggleManualSaleRow,
     analyzeDuplicates: analyzeDuplicates,
     toggleAllDedupOrders: toggleAllDedupOrders,
