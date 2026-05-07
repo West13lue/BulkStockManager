@@ -3086,9 +3086,9 @@
         '<div class="form-row">' +
         '<div class="form-group" style="flex:1"><label class="form-label">' + t("batches.expiryType", "Type date") + '</label>' +
         '<select class="form-select" id="batchExpiryType">' +
-        '<option value="dlc">DLC (Date Limite Consommation)</option>' +
-        '<option value="dluo">DLUO / DDM (A consommer de preference)</option>' +
-        '<option value="none">Aucune</option>' +
+        '<option value="dlc">' + t("batches.expiryDlc", "DLC (Date Limite Consommation)") + '</option>' +
+        '<option value="dluo">' + t("batches.expiryDluo", "DLUO / DDM (A consommer de preference)") + '</option>' +
+        '<option value="none">' + t("batches.expiryNone", "Aucune") + '</option>' +
         '</select></div>' +
         '<div class="form-group" style="flex:1"><label class="form-label">' + t("batches.expiryDate", "Date limite") + '</label>' +
         '<input type="date" class="form-input" id="batchExpiryDate"></div>' +
@@ -3124,7 +3124,7 @@
     var costPerGram = toPricePerGram(cost);
 
     try {
-      var res = await authFetch(apiUrl("/lots/" + productId), {
+      var res = await authFetch(apiUrl("/lots/" + encodeURIComponent(productId)), {
         method: "POST",
         body: JSON.stringify({
           grams: gramsValue,
@@ -3160,7 +3160,7 @@
         '<input type="text" class="form-input" id="adjustReason" placeholder="Perte, correction inventaire..."></div>',
       footer:
         '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.cancel", "Annuler") + '</button>' +
-        '<button class="btn btn-primary" onclick="app.saveAdjustBatch(\'' + productId + '\',\'' + lotId + '\')">' + t("action.save", "Enregistrer") + '</button>'
+        '<button class="btn btn-primary" onclick="app.saveAdjustBatch(\'' + esc(productId) + '\',\'' + esc(lotId) + '\')">' + t("action.save", "Enregistrer") + '</button>'
     });
   }
 
@@ -3177,7 +3177,7 @@
     var delta = deltaInput >= 0 ? toGrams(deltaInput) : -toGrams(Math.abs(deltaInput));
 
     try {
-      var res = await authFetch(apiUrl("/lots/" + productId + "/" + lotId + "/adjust"), {
+      var res = await authFetch(apiUrl("/lots/" + encodeURIComponent(productId) + "/" + encodeURIComponent(lotId) + "/adjust"), {
         method: "POST",
         body: JSON.stringify({ delta: delta, reason: reason })
       });
@@ -3198,7 +3198,7 @@
 
   async function openBatchDetails(productId, lotId) {
     try {
-      var res = await authFetch(apiUrl("/lots/" + productId + "/" + lotId));
+      var res = await authFetch(apiUrl("/lots/" + encodeURIComponent(productId) + "/" + encodeURIComponent(lotId)));
       if (!res.ok) throw new Error("Lot non trouve");
 
       var data = await res.json();
@@ -3268,11 +3268,11 @@
           
           '</div>',
         footer:
-          '<button class="btn btn-ghost text-danger" onclick="app.deleteBatch(\'' + productId + '\',\'' + lotId + '\')" title="' + t("action.delete", "Delete") + '"><i data-lucide="trash-2"></i></button>' +
-          '<button class="btn btn-ghost" onclick="app.showLabelsModal(\'' + productId + '\',\'' + lotId + '\')" title="' + t("labels.title", "Etiquettes") + '"><i data-lucide="tag"></i></button>' +
+          '<button class="btn btn-ghost text-danger" onclick="app.deleteBatch(\'' + esc(productId) + '\',\'' + esc(lotId) + '\')" title="' + t("action.delete", "Delete") + '"><i data-lucide="trash-2"></i></button>' +
+          '<button class="btn btn-ghost" onclick="app.showLabelsModal(\'' + esc(productId) + '\',\'' + esc(lotId) + '\')" title="' + t("labels.title", "Etiquettes") + '"><i data-lucide="tag"></i></button>' +
           '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.close", "Close") + '</button>' +
-          '<button class="btn btn-secondary" onclick="app.showAdjustBatchModal(\'' + productId + '\',\'' + lotId + '\')">' + t("batches.adjust", "Adjust") + '</button>' +
-          (lot.status === "active" ? '<button class="btn btn-danger" onclick="app.deactivateBatch(\'' + productId + '\',\'' + lotId + '\')">' + t("batches.deactivate", "Deactivate") + '</button>' : '')
+          '<button class="btn btn-secondary" onclick="app.showAdjustBatchModal(\'' + esc(productId) + '\',\'' + esc(lotId) + '\')">' + t("batches.adjust", "Adjust") + '</button>' +
+          (lot.status === "active" ? '<button class="btn btn-danger" onclick="app.deactivateBatch(\'' + esc(productId) + '\',\'' + esc(lotId) + '\')">' + t("batches.deactivate", "Deactivate") + '</button>' : '')
       });
 
     } catch (e) {
@@ -8792,7 +8792,7 @@
         var progress = Math.round(((lot.currentGrams || 0) / (lot.initialGrams || 1)) * 100);
 
         lotsHtml += 
-          '<div class="product-lot-item" onclick="app.closeModal();app.openBatchDetails(\'' + lot.productId + '\',\'' + lot.id + '\')">' +
+          '<div class="product-lot-item" onclick="app.closeModal();app.openBatchDetails(\'' + esc(lot.productId) + '\',\'' + esc(lot.id) + '\')">' +
           '<div class="lot-item-header">' +
           '<span class="batch-id">' + esc(lot.id) + '</span>' +
           statusBadge +
