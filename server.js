@@ -2796,6 +2796,8 @@ router.post("/api/data/reset", (req, res) => {
     if (confirm !== "RESET") return apiError(res, 400, "Confirmation manquante. Envoyez confirm: 'RESET'");
 
     try {
+      const DATA_DIR = process.env.DATA_DIR || "/var/data";
+
       // Auto-snapshot before reset (safety net)
       const dir = snapshotsDir(shop);
       const autoSnapId = `pre-reset_${new Date().toISOString().slice(0,19).replace(/:/g, "-")}`;
@@ -2825,6 +2827,52 @@ router.post("/api/data/reset", (req, res) => {
       // Reset settings
       if (settingsManager) {
         try { settingsManager.resetSettings(shop); } catch(e) {}
+      }
+
+      // Reset analytics (delete all .ndjson sale files)
+      try {
+        const analyticsDir = path.join(DATA_DIR, shop.replace(/[^a-z0-9._-]/g, "_"), "analytics");
+        if (fs.existsSync(analyticsDir)) {
+          const files = fs.readdirSync(analyticsDir);
+          for (const file of files) {
+            if (file.endsWith(".ndjson") || file.endsWith(".jsonl")) {
+              fs.unlinkSync(path.join(analyticsDir, file));
+            }
+          }
+        }
+      } catch(e) {
+        logEvent("reset_analytics_error", { shop, error: e.message }, "warn");
+      }
+
+      // Reset batches
+      try {
+        const batchesDir = path.join(DATA_DIR, shop.replace(/[^a-z0-9._-]/g, "_"), "batches");
+        if (fs.existsSync(batchesDir)) {
+          const files = fs.readdirSync(batchesDir);
+          for (const file of files) {
+            if (file.endsWith(".json")) fs.unlinkSync(path.join(batchesDir, file));
+          }
+        }
+      } catch(e) {
+        logEvent("reset_batches_error", { shop, error: e.message }, "warn");
+      }
+
+      // Reset suppliers, kits, inventory, sales orders, purchase orders, notifications
+      const dirsToClean = ["suppliers", "kits", "inventory", "sales-orders", "purchase-orders", "notifications"];
+      for (const subDir of dirsToClean) {
+        try {
+          const dirPath = path.join(DATA_DIR, shop.replace(/[^a-z0-9._-]/g, "_"), subDir);
+          if (fs.existsSync(dirPath)) {
+            const files = fs.readdirSync(dirPath);
+            for (const file of files) {
+              const filePath = path.join(dirPath, file);
+              const stat = fs.statSync(filePath);
+              if (stat.isFile()) fs.unlinkSync(filePath);
+            }
+          }
+        } catch(e) {
+          logEvent("reset_subdir_error", { shop, subDir, error: e.message }, "warn");
+        }
       }
 
       logEvent("data_full_reset", { shop, autoSnapshotId: autoSnapId }, "warn");
