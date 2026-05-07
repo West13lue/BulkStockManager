@@ -1926,21 +1926,176 @@ router.get("/api/analytics/anomalies", (req, res) => {
 });
 
 // =====================================================
-// Editeur de ventes analytics : list / update / delete
+// Ventes analytics : liste + KPIs + tops + produits
 // =====================================================
+// Source unique de verite = analyticsStore (= meme source que /analytics/orders-debug
+// utilise par l'onglet Recap commandes). Garantit que Performance et Recap voient
+// EXACTEMENT les memes ventes (Shopify reels + ventes manuelles).
+//
+// Modes :
+//  - ?period=N           -> filtre sur les N derniers jours, retourne KPIs/tops/products
+//  - ?from=&to=          -> filtre par dates explicites (utilise par l'editeur)
+//  - ?productId=         -> filtre sur un produit (compatible avec les anciens appels)
+//  - ?limit=             -> taille max (default 2000, plafond 50000)
+//
+// La reponse contient TOUJOURS sales[] + kpis + topProducts + products + timeline.
+// Les consommateurs (Performance / editeur) prennent ce qu'ils veulent.
 router.get("/api/analytics/sales", (req, res) => {
   safeJson(req, res, () => {
     const shop = getShop(req);
     if (!shop) return apiError(res, 400, "Shop introuvable");
     if (!analyticsStore || !analyticsStore.listSales) return apiError(res, 500, "Analytics non disponible");
 
-    const limit = Math.min(Math.max(Number(req.query.limit) || 500, 1), 50000);
-    const from = req.query.from || null;
-    const to = req.query.to || null;
+    // Gating PRO (alignement avec l'ancien endpoint Performance)
+    if (planManager) {
+      const check = planManager.checkLimit(shop, "view_analytics");
+      if (!check.allowed) {
+        return res.status(403).json({
+          error: "plan_limit",
+          message: check.reason,
+          upgrade: check.upgrade,
+          feature: "analytics",
+        });
+      }
+    }
+
+    const limit = Math.min(Math.max(Number(req.query.limit) || 2000, 1), 50000);
     const productId = req.query.productId || null;
 
+    // Determination de la fenetre temporelle
+    let from = req.query.from || null;
+    let to = req.query.to || null;
+    let periodDays = null;
+    if (req.query.period != null && req.query.period !== "") {
+      const p = parseInt(req.query.period, 10);
+      if (Number.isFinite(p) && p > 0) {
+        periodDays = p;
+        const now = new Date();
+        const fromD = new Date(now.getTime() - p * 24 * 60 * 60 * 1000);
+        from = fromD.toISOString().slice(0, 10);
+        to = now.toISOString().slice(0, 10);
+      }
+    }
+
     const sales = analyticsStore.listSales({ shop, from, to, productId, limit });
-    res.json({ shop, total: sales.length, sales });
+
+    // ----- Agregation KPIs / tops / produits -----
+    let totalRevenue = 0;
+    let totalCost = 0;
+    let totalGramsSold = 0;
+    let totalQuantitySold = 0;
+    const orderIds = new Set();
+    const productSales = {};
+    const dailySales = {};
+
+    sales.forEach(s => {
+      // Schema canonique = netRevenue (cf. analyticsStore.js et webhooks).
+      // sellingPriceTotal n'est qu'un alias d'entree pour la vente manuelle ;
+      // dans le record stocke le CA est toujours sous netRevenue.
+      const revenue = Number(s.netRevenue) || Number(s.sellingPriceTotal) || 0;
+      const cost = Number(s.totalCost) || 0;
+      const grams = Number(s.totalGrams) || 0;
+      const qty = Number(s.quantity) || 0;
+      const day = String(s.orderDate || s.ts || "").slice(0, 10);
+
+      totalRevenue += revenue;
+      totalCost += cost;
+      totalGramsSold += grams;
+      totalQuantitySold += qty;
+      if (s.orderId) orderIds.add(s.orderId);
+
+      if (day) {
+        if (!dailySales[day]) dailySales[day] = { date: day, revenue: 0, cost: 0, margin: 0, orders: new Set() };
+        dailySales[day].revenue += revenue;
+        dailySales[day].cost += cost;
+        if (s.orderId) dailySales[day].orders.add(s.orderId);
+      }
+
+      const pid = String(s.productId || "");
+      if (pid) {
+        if (!productSales[pid]) {
+          productSales[pid] = {
+            productId: pid,
+            name: s.productName || pid,
+            quantitySold: 0,
+            gramsSold: 0,
+            revenue: 0,
+            cost: 0,
+            margin: 0,
+            marginPercent: 0,
+            cmp: Number(s.costPerGram) || 0,
+          };
+        }
+        productSales[pid].quantitySold += qty;
+        productSales[pid].gramsSold += grams;
+        productSales[pid].revenue += revenue;
+        productSales[pid].cost += cost;
+      }
+    });
+
+    Object.values(productSales).forEach(p => {
+      p.margin = p.revenue - p.cost;
+      p.marginPercent = p.revenue > 0 ? Math.round((p.margin / p.revenue) * 100) : 0;
+      p.revenue = Math.round(p.revenue * 100) / 100;
+      p.cost = Math.round(p.cost * 100) / 100;
+      p.margin = Math.round(p.margin * 100) / 100;
+      p.gramsSold = Math.round(p.gramsSold);
+    });
+
+    const productList = Object.values(productSales);
+    const topByRevenue = [...productList].sort((a, b) => b.revenue - a.revenue).slice(0, 5);
+    const topByMargin = [...productList].sort((a, b) => b.margin - a.margin).slice(0, 5);
+    const topByMarginPercent = [...productList].filter(p => p.revenue > 10).sort((a, b) => b.marginPercent - a.marginPercent).slice(0, 5);
+    const topByVolume = [...productList].sort((a, b) => b.gramsSold - a.gramsSold).slice(0, 5);
+    const worstByMargin = [...productList].filter(p => p.revenue > 10).sort((a, b) => a.marginPercent - b.marginPercent).slice(0, 5);
+
+    const totalMargin = totalRevenue - totalCost;
+    const marginPercent = totalRevenue > 0 ? Math.round((totalMargin / totalRevenue) * 100) : 0;
+    const totalOrders = orderIds.size;
+    const avgOrderValue = totalOrders > 0 ? totalRevenue / totalOrders : 0;
+    const avgCMP = totalGramsSold > 0 ? totalCost / totalGramsSold : 0;
+    const avgSellingPrice = totalGramsSold > 0 ? totalRevenue / totalGramsSold : 0;
+
+    const timeline = Object.values(dailySales)
+      .map(d => ({
+        date: d.date,
+        revenue: Math.round(d.revenue * 100) / 100,
+        cost: Math.round(d.cost * 100) / 100,
+        margin: Math.round((d.revenue - d.cost) * 100) / 100,
+        marginPercent: d.revenue > 0 ? Math.round(((d.revenue - d.cost) / d.revenue) * 100) : 0,
+        orders: d.orders.size,
+      }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+
+    res.json({
+      shop,
+      total: sales.length,
+      sales,
+      period: periodDays
+        ? { days: periodDays, from, to }
+        : { from, to },
+      kpis: {
+        totalRevenue: Math.round(totalRevenue * 100) / 100,
+        totalCost: Math.round(totalCost * 100) / 100,
+        totalMargin: Math.round(totalMargin * 100) / 100,
+        marginPercent,
+        totalOrders,
+        totalQuantitySold,
+        totalGramsSold: Math.round(totalGramsSold),
+        avgOrderValue: Math.round(avgOrderValue * 100) / 100,
+        avgCMP: Math.round(avgCMP * 100) / 100,
+        avgSellingPrice: Math.round(avgSellingPrice * 100) / 100,
+      },
+      topProducts: {
+        byRevenue: topByRevenue,
+        byMargin: topByMargin,
+        byMarginPercent: topByMarginPercent,
+        byVolume: topByVolume,
+        worstMargin: worstByMargin,
+      },
+      timeline,
+      products: productList.sort((a, b) => b.revenue - a.revenue),
+    });
   });
 });
 
@@ -3171,7 +3326,7 @@ router.get("/api/settings/:section", (req, res) => {
   });
 });
 
-// Mettre Æ’  jour une section
+// Mettre a jour une section
 router.put("/api/settings/:section", (req, res) => {
   safeJson(req, res, () => {
     const shop = getShop(req);
@@ -4694,12 +4849,26 @@ router.get("/api/analytics/dashboard", (req, res) => {
     const alertsLow = [];
     const alertsDormant = [];
 
-    // Seuils configurables
+    // Seuils : on prend ceux configures par l'utilisateur dans
+    // Parametres > Gestion du stock, avec des fallbacks raisonnables.
+    // Source unique = settingsStore (= meme valeurs que dashboard principal).
+    const userSettings = (settingsStore && settingsStore.loadSettings)
+      ? (settingsStore.loadSettings(shop) || {})
+      : {};
+    const stockSettings = userSettings.stock || {};
     const SEUIL_RUPTURE = 0;
-    const SEUIL_CRITIQUE = 50; // grammes
-    const SEUIL_BAS = 200; // grammes
-    const SEUIL_ROTATION_LENT = 30; // jours
-    const SEUIL_ROTATION_DORMANT = 60; // jours
+    const SEUIL_CRITIQUE = Number(stockSettings.criticalThreshold) > 0
+      ? Number(stockSettings.criticalThreshold)
+      : 50;
+    const SEUIL_BAS = Number(stockSettings.lowStockThreshold) > 0
+      ? Number(stockSettings.lowStockThreshold)
+      : 200;
+    const SEUIL_ROTATION_LENT = Number(stockSettings.rotationSlowDays) > 0
+      ? Number(stockSettings.rotationSlowDays)
+      : 30;
+    const SEUIL_ROTATION_DORMANT = Number(stockSettings.rotationDormantDays) > 0
+      ? Number(stockSettings.rotationDormantDays)
+      : 60;
 
     // Analyser chaque produit
     const productsAnalysis = products.map(p => {
@@ -4962,201 +5131,10 @@ router.get("/api/analytics/dashboard", (req, res) => {
   });
 });
 
-// ============================================
-// ANALYTICS PRO - Ventes Shopify & Marges
-// ============================================
-
-router.get("/api/analytics/sales", async (req, res) => {
-  try {
-    const shop = getShop(req);
-    if (!shop) return apiError(res, 400, "Shop introuvable");
-
-    // Verifier le plan PRO
-    if (planManager) {
-      const check = planManager.checkLimit(shop, "view_analytics");
-      if (!check.allowed) {
-        return res.status(403).json({ error: "plan_limit", message: check.reason });
-      }
-    }
-
-    const period = parseInt(req.query.period, 10) || 30;
-    const now = new Date();
-    const fromDate = new Date(now.getTime() - period * 24 * 60 * 60 * 1000);
-
-    // Recuperer les commandes Shopify
-    const client = shopifyFor(shop);
-    if (!client) return apiError(res, 500, "Client Shopify non disponible");
-
-    const orders = await client.order.list({
-      status: "any",
-      created_at_min: fromDate.toISOString(),
-      limit: 250,
-    });
-
-    // Recuperer les produits avec leur CMP
-    const snapshot = stock.getCatalogSnapshot ? stock.getCatalogSnapshot(shop) : { products: [] };
-    const products = Array.isArray(snapshot.products) ? snapshot.products : [];
-    const productMap = {};
-    products.forEach(p => {
-      productMap[p.productId] = {
-        name: p.name,
-        cmp: p.averageCostPerGram || 0,
-        totalGrams: p.totalGrams || 0,
-      };
-    });
-
-    // Analyser les ventes
-    let totalRevenue = 0;
-    let totalCost = 0;
-    let totalQuantitySold = 0;
-    let totalGramsSold = 0;
-    const productSales = {};
-    const dailySales = {};
-
-    (orders || []).forEach(order => {
-      if (order.financial_status === "refunded" || order.cancelled_at) return;
-
-      const orderDate = order.created_at.slice(0, 10);
-      if (!dailySales[orderDate]) {
-        dailySales[orderDate] = { date: orderDate, revenue: 0, cost: 0, margin: 0, orders: 0 };
-      }
-      dailySales[orderDate].orders++;
-
-      (order.line_items || []).forEach(item => {
-        const productId = String(item.product_id);
-        const variantId = String(item.variant_id);
-        const quantity = item.quantity || 0;
-        const price = parseFloat(item.price) || 0;
-        const lineTotal = price * quantity;
-
-        totalRevenue += lineTotal;
-        totalQuantitySold += quantity;
-        dailySales[orderDate].revenue += lineTotal;
-
-        // Trouver le produit pour calculer le cout
-        const product = productMap[productId];
-        let gramsPerUnit = 0;
-        let lineCost = 0;
-
-        if (product) {
-          // Chercher la variante pour les gramsPerUnit
-          const fullProduct = products.find(p => p.productId === productId);
-          if (fullProduct && Array.isArray(fullProduct.variants)) {
-            const variant = fullProduct.variants.find(v => String(v.variantId) === variantId);
-            gramsPerUnit = variant?.gramsPerUnit || 0;
-            
-            // Si pas de gramsPerUnit sur la variante, essayer le poids moyen du produit
-            if (!gramsPerUnit || gramsPerUnit <= 0) {
-              const allGrams = Object.values(fullProduct.variants)
-                .map(v => v.gramsPerUnit || 0)
-                .filter(g => g > 0);
-              if (allGrams.length > 0) {
-                gramsPerUnit = allGrams.reduce((a, b) => a + b, 0) / allGrams.length;
-              }
-            }
-          }
-          
-          // Dernier fallback: 1000g (1kg) - plus raisonnable que 1g
-          if (!gramsPerUnit || gramsPerUnit <= 0) {
-            gramsPerUnit = 1000;
-          }
-          
-          const gramsSold = gramsPerUnit * quantity;
-          lineCost = gramsSold * product.cmp;
-          totalCost += lineCost;
-          totalGramsSold += gramsSold;
-          dailySales[orderDate].cost += lineCost;
-
-          // Agreger par produit
-          if (!productSales[productId]) {
-            productSales[productId] = {
-              productId,
-              name: product.name || item.title,
-              quantitySold: 0,
-              gramsSold: 0,
-              revenue: 0,
-              cost: 0,
-              margin: 0,
-              marginPercent: 0,
-              cmp: product.cmp,
-            };
-          }
-          productSales[productId].quantitySold += quantity;
-          productSales[productId].gramsSold += gramsSold;
-          productSales[productId].revenue += lineTotal;
-          productSales[productId].cost += lineCost;
-        }
-      });
-    });
-
-    // Calculer les marges par produit
-    Object.values(productSales).forEach(p => {
-      p.margin = p.revenue - p.cost;
-      p.marginPercent = p.revenue > 0 ? Math.round((p.margin / p.revenue) * 100) : 0;
-    });
-
-    // Calculer les marges journalieres
-    Object.values(dailySales).forEach(d => {
-      d.margin = d.revenue - d.cost;
-      d.marginPercent = d.revenue > 0 ? Math.round((d.margin / d.revenue) * 100) : 0;
-    });
-
-    // Trier et preparer les tops
-    const productList = Object.values(productSales);
-    const topByRevenue = [...productList].sort((a, b) => b.revenue - a.revenue).slice(0, 5);
-    const topByMargin = [...productList].sort((a, b) => b.margin - a.margin).slice(0, 5);
-    const topByMarginPercent = [...productList].filter(p => p.revenue > 10).sort((a, b) => b.marginPercent - a.marginPercent).slice(0, 5);
-    const topByVolume = [...productList].sort((a, b) => b.gramsSold - a.gramsSold).slice(0, 5);
-    const worstByMargin = [...productList].filter(p => p.revenue > 10).sort((a, b) => a.marginPercent - b.marginPercent).slice(0, 5);
-
-    // Calculer totaux
-    const totalMargin = totalRevenue - totalCost;
-    const marginPercent = totalRevenue > 0 ? Math.round((totalMargin / totalRevenue) * 100) : 0;
-    const avgOrderValue = orders.length > 0 ? totalRevenue / orders.length : 0;
-    const avgCMP = totalGramsSold > 0 ? totalCost / totalGramsSold : 0;
-    const avgSellingPrice = totalGramsSold > 0 ? totalRevenue / totalGramsSold : 0;
-
-    // Timeline pour graphique
-    const timeline = Object.values(dailySales).sort((a, b) => a.date.localeCompare(b.date));
-
-    res.json({
-      period: { days: period, from: fromDate.toISOString().slice(0, 10), to: now.toISOString().slice(0, 10) },
-      
-      // KPIs Ventes
-      kpis: {
-        totalRevenue: Math.round(totalRevenue * 100) / 100,
-        totalCost: Math.round(totalCost * 100) / 100,
-        totalMargin: Math.round(totalMargin * 100) / 100,
-        marginPercent,
-        totalOrders: orders.length,
-        totalQuantitySold,
-        totalGramsSold: Math.round(totalGramsSold),
-        avgOrderValue: Math.round(avgOrderValue * 100) / 100,
-        avgCMP: Math.round(avgCMP * 100) / 100,
-        avgSellingPrice: Math.round(avgSellingPrice * 100) / 100,
-      },
-
-      // Top produits
-      topProducts: {
-        byRevenue: topByRevenue,
-        byMargin: topByMargin,
-        byMarginPercent: topByMarginPercent,
-        byVolume: topByVolume,
-        worstMargin: worstByMargin,
-      },
-
-      // Timeline pour graphiques
-      timeline,
-
-      // Tous les produits vendus
-      products: productList.sort((a, b) => b.revenue - a.revenue),
-    });
-
-  } catch (e) {
-    logEvent("analytics_sales_error", { error: e.message }, "error");
-    return apiError(res, 500, "Erreur: " + e.message);
-  }
-});
+// (Ancienne route /api/analytics/sales basee sur Shopify Admin supprimee :
+//  elle etait shadow par la route ligne ~1931 et lisait une autre source que
+//  /analytics/orders-debug, ce qui faisait diverger Performance et Recap.
+//  Source unique = analyticsStore, agregation faite dans la route fusionnee.)
 
 // ============================================
 // NOTIFICATIONS API

@@ -1,5 +1,17 @@
-// settingsStore.js - Multi-shop settings complet
-// Gestion de tous les parametres utilisateur (langue, devise, theme, notifications, etc.)
+// settingsStore.js - Multi-shop settings (module legacy)
+//
+// IMPORTANT : ce module COEXISTE avec settingsManager.js. Les deux ecrivent
+// dans le MEME fichier /var/data/<shop>/settings.json. settingsManager est
+// la source canonique pour l'UI Settings (sections : general, units,
+// currency, stock, locations, ...). settingsStore conserve un schema plat
+// historique et n'est utilise que pour :
+//   - setLocationId / loadSettings.locationId (champ top-level partage)
+//   - quelques lectures internes qui n'ont pas encore migre vers
+//     settingsManager.
+//
+// Les nouveaux ecritures DOIVENT passer par settingsManager.updateSettings.
+// Ce fichier ne sera plus etendu, juste maintenu pour ne pas casser
+// l'existant.
 
 const fs = require("fs");
 const path = require("path");
@@ -106,13 +118,13 @@ const SUPPORTED_LANGUAGES = [
   { code: "it", name: "Italiano", flag: "IT" },
 ];
 
-// Devises supportees
+// Devises supportees (symboles UTF-8 propres, alignes avec settingsManager.SETTING_OPTIONS.currencies)
 const SUPPORTED_CURRENCIES = [
-  { code: "EUR", symbol: "E", name: "Euro" },
-  { code: "USD", symbol: "$", name: "US Dollar" },
-  { code: "GBP", symbol: "L", name: "British Pound" },
+  { code: "EUR", symbol: "€",  name: "Euro" },
+  { code: "USD", symbol: "$",  name: "US Dollar" },
+  { code: "GBP", symbol: "£",  name: "British Pound" },
   { code: "CHF", symbol: "CHF", name: "Swiss Franc" },
-  { code: "CAD", symbol: "C$", name: "Canadian Dollar" },
+  { code: "CAD", symbol: "CA$", name: "Canadian Dollar" },
   { code: "AUD", symbol: "A$", name: "Australian Dollar" },
 ];
 

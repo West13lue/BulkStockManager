@@ -1,6 +1,7 @@
-// analyticsStore.js â€” Persistance des ventes analytics (NDJSON/mois) sur /var/data/<shop>/analytics
-// Compatible multi-shop, mÃªme pattern que movementStore.js
-// âœ… COLLECTE MINIMALE : pas de PII (nom/adresse client), juste les donnÃ©es nÃ©cessaires au calcul des marges
+// analyticsStore.js — Persistance des ventes analytics (NDJSON/mois) sur /var/data/<shop>/analytics
+// Compatible multi-shop, même pattern que movementStore.js
+// Collecte minimale : pas de PII (nom/adresse client), juste les données nécessaires
+// au calcul des marges.
 
 const fs = require("fs");
 const path = require("path");
@@ -8,17 +9,17 @@ const path = require("path");
 const DATA_DIR = process.env.DATA_DIR || "/var/data";
 
 // ============================================
-// POLITIQUE DE CONFIDENTIALITÃ‰
+// POLITIQUE DE CONFIDENTIALITÉ
 // ============================================
-// Ce module collecte UNIQUEMENT les donnÃ©es nÃ©cessaires au calcul des stocks et marges :
-// - order_id, order_number, date
-// - product_id, variant_id, qty, grams
-// - revenue (prix rÃ©el aprÃ¨s rÃ©ductions), cost, margin
-// 
-// AUCUNE donnÃ©e personnelle client n'est stockÃ©e :
-// - Pas de nom, email, tÃ©lÃ©phone
-// - Pas d'adresse de livraison/facturation
-// - Pas d'IP ou donnÃ©es de navigation
+// Ce module collecte UNIQUEMENT les données nécessaires au calcul stocks/marges :
+//   - order_id, order_number, date
+//   - product_id, variant_id, qty, grams
+//   - revenue (prix réel après réductions), cost, margin
+//
+// AUCUNE donnée personnelle client n'est stockée :
+//   - Pas de nom, email, téléphone
+//   - Pas d'adresse de livraison/facturation
+//   - Pas d'IP ou données de navigation
 // ============================================
 
 // ============================================
@@ -43,9 +44,7 @@ function ensureDir(dirPath) {
   if (!fs.existsSync(dirPath)) fs.mkdirSync(dirPath, { recursive: true });
 }
 
-/**
- * Fichier mensuel pour les ventes : YYYY-MM.ndjson
- */
+// Fichier mensuel pour les ventes : YYYY-MM.ndjson
 function fileForMonth(shop, date) {
   const d = date instanceof Date ? date : new Date(date);
   const month = d.toISOString().slice(0, 7); // "2025-01"
@@ -65,14 +64,14 @@ function generateId() {
 }
 
 // ============================================
-// CRUD Operations
+// CRUD
 // ============================================
 
 /**
- * Enregistre une vente (COLLECTE MINIMALE - pas de PII)
- * @param {Object} sale - DonnÃ©es de la vente
- * @param {string} shop - Identifiant de la boutique
- * @returns {Object} La vente enregistrÃ©e avec son ID
+ * Enregistre une vente (collecte minimale, pas de PII).
+ * @param {Object} sale - Données de la vente
+ * @param {string} shop - Identifiant boutique
+ * @returns {Object} La vente enregistrée avec son id (ou la vente existante si doublon).
  */
 function addSale(sale = {}, shop = sale.shop) {
   const s = shop || "default";
@@ -80,79 +79,95 @@ function addSale(sale = {}, shop = sale.shop) {
 
   const saleDate = sale.orderDate ? new Date(sale.orderDate) : new Date();
 
-  // DEDUPLICATION: skip if same orderId + productId already exists (manual_ ids are time-based so unique)
+  // Déduplication : skip si même orderId + productId + variantId existe déjà.
+  // Les ids "manual_" sont générés par timestamp donc uniques par construction.
+  // Pour les vrais webhooks Shopify on inspecte le fichier mensuel courant ET
+  // le précédent (couvre les retries de fin/début de mois) — listSales seul
+  // filtrerait par défaut sur 30 jours et raterait certains retries tardifs.
   const orderId = sale.orderId || null;
   const productId = String(sale.productId || "");
+  const variantId = String(sale.variantId || "");
   if (orderId && productId && !String(orderId).startsWith("manual_")) {
     try {
-      const existing = listSales({ shop: s, limit: 500 });
-      const dup = existing.find(function(r) {
-        return r.orderId === orderId && r.productId === productId;
-      });
-      if (dup) {
-        console.log("[Analytics] Duplicate sale skipped: orderId=" + orderId + " productId=" + productId);
-        return dup;
+      const filesToCheck = [fileForMonth(s, saleDate)];
+      const prevMonth = new Date(saleDate);
+      prevMonth.setMonth(prevMonth.getMonth() - 1);
+      filesToCheck.push(fileForMonth(s, prevMonth));
+
+      for (const file of filesToCheck) {
+        if (!fs.existsSync(file)) continue;
+        const content = fs.readFileSync(file, "utf8");
+        if (!content) continue;
+        for (const line of content.split("\n")) {
+          if (!line) continue;
+          const obj = safeJsonParse(line);
+          if (!obj) continue;
+          if (obj.orderId === orderId
+              && String(obj.productId || "") === productId
+              && String(obj.variantId || "") === variantId) {
+            console.log("[Analytics] Duplicate sale skipped: orderId=" + orderId + " productId=" + productId);
+            return obj;
+          }
+        }
       }
     } catch (e) {
-      // Non-fatal, proceed
+      // Non-fatal, on continue.
     }
   }
 
-  // âœ… STRUCTURE MINIMALE - Pas de donnÃ©es client
+  // Structure minimale (pas de données client).
   const record = {
     id: sale.id || generateId(),
     ts: new Date().toISOString(),
-    
+
     // Commande (identifiants uniquement)
     orderDate: saleDate.toISOString(),
     orderId: sale.orderId || null,
     orderNumber: sale.orderNumber || null,
-    orderName: sale.orderName || null, // user-supplied label for manual sales
-    
+    orderName: sale.orderName || null, // libellé optionnel pour les ventes manuelles
+
     // Produit
     productId: String(sale.productId || ""),
     productName: String(sale.productName || ""),
     variantId: sale.variantId || null,
     variantTitle: sale.variantTitle || null,
     categoryIds: Array.isArray(sale.categoryIds) ? sale.categoryIds : [],
-    
-    // QuantitÃ©s
+
+    // Quantités
     quantity: Number(sale.quantity || 0),
     gramsPerUnit: Number(sale.gramsPerUnit || 0),
     totalGrams: Number(sale.totalGrams || 0),
-    
-    // âœ… Prix RÃ‰ELS (aprÃ¨s rÃ©ductions, hors shipping/cadeaux)
-    grossPrice: Number(sale.grossPrice || 0),           // Prix brut avant rÃ©ductions
-    discountAmount: Number(sale.discountAmount || 0),   // RÃ©ductions appliquÃ©es
-    netRevenue: Number(sale.netRevenue || 0),           // Prix rÃ©el encaissÃ© (HT)
+
+    // Prix RÉELS (après réductions, hors shipping/cadeaux)
+    grossPrice: Number(sale.grossPrice || 0),         // Prix brut avant réductions
+    discountAmount: Number(sale.discountAmount || 0), // Réductions appliquées
+    netRevenue: Number(sale.netRevenue || 0),         // Prix réel encaissé (HT) — CHAMP CANONIQUE
     currency: String(sale.currency || "EUR"),
-    
-    // CoÃ»t (CMP snapshot)
+
+    // Coût (snapshot CMP au moment de la vente)
     costPerGram: Number(sale.costPerGram || 0),
     totalCost: Number(sale.totalCost || 0),
-    
-    // Marge calculÃ©e sur prix RÃ‰EL
+
+    // Marge calculée sur prix réel
     margin: Number(sale.margin || 0),
     marginPercent: Number(sale.marginPercent || 0),
-    
-    // MÃ©tadonnÃ©es
+
+    // Métadonnées
     shop: sanitizeShop(s),
     source: sale.source || "webhook",
-    
-    // âŒ PAS DE DONNÃ‰ES CLIENT
-    // Pas de: customerId, customerEmail, customerName, address, phone, ip
+
+    // PAS DE DONNÉES CLIENT
+    // (pas de customerId, customerEmail, customerName, address, phone, ip)
   };
 
   const file = fileForMonth(s, saleDate);
   fs.appendFileSync(file, JSON.stringify(record) + "\n", "utf8");
-  
   return record;
 }
 
 /**
- * Liste les ventes avec filtres
- * @param {Object} options - Options de filtrage
- * @returns {Array} Liste des ventes
+ * Liste les ventes avec filtres.
+ * Par défaut : 30 derniers jours, limit 2000.
  */
 function listSales({ shop = "default", from, to, limit = 2000, productId } = {}) {
   const s = shop || "default";
@@ -160,15 +175,15 @@ function listSales({ shop = "default", from, to, limit = 2000, productId } = {})
 
   const fromDate = from ? new Date(from) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
   const toDate = to ? new Date(to) : new Date();
-  
-  // Normaliser les dates (dÃ©but et fin de journÃ©e)
+
+  // Normalise les dates (début et fin de journée).
   fromDate.setHours(0, 0, 0, 0);
   toDate.setHours(23, 59, 59, 999);
 
   const out = [];
   const maxResults = Math.max(1, Math.min(Number(limit) || 2000, 50000));
 
-  // DÃ©terminer les fichiers mensuels Ã  lire
+  // Détermine les fichiers mensuels à lire.
   const months = getMonthsBetween(fromDate, toDate);
 
   for (const monthStr of months) {
@@ -179,67 +194,58 @@ function listSales({ shop = "default", from, to, limit = 2000, productId } = {})
     if (!content) continue;
 
     const lines = content.split("\n").filter(Boolean);
-    
+
     for (const line of lines) {
       const obj = safeJsonParse(line);
       if (!obj) continue;
 
-      // Filtrer par date
+      // Filtre par date.
       const saleDate = new Date(obj.orderDate || obj.ts);
       if (saleDate < fromDate || saleDate > toDate) continue;
 
-      // Filtrer par productId si spÃ©cifiÃ©
+      // Filtre par productId si spécifié.
       if (productId && String(obj.productId) !== String(productId)) continue;
 
       out.push(obj);
 
-      if (out.length >= maxResults * 2) break; // Buffer pour le tri
+      if (out.length >= maxResults * 2) break; // buffer pour le tri
     }
 
     if (out.length >= maxResults * 2) break;
   }
 
-  // Trier par date dÃ©croissante et limiter
+  // Tri date décroissante puis limite.
   out.sort((a, b) => new Date(b.orderDate || b.ts) - new Date(a.orderDate || a.ts));
   return out.slice(0, maxResults);
 }
 
-/**
- * RÃ©cupÃ¨re les ventes d'un produit spÃ©cifique
- */
 function getSalesByProduct(shop, productId, from, to) {
   return listSales({ shop, from, to, productId, limit: 10000 });
 }
 
-/**
- * RÃ©cupÃ¨re une vente par son ID
- */
 function getSaleById(shop, saleId) {
   const sales = listSales({ shop, limit: 50000 });
   return sales.find(s => s.id === saleId) || null;
 }
 
-/**
- * Supprime les donnÃ©es analytics d'un shop
- */
 function clearShopAnalytics(shop) {
   const dir = analyticsDir(shop);
   if (fs.existsSync(dir)) {
     fs.rmSync(dir, { recursive: true, force: true });
-    console.log(`Analytics supprimÃ©es pour le shop: ${shop}`);
+    console.log(`Analytics supprimées pour le shop: ${shop}`);
   }
 }
 
 /**
- * Reecrit l'integralite des fichiers mensuels apres une operation de groupe
- * (delete / update). Atomique par mois via .tmp + rename.
+ * Réécrit l'intégralité des fichiers mensuels après une opération de groupe
+ * (delete / update / merge). Atomique par mois via .tmp + rename.
  */
 function rewriteAllSales(shop, sales) {
   const s = shop || "default";
   const dir = analyticsDir(s);
   ensureDir(dir);
 
-  // Group by month
+  // Group by month.
   const byMonth = new Map();
   for (const sale of sales) {
     const d = new Date(sale.orderDate || sale.ts || Date.now());
@@ -248,11 +254,11 @@ function rewriteAllSales(shop, sales) {
     byMonth.get(monthKey).push(sale);
   }
 
-  // Wipe existing files
+  // Wipe les fichiers existants (ndjson + ancien .jsonl éventuel).
   const existing = fs.readdirSync(dir).filter((f) => f.endsWith(".ndjson") || f.endsWith(".jsonl"));
   for (const file of existing) fs.unlinkSync(path.join(dir, file));
 
-  // Rewrite each month atomically
+  // Réécrit chaque mois atomiquement.
   for (const [monthKey, list] of byMonth) {
     const filePath = path.join(dir, `${monthKey}.ndjson`);
     const tmp = filePath + ".tmp";
@@ -263,7 +269,7 @@ function rewriteAllSales(shop, sales) {
 }
 
 /**
- * Supprime une vente par son id. Renvoie true si trouvÃ©e/supprimÃ©e.
+ * Supprime une vente par son id. Renvoie true si trouvée et supprimée.
  */
 function deleteSale(shop, saleId) {
   const all = listSales({ shop, limit: 50000 });
@@ -274,8 +280,11 @@ function deleteSale(shop, saleId) {
 }
 
 /**
- * Met a jour une vente par son id. Recalcule margin / marginPercent / totalCost
- * a partir des champs numeriques fournis pour eviter des incoherences.
+ * Met à jour une vente par son id. Recalcule margin / marginPercent / totalCost
+ * à partir des champs numériques fournis pour éviter des incohérences.
+ *
+ * Ordre de recalcul important : totalGrams AVANT totalCost, sinon une édition
+ * combinée (gramsPerUnit + costPerGram) calcule le coût sur l'ancien totalGrams.
  */
 function updateSale(shop, saleId, patch = {}) {
   const all = listSales({ shop, limit: 50000 });
@@ -285,7 +294,7 @@ function updateSale(shop, saleId, patch = {}) {
   const current = all[idx];
   const next = { ...current };
 
-  // Champs editables
+  // Champs éditables.
   const numFields = ["quantity", "gramsPerUnit", "totalGrams", "grossPrice", "discountAmount", "netRevenue", "costPerGram", "totalCost"];
   for (const k of numFields) {
     if (patch[k] !== undefined && patch[k] !== null && patch[k] !== "") {
@@ -298,12 +307,12 @@ function updateSale(shop, saleId, patch = {}) {
     if (patch[k] !== undefined) next[k] = String(patch[k] || "");
   }
 
-  // Recalcul auto si pas explicitement fourni
-  if (patch.totalCost === undefined && patch.costPerGram !== undefined) {
-    next.totalCost = (Number(next.totalGrams) || 0) * (Number(next.costPerGram) || 0);
-  }
+  // Recalcul auto (ordre obligatoire : grams avant cost).
   if (patch.totalGrams === undefined && patch.gramsPerUnit !== undefined) {
     next.totalGrams = (Number(next.quantity) || 1) * (Number(next.gramsPerUnit) || 0);
+  }
+  if (patch.totalCost === undefined && patch.costPerGram !== undefined) {
+    next.totalCost = (Number(next.totalGrams) || 0) * (Number(next.costPerGram) || 0);
   }
   next.margin = (Number(next.netRevenue) || 0) - (Number(next.totalCost) || 0);
   next.marginPercent = (Number(next.netRevenue) || 0) > 0
@@ -317,7 +326,7 @@ function updateSale(shop, saleId, patch = {}) {
 }
 
 // ============================================
-// Export Helpers
+// Export helpers
 // ============================================
 
 function csvEscape(v) {
@@ -327,7 +336,7 @@ function csvEscape(v) {
 }
 
 /**
- * Convertit les ventes en CSV (SANS donnÃ©es personnelles)
+ * Convertit les ventes en CSV (sans données personnelles).
  */
 function toCSV(sales = []) {
   const cols = [
@@ -350,25 +359,22 @@ function toCSV(sales = []) {
     "marginPercent",
     "shop",
   ];
-  
+
   const header = cols.join(",");
   const lines = sales.map((r) => cols.map((c) => csvEscape(r?.[c])).join(","));
   return [header, ...lines].join("\n");
 }
 
-/**
- * Convertit les ventes en JSON formatÃ©
- */
 function toJSON(sales = []) {
   return JSON.stringify(sales, null, 2);
 }
 
 // ============================================
-// Utility Functions
+// Utilitaires
 // ============================================
 
 /**
- * Retourne la liste des mois entre deux dates (format YYYY-MM)
+ * Retourne la liste des mois entre deux dates (format YYYY-MM).
  */
 function getMonthsBetween(from, to) {
   const months = [];
@@ -384,7 +390,7 @@ function getMonthsBetween(from, to) {
 }
 
 /**
- * Retourne des statistiques rapides sur les fichiers
+ * Statistiques rapides sur les fichiers analytics d'un shop.
  */
 function getStorageStats(shop) {
   const dir = analyticsDir(shop);
@@ -414,7 +420,7 @@ function formatBytes(bytes) {
 }
 
 // ============================================
-// Module Exports
+// Exports
 // ============================================
 
 module.exports = {
@@ -432,7 +438,7 @@ module.exports = {
   toCSV,
   toJSON,
 
-  // Utilities
+  // Utilitaires
   sanitizeShop,
   shopDir,
   analyticsDir,

@@ -31,7 +31,7 @@ const DEFAULT_SETTINGS = {
   // ==================== MONNAIE ====================
   currency: {
     code: "EUR",                // EUR | USD | GBP | CAD | CHF | etc.
-    symbol: "EUR",
+    symbol: "€",                // synchronise auto avec `code` (cf. updateSettings)
     position: "after",          // before | after
     decimalSeparator: ",",      // , | .
     thousandsSeparator: " ",    // (espace) | , | . | '
@@ -39,14 +39,21 @@ const DEFAULT_SETTINGS = {
   },
 
   // ==================== STOCK ====================
+  // Les seuils sont en unite de poids (cf. units.weightUnit, defaut "g").
+  // `criticalThreshold` est lu par le dashboard principal et l'onglet Stock
+  // d'analytics ; rouge sous ce seuil. `lowStockThreshold` = seuil "bas"
+  // (jaune). Au-dessus = vert (OK). 0 ou non configure -> seuil ignore.
   stock: {
-    lowStockThreshold: 10,      // Seuil stock bas (en unite de poids)
+    criticalThreshold: 10,      // Stock < N -> statut critique (rouge)
+    lowStockThreshold: 50,      // Stock < N -> statut bas (jaune)
     lowStockEnabled: true,      // Activer alertes stock bas
     lowStockColor: "#ef4444",   // Couleur pour stock bas
-    
+    rotationSlowDays: 30,       // Au-dela : rotation lente (analytics Stock)
+    rotationDormantDays: 60,    // Au-dela : produit dormant
+
     costMethod: "cmp",          // cmp (Cout Moyen Pondere) | fifo | lifo
     freezeCMP: false,           // Figer le CMP (ne pas recalculer)
-    
+
     sourceOfTruth: "app",       // app | shopify
     syncFrequency: "realtime",  // realtime | hourly | daily | manual
   },
@@ -186,7 +193,7 @@ const SETTING_OPTIONS = {
   ],
   
   currencies: [
-    { value: "EUR", symbol: "EUR", label: "Euro" },
+    { value: "EUR", symbol: "€", label: "Euro" },
     { value: "USD", symbol: "$", label: "US Dollar" },
     { value: "GBP", symbol: "£", label: "British Pound" },
     { value: "CAD", symbol: "CA$", label: "Canadian Dollar" },
@@ -311,16 +318,30 @@ function saveSettings(shop, settings) {
 }
 
 /**
- * Met à jour une section de parametres
+ * Met à jour une section de parametres.
+ *
+ * Auto-sync : si la section "currency" recoit un nouveau `code`, on rafraichit
+ * automatiquement `symbol` depuis SETTING_OPTIONS.currencies pour eviter une
+ * desynchronisation (l'utilisateur change la devise dans l'UI mais le symbole
+ * affiche reste celui de l'ancienne devise).
  */
 function updateSettings(shop, section, values) {
   const settings = loadSettings(shop);
-  
+
   if (!settings[section]) {
     throw new Error(`Section inconnue: ${section}`);
   }
-  
-  settings[section] = { ...settings[section], ...values };
+
+  const merged = { ...settings[section], ...values };
+
+  if (section === "currency" && values && typeof values.code === "string") {
+    const def = SETTING_OPTIONS.currencies.find(c => c.value === values.code);
+    if (def && (values.symbol === undefined || values.symbol === null || values.symbol === "")) {
+      merged.symbol = def.symbol;
+    }
+  }
+
+  settings[section] = merged;
   return saveSettings(shop, settings);
 }
 

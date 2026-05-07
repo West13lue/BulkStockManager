@@ -1533,21 +1533,33 @@
   }
 
   // Modal produits en rupture
+  // Aligne sa logique sur celle du dashboard (renderDashboard) :
+  //  - exclut les accessoires (trackByUnit) et les produits archives
+  //  - inclut les produits sous le seuil critique configure dans Parametres,
+  //    pas seulement ceux strictement a 0g
   function showOutOfStockModal() {
-    var outOfStockProducts = state.products.filter(function (p) {
-      return (p.totalGrams || 0) === 0;
-    });
-    
+    var critT = (settingsData && settingsData.stock && Number(settingsData.stock.criticalThreshold)) || 0;
+    var outOfStockProducts = (state.products || [])
+      .filter(function (p) { return !p.trackByUnit && !p.archived; })
+      .filter(function (p) {
+        var g = p.totalGrams || 0;
+        return g === 0 || (critT > 0 && g < critT);
+      });
+
     if (outOfStockProducts.length === 0) {
       showToast(t("dashboard.noOutOfStock", "Aucun produit en rupture"), "success");
       return;
     }
-    
+
     var html = '<div class="low-stock-list">' + outOfStockProducts.map(function(p) {
+      var g = p.totalGrams || 0;
+      var statusLbl = g === 0
+        ? t("status.outOfStock", "Rupture de stock")
+        : t("status.criticalStock", "Stock critique") + ' (' + formatWeight(g) + ')';
       return '<div class="low-stock-item out-of-stock">' +
         '<div class="low-stock-info">' +
         '<div class="low-stock-name">' + esc(p.title || p.name) + '</div>' +
-        '<div class="low-stock-stock text-danger">' + t("status.outOfStock", "Rupture de stock") + '</div>' +
+        '<div class="low-stock-stock text-danger">' + statusLbl + '</div>' +
         '</div>' +
         '<button class="btn btn-primary btn-sm" onclick="app.showRestockModal(\'' + p.id + '\')">' + t("action.restock", "Réappro") + '</button>' +
         '</div>';
@@ -6507,9 +6519,9 @@
 
   function renderSettings(c) {
     c.innerHTML =
-      '<div class="page-header"><h1 class="page-title">Parametres</h1></div>' +
+      '<div class="page-header"><h1 class="page-title">' + t("settings.title", "Parametres") + '</h1></div>' +
       '<div id="settingsContent"><div class="text-center" style="padding:40px"><div class="spinner"></div></div></div>';
-    
+
     loadSettingsData();
   }
 
@@ -6918,10 +6930,14 @@
         body: JSON.stringify(body),
       });
       if (res.ok) {
+        // Mise a jour du cache local pour eviter une re-render avec l'ancienne valeur
+        if (!settingsData[section]) settingsData[section] = {};
+        if (!settingsData[section][subSection]) settingsData[section][subSection] = {};
+        settingsData[section][subSection][key] = value;
         showToast(t("settings.saved", "Parametre enregistre"), "success");
       } else {
         var e = await res.json();
-        showToast(e.error || "Erreur", "error");
+        showToast(e.error || t("msg.error", "Erreur"), "error");
       }
     } catch (e) {
       showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
@@ -8093,12 +8109,14 @@
     return "g";
   }
   
-  // Helper: obtenir le symbole de devise courant
+  // Helper: obtenir le symbole de devise courant.
+  // Priorise settingsData.currency.symbol (synchronise par le backend a partir
+  // du code), avec fallback symbole Euro si rien n'est encore charge.
   function getCurrencySymbol() {
     if (settingsData && settingsData.currency && settingsData.currency.symbol) {
       return settingsData.currency.symbol;
     }
-    return "EUR";
+    return "€"; // €
   }
   
   // Helper: obtenir le code de devise courant
