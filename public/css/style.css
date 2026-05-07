@@ -5855,3 +5855,145 @@ button.stat-card:hover {
     align-items: flex-start;
   }
 }
+
+/* ============================================
+   SHOP HEALTH MODAL
+   ============================================ */
+
+.health-summary {
+  display: flex;
+  gap: var(--space-lg);
+  align-items: center;
+  padding: var(--space-md) var(--space-lg);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-lg);
+}
+
+.health-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  flex: 1;
+  min-width: 0;
+}
+
+.health-stat-value {
+  font-size: 24px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.health-stat-label {
+  font-size: 11px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-top: 4px;
+}
+
+.health-section {
+  margin-bottom: var(--space-lg);
+}
+
+.health-section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin: 0 0 var(--space-sm) 0;
+  padding-bottom: var(--space-xs);
+}
+
+.health-section--critical .health-section-title { color: var(--danger); }
+.health-section--warning .health-section-title { color: var(--warning); }
+
+.health-item {
+  display: flex;
+  gap: var(--space-md);
+  align-items: flex-start;
+  padding: var(--space-md);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-sm);
+}
+
+.health-section--critical .health-item {
+  background: color-mix(in oklch, var(--danger) 6%, var(--surface));
+  border-color: color-mix(in oklch, var(--danger) 20%, var(--border));
+}
+
+.health-section--warning .health-item {
+  background: color-mix(in oklch, var(--warning) 6%, var(--surface));
+  border-color: color-mix(in oklch, var(--warning) 20%, var(--border));
+}
+
+.health-item-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.health-item-title {
+  font-weight: 600;
+  font-size: 14px;
+  margin-bottom: 4px;
+}
+
+.health-item-product {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+  font-variant-numeric: tabular-nums;
+}
+
+.health-item-detail {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
+.health-item-action {
+  flex-shrink: 0;
+}
+
+.health-clear {
+  text-align: center;
+  padding: var(--space-xl) var(--space-lg);
+}
+
+.health-clear h3 {
+  margin: var(--space-md) 0 var(--space-xs) 0;
+  font-size: 18px;
+}
+
+.health-badge--critical {
+  background: var(--danger) !important;
+}
+
+@media (max-width: 640px) {
+  .health-summary {
+    flex-wrap: wrap;
+    gap: var(--space-md);
+  }
+  .health-stat {
+    flex: 1 1 40%;
+  }
+  .health-item {
+    flex-direction: column;
+  }
+  .health-item-action {
+    width: 100%;
+  }
+  .health-item-action .btn {
+    width: 100%;
+  }
+}

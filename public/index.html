@@ -97,6 +97,11 @@
             <span class="btn-text" id="syncBtnText">Sync</span>
           </button>
 
+          <button class="btn-icon" onclick="app.showShopHealthModal()" id="healthBtn" aria-label="Sante du shop" title="Sante du shop">
+            <i data-lucide="stethoscope" class="icon" aria-hidden="true"></i>
+            <span class="notification-badge" id="healthBadge" style="display:none" aria-live="polite">0</span>
+          </button>
+
           <button class="btn-icon" onclick="app.showKeyboardShortcutsHelp()" aria-label="Raccourcis clavier" title="Raccourcis clavier (?)">
             <i data-lucide="keyboard" class="icon" aria-hidden="true"></i>
           </button>

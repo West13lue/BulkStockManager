@@ -1661,6 +1661,159 @@ router.delete("/api/products/:productId/override", (req, res) => {
   });
 });
 
+// =====================================================
+// Shop health : audits locaux pour detecter incoherences
+// =====================================================
+router.get("/api/shop-health", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+
+    const settings = (settingsStore && settingsStore.loadSettings && settingsStore.loadSettings(shop)) || {};
+    const overrides = (productOverridesStore.listOverrides && productOverridesStore.listOverrides(shop)) || {};
+    const snapshot = stock.getCatalogSnapshot ? stock.getCatalogSnapshot(shop) : { products: [] };
+    const products = Array.isArray(snapshot.products) ? snapshot.products : [];
+
+    const checks = [];
+
+    // ----- Globaux -----
+    if (!settings.locationId) {
+      checks.push({
+        id: "no_location",
+        severity: "critical",
+        category: "config",
+        title: "Aucune location Shopify configuree",
+        detail: "Sans locationId, la synchronisation d'inventaire ne sait pas ou ecrire. Configure-la dans Parametres.",
+        action: { type: "open_settings", target: "settings" }
+      });
+    }
+
+    if (products.length === 0) {
+      checks.push({
+        id: "no_products",
+        severity: "warning",
+        category: "config",
+        title: "Aucun produit synchronise",
+        detail: "Lance une synchronisation Shopify pour rapatrier ton catalogue.",
+        action: { type: "sync" }
+      });
+    }
+
+    // ----- Par produit -----
+    let fallback1000 = 0;
+    let trackedProducts = 0;
+    let masterOrphan = 0;
+    let cmpSuspect = 0;
+    let configuredOverrides = 0;
+
+    for (const p of products) {
+      const pid = String(p.productId || p.id || "");
+      const ovr = overrides[pid] || null;
+      if (ovr) configuredOverrides++;
+
+      const variants = p.variants || {};
+      const variantEntries = Object.entries(variants);
+      const isTrackByUnit = ovr && ovr.trackByUnit === true;
+
+      // Pas de variantes du tout
+      if (variantEntries.length === 0) {
+        checks.push({
+          id: "no_variants_" + pid,
+          severity: "warning",
+          category: "products",
+          productId: pid,
+          productName: p.name,
+          title: "Aucune variante valide",
+          detail: "Ce produit n'a aucune variante synchronisee. Probleme de synchronisation ou produit Shopify incomplet.",
+          action: { type: "open_product", productId: pid }
+        });
+        continue;
+      }
+
+      // Master totalGrams > 0 mais aucune variante avec poids exploitable (sauf trackByUnit)
+      if (!isTrackByUnit && (p.totalGrams || 0) > 0) {
+        const sellable = variantEntries.some(([_, v]) => Number(v.gramsPerUnit) > 0 && Number(v.canSell) > 0);
+        if (!sellable) {
+          masterOrphan++;
+          checks.push({
+            id: "orphan_master_" + pid,
+            severity: "warning",
+            category: "stock",
+            productId: pid,
+            productName: p.name,
+            title: "Stock impossible a vendre",
+            detail: `${p.totalGrams} g en stock mais aucune variante n'a un poids/unite exploitable.`,
+            action: { type: "open_product_config", productId: pid }
+          });
+        }
+      }
+
+      // Fallback 1000g detecte (variant gramsPerUnit=1000 sans override et sans label compatible)
+      if (!ovr) {
+        for (const [label, v] of variantEntries) {
+          if (Number(v.gramsPerUnit) === 1000) {
+            // Si le label contient explicitement "1000", "1kg" ou "1 kg", c'est OK
+            const legitimate = /1000|1\s*kg|kilo/i.test(String(label));
+            if (!legitimate) {
+              fallback1000++;
+              checks.push({
+                id: "fallback_1000_" + pid + "_" + label,
+                severity: "warning",
+                category: "parsing",
+                productId: pid,
+                productName: p.name,
+                variantLabel: label,
+                title: "Poids estime par defaut (1 kg)",
+                detail: `La variante "${label}" n'expose pas de poids ; le systeme a applique 1 kg/unite par securite. Configure un poids fixe ou active le suivi a l'unite.`,
+                action: { type: "open_product_config", productId: pid }
+              });
+              break; // un seul check par produit, suffit
+            }
+          }
+        }
+      }
+
+      // CMP suspect : > 100 €/g (= 100 000 €/kg, absurde meme pour produit haut de gamme)
+      const cmp = Number(p.averageCostPerGram) || 0;
+      if (cmp > 100) {
+        cmpSuspect++;
+        checks.push({
+          id: "cmp_suspect_" + pid,
+          severity: "critical",
+          category: "pricing",
+          productId: pid,
+          productName: p.name,
+          title: "CMP anormalement eleve",
+          detail: `Cout moyen = ${cmp.toFixed(2)} EUR/g (= ${(cmp * 1000).toFixed(0)} EUR/kg). Probable saisie en EUR/kg traitee comme EUR/g.`,
+          action: { type: "open_cmp", productId: pid, currentCMP: cmp }
+        });
+      }
+
+      if (isTrackByUnit) trackedProducts++;
+    }
+
+    // Resume
+    const summary = {
+      totalProducts: products.length,
+      configuredOverrides,
+      trackedByUnit: trackedProducts,
+      issues: {
+        critical: checks.filter((c) => c.severity === "critical").length,
+        warning: checks.filter((c) => c.severity === "warning").length,
+      },
+      counts: {
+        fallback1000,
+        masterOrphan,
+        cmpSuspect,
+      },
+      locationConfigured: Boolean(settings.locationId),
+      locationId: settings.locationId || null,
+    };
+
+    res.json({ shop, summary, checks });
+  });
+});
+
 router.post("/api/products/:productId/categories", (req, res) => {
   safeJson(req, res, () => {
     const shop = getShop(req);

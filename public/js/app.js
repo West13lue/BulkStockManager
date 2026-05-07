@@ -35,6 +35,7 @@
     'toggleBatchSection', 'calcPurchaseTotal', 'calcCmpFromTotal',
     'showEditCMPModal', 'saveCMP',
     'showProductOverrideModal', 'saveProductOverride', 'resetProductOverride',
+    'showShopHealthModal', 'refreshShopHealth', 'refreshHealthBadge',
     'onSearchChange', 'onCategoryChange', 'onSortChange', 'sortByColumn', 'showCategoriesModal',
     'createCategory', 'deleteCategory', 'renameCategory', 'showRenameCategoryModal',
     'showAssignCategoriesModal', 'saveProductCategories',
@@ -406,6 +407,7 @@
     
     initKeyboardShortcuts();
     loadProfiles();
+    refreshHealthBadge(); // non-blocking
   }
 
 
@@ -8702,6 +8704,163 @@
   }
 
   // ============================================
+  // Shop Health : audit complet du shop
+  // ============================================
+  async function showShopHealthModal() {
+    closeModal();
+    showModal({
+      title: '<i data-lucide="stethoscope" aria-hidden="true"></i> ' + t("health.title", "Sante du shop"),
+      size: "lg",
+      content: '<div id="shopHealthBody"><div class="text-center py-lg"><div class="spinner"></div><p class="text-secondary mt-md">' + t("health.loading", "Audit en cours...") + '</p></div></div>',
+      footer:
+        '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.close", "Fermer") + '</button>' +
+        '<button class="btn btn-secondary" onclick="app.refreshShopHealth()"><i data-lucide="refresh-cw"></i> ' + t("health.refresh", "Re-auditer") + '</button>'
+    });
+    if (typeof lucide !== "undefined") lucide.createIcons();
+    await loadShopHealth();
+  }
+
+  async function refreshShopHealth() {
+    var body = document.getElementById("shopHealthBody");
+    if (body) body.innerHTML = '<div class="text-center py-lg"><div class="spinner"></div></div>';
+    await loadShopHealth();
+  }
+
+  async function loadShopHealth() {
+    try {
+      var res = await authFetch(apiUrl("/shop-health"));
+      if (!res.ok) {
+        var body = document.getElementById("shopHealthBody");
+        if (body) body.innerHTML = '<div class="empty-state"><p>' + t("health.error", "Impossible de charger l'audit") + '</p></div>';
+        return;
+      }
+      var data = await res.json();
+      renderShopHealth(data);
+    } catch (e) {
+      var body2 = document.getElementById("shopHealthBody");
+      if (body2) body2.innerHTML = '<div class="empty-state"><p>' + t("health.error", "Impossible de charger l'audit") + '</p><p class="text-secondary">' + escPlain(e.message) + '</p></div>';
+    }
+  }
+
+  function renderShopHealth(data) {
+    var body = document.getElementById("shopHealthBody");
+    if (!body) return;
+    var summary = data.summary || {};
+    var checks = Array.isArray(data.checks) ? data.checks : [];
+
+    // Update topbar badge with critical count
+    var badge = document.getElementById("healthBadge");
+    var totalIssues = (summary.issues && (summary.issues.critical + summary.issues.warning)) || 0;
+    if (badge) {
+      badge.textContent = totalIssues > 0 ? String(totalIssues) : "";
+      badge.style.display = totalIssues > 0 ? "" : "none";
+    }
+
+    // Group checks by severity
+    var critical = checks.filter(function(c) { return c.severity === "critical"; });
+    var warning = checks.filter(function(c) { return c.severity === "warning"; });
+
+    var locationDisplay = summary.locationConfigured
+      ? '<span style="color:var(--success)"><i data-lucide="check" style="width:14px;height:14px"></i> Location ' + escPlain(summary.locationId) + '</span>'
+      : '<span style="color:var(--danger)"><i data-lucide="x" style="width:14px;height:14px"></i> ' + t("health.noLocation", "Aucune location") + '</span>';
+
+    var headerHtml =
+      '<div class="health-summary">' +
+        '<div class="health-stat">' +
+          '<span class="health-stat-value" style="color:' + (totalIssues === 0 ? 'var(--success)' : (critical.length > 0 ? 'var(--danger)' : 'var(--warning)')) + '">' + totalIssues + '</span>' +
+          '<span class="health-stat-label">' + t("health.issues", "alertes") + '</span>' +
+        '</div>' +
+        '<div class="health-stat">' +
+          '<span class="health-stat-value">' + (summary.totalProducts || 0) + '</span>' +
+          '<span class="health-stat-label">' + t("health.products", "produits") + '</span>' +
+        '</div>' +
+        '<div class="health-stat">' +
+          '<span class="health-stat-value">' + (summary.configuredOverrides || 0) + '</span>' +
+          '<span class="health-stat-label">' + t("health.configured", "configures") + '</span>' +
+        '</div>' +
+        '<div class="health-stat" style="flex:2;text-align:right">' + locationDisplay + '</div>' +
+      '</div>';
+
+    if (totalIssues === 0) {
+      body.innerHTML = headerHtml +
+        '<div class="health-clear">' +
+          '<i data-lucide="shield-check" style="width:48px;height:48px;color:var(--success)"></i>' +
+          '<h3>' + t("health.allClear", "Tout est en ordre") + '</h3>' +
+          '<p class="text-secondary">' + t("health.allClearDetail", "Aucune incoherence detectee dans la configuration de ton shop.") + '</p>' +
+        '</div>';
+      if (typeof lucide !== "undefined") lucide.createIcons();
+      return;
+    }
+
+    var html = headerHtml;
+
+    if (critical.length > 0) {
+      html += '<div class="health-section health-section--critical">' +
+        '<h4 class="health-section-title"><i data-lucide="alert-octagon"></i> ' + t("health.critical", "A traiter d'urgence") + ' (' + critical.length + ')</h4>' +
+        critical.map(renderHealthCheck).join("") +
+      '</div>';
+    }
+    if (warning.length > 0) {
+      html += '<div class="health-section health-section--warning">' +
+        '<h4 class="health-section-title"><i data-lucide="alert-triangle"></i> ' + t("health.warning", "A verifier") + ' (' + warning.length + ')</h4>' +
+        warning.map(renderHealthCheck).join("") +
+      '</div>';
+    }
+
+    body.innerHTML = html;
+    if (typeof lucide !== "undefined") lucide.createIcons();
+  }
+
+  function renderHealthCheck(c) {
+    var actionBtn = "";
+    if (c.action) {
+      if (c.action.type === "open_product_config" && c.action.productId) {
+        actionBtn = '<button class="btn btn-secondary btn-sm" onclick="app.closeModal();app.showProductOverrideModal(\'' + c.action.productId + '\')"><i data-lucide="settings-2"></i> ' + t("health.fixConfig", "Configurer") + '</button>';
+      } else if (c.action.type === "open_cmp" && c.action.productId) {
+        actionBtn = '<button class="btn btn-secondary btn-sm" onclick="app.closeModal();app.showEditCMPModal(\'' + c.action.productId + '\',' + (c.action.currentCMP || 0) + ')"><i data-lucide="coins"></i> ' + t("health.fixCMP", "Corriger CMP") + '</button>';
+      } else if (c.action.type === "open_product" && c.action.productId) {
+        actionBtn = '<button class="btn btn-secondary btn-sm" onclick="app.closeModal();app.openProductDetails(\'' + c.action.productId + '\')"><i data-lucide="external-link"></i> ' + t("health.openProduct", "Ouvrir") + '</button>';
+      } else if (c.action.type === "sync") {
+        actionBtn = '<button class="btn btn-secondary btn-sm" onclick="app.closeModal();app.syncShopifyProducts()"><i data-lucide="refresh-cw"></i> ' + t("health.sync", "Synchroniser") + '</button>';
+      } else if (c.action.type === "open_settings") {
+        actionBtn = '<button class="btn btn-secondary btn-sm" onclick="app.closeModal();app.navigateTo(\'settings\')"><i data-lucide="settings"></i> ' + t("health.openSettings", "Parametres") + '</button>';
+      }
+    }
+    var prodLine = c.productName
+      ? '<div class="health-item-product"><i data-lucide="package" style="width:12px;height:12px"></i> ' + escPlain(c.productName) + (c.variantLabel ? ' — ' + escPlain(c.variantLabel) : '') + '</div>'
+      : '';
+    return '<div class="health-item">' +
+      '<div class="health-item-body">' +
+        '<div class="health-item-title">' + escPlain(c.title) + '</div>' +
+        prodLine +
+        '<div class="health-item-detail">' + escPlain(c.detail) + '</div>' +
+      '</div>' +
+      (actionBtn ? '<div class="health-item-action">' + actionBtn + '</div>' : '') +
+    '</div>';
+  }
+
+  // Auto-refresh badge silently on app boot (non-blocking)
+  async function refreshHealthBadge() {
+    try {
+      var res = await authFetch(apiUrl("/shop-health"));
+      if (!res.ok) return;
+      var data = await res.json();
+      var summary = data.summary || {};
+      var totalIssues = (summary.issues && (summary.issues.critical + summary.issues.warning)) || 0;
+      var badge = document.getElementById("healthBadge");
+      if (badge) {
+        badge.textContent = totalIssues > 0 ? String(totalIssues) : "";
+        badge.style.display = totalIssues > 0 ? "" : "none";
+        if (summary.issues && summary.issues.critical > 0) {
+          badge.classList.add("health-badge--critical");
+        } else {
+          badge.classList.remove("health-badge--critical");
+        }
+      }
+    } catch (e) { /* silent */ }
+  }
+
+  // ============================================
   // ANALYTICS PRO
   // ============================================
   var analyticsData = null;
@@ -9754,6 +9913,9 @@
     showProductOverrideModal: showProductOverrideModal,
     saveProductOverride: saveProductOverride,
     resetProductOverride: resetProductOverride,
+    showShopHealthModal: showShopHealthModal,
+    refreshShopHealth: refreshShopHealth,
+    refreshHealthBadge: refreshHealthBadge,
     // Filtres
     onSearchChange: onSearchChange,
     onCategoryChange: onCategoryChange,
