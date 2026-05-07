@@ -163,7 +163,7 @@ body {
   line-height: 1.55;
   font-feature-settings: "cv11", "ss01", "ss03"; /* Inter stylistic sets — cleaner numerals + glyphs */
   font-variant-numeric: lining-nums;
-  overflow: hidden;
+  overflow-x: hidden; /* Allow vertical scroll/zoom; only block horizontal overflow */
 }
 
 /* Tabular numerals for any data-display context — ensures vertical alignment */
@@ -2276,7 +2276,7 @@ input, select, textarea {
 
 .kpi-card.kpi-warning {
   border-color: var(--warning);
-  background: rgba(245, 158, 11, 0.1);
+  background: var(--warning-bg);
 }
 
 .kpi-value {
@@ -2428,9 +2428,18 @@ input, select, textarea {
   overflow: hidden;
 }
 
-.alert-group.alert-danger { background: rgba(239, 68, 68, 0.1); border: 1px solid var(--danger); }
-.alert-group.alert-warning { background: rgba(245, 158, 11, 0.1); border: 1px solid var(--warning); }
-.alert-group.alert-info { background: rgba(59, 130, 246, 0.1); border: 1px solid var(--info); }
+.alert-group.alert-danger {
+  background: var(--danger-bg);
+  border: 1px solid color-mix(in oklch, var(--danger) 50%, var(--border));
+}
+.alert-group.alert-warning {
+  background: var(--warning-bg);
+  border: 1px solid color-mix(in oklch, var(--warning) 50%, var(--border));
+}
+.alert-group.alert-info {
+  background: var(--info-bg);
+  border: 1px solid color-mix(in oklch, var(--info) 50%, var(--border));
+}
 
 .alert-title {
   padding: var(--space-sm) var(--space-md);
@@ -2590,9 +2599,9 @@ input, select, textarea {
   border-radius: var(--radius-full);
 }
 
-.badge-success { background: rgba(16, 185, 129, 0.2); color: var(--success); }
-.badge-warning { background: rgba(245, 158, 11, 0.2); color: var(--warning); }
-.badge-danger { background: rgba(239, 68, 68, 0.2); color: var(--danger); }
+.badge-success { background: color-mix(in oklch, var(--success) 18%, transparent); color: var(--success); }
+.badge-warning { background: color-mix(in oklch, var(--warning) 18%, transparent); color: var(--warning); }
+.badge-danger { background: color-mix(in oklch, var(--danger) 18%, transparent); color: var(--danger); }
 .badge-secondary { background: var(--surface); color: var(--text-tertiary); }
 
 /* ============================================
@@ -3694,17 +3703,17 @@ html, body {
 }
 
 .movement-icon.warning {
-  background: rgba(245, 158, 11, 0.15);
+  background: color-mix(in oklch, var(--warning) 15%, transparent);
   color: var(--warning);
 }
 
 .movement-icon.danger {
-  background: rgba(239, 68, 68, 0.15);
+  background: color-mix(in oklch, var(--danger) 15%, transparent);
   color: var(--danger);
 }
 
 .movement-icon.info {
-  background: rgba(59, 130, 246, 0.15);
+  background: color-mix(in oklch, var(--info) 15%, transparent);
   color: var(--info);
 }
 
@@ -3997,7 +4006,7 @@ html, body {
 
 /* Badges */
 .badge-info {
-  background: rgba(59, 130, 246, 0.15);
+  background: color-mix(in oklch, var(--info) 15%, transparent);
   color: var(--info);
 }
 
@@ -4474,12 +4483,12 @@ html, body {
   text-align: center;
 }
 .scenario.pessimistic {
-  background: rgba(239, 68, 68, 0.1);
-  border: 1px solid rgba(239, 68, 68, 0.3);
+  background: var(--danger-bg);
+  border: 1px solid color-mix(in oklch, var(--danger) 30%, transparent);
 }
 .scenario.normal {
-  background: rgba(59, 130, 246, 0.1);
-  border: 1px solid rgba(59, 130, 246, 0.3);
+  background: var(--info-bg);
+  border: 1px solid color-mix(in oklch, var(--info) 30%, transparent);
 }
 .scenario.optimistic {
   background: rgba(34, 197, 94, 0.1);
@@ -4851,7 +4860,7 @@ html, body {
   width: 80px;
   height: 80px;
   border-radius: 50%;
-  background: rgba(245, 158, 11, 0.15);
+  background: color-mix(in oklch, var(--warning) 15%, transparent);
   display: flex;
   align-items: center;
   justify-content: center;

@@ -140,7 +140,7 @@
 }
 
 .notif-critical .notif-icon {
-  background: rgba(239, 68, 68, 0.15);
+  background: color-mix(in oklch, var(--danger) 15%, transparent);
 }
 
 .notif-critical .notif-icon svg {
@@ -148,7 +148,7 @@
 }
 
 .notif-high .notif-icon {
-  background: rgba(245, 158, 11, 0.15);
+  background: color-mix(in oklch, var(--warning) 15%, transparent);
 }
 
 .notif-high .notif-icon svg {

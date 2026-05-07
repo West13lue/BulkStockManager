@@ -262,7 +262,7 @@
 .empty-icon {
   font-size: 64px;
   margin-bottom: 16px;
-  animation: bounce 2s ease-in-out infinite;
+  color: var(--text-tertiary);
 }
 
 .empty-title {
@@ -298,7 +298,7 @@
   align-items: flex-start;
   gap: 16px;
   padding: 16px 20px;
-  background: rgba(239, 68, 68, 0.1);
+  background: var(--danger-bg);
   border: 1px solid var(--danger);
   border-radius: var(--radius-lg);
   margin: 16px 0;
@@ -407,17 +407,17 @@
 
 .toast-success {
   border-color: var(--success);
-  background: rgba(16, 185, 129, 0.1);
+  background: var(--success-bg);
 }
 
 .toast-error {
   border-color: var(--danger);
-  background: rgba(239, 68, 68, 0.1);
+  background: var(--danger-bg);
 }
 
 .toast-warning {
   border-color: var(--warning);
-  background: rgba(245, 158, 11, 0.1);
+  background: var(--warning-bg);
 }
 
 .toast-info {
@@ -537,7 +537,7 @@
 .field.has-error select,
 .field.has-error textarea {
   border-color: var(--danger);
-  background: rgba(239, 68, 68, 0.05);
+  background: color-mix(in oklch, var(--danger) 5%, transparent);
 }
 
 .field-error {
@@ -759,7 +759,7 @@
   align-items: center;
   gap: 8px;
   padding: 8px 16px;
-  background: rgba(16, 185, 129, 0.1);
+  background: var(--success-bg);
   color: var(--success);
   border-radius: var(--radius-full);
   font-size: 14px;
@@ -989,7 +989,7 @@
   align-items: center;
   gap: 4px;
   padding: 4px 8px;
-  background: rgba(239, 68, 68, 0.1);
+  background: var(--danger-bg);
   color: var(--danger);
   border-radius: var(--radius-sm);
   font-size: 11px;
