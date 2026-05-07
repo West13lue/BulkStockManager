@@ -1222,18 +1222,18 @@
       
       // Stats principales
       '<div class="stats-grid">' +
-      '<div class="stat-card" onclick="app.navigateTo(\'products\')" style="cursor:pointer" title="Voir tous les produits"><div class="stat-icon"><i data-lucide="boxes"></i></div><div class="stat-value">' +
+      '<button type="button" class="stat-card stat-card-clickable" onclick="app.navigateTo(\'products\')" aria-label="' + t("dashboard.products", "Produits") + ' — voir tous les produits"><div class="stat-icon"><i data-lucide="boxes" aria-hidden="true"></i></div><div class="stat-value">' +
       state.products.length +
-      '</div><div class="stat-label">' + t("dashboard.products", "Produits") + '</div></div>' +
-      '<div class="stat-card"><div class="stat-icon"><i data-lucide="scale"></i></div><div class="stat-value">' +
+      '</div><div class="stat-label">' + t("dashboard.products", "Produits") + '</div></button>' +
+      '<div class="stat-card"><div class="stat-icon"><i data-lucide="scale" aria-hidden="true"></i></div><div class="stat-value">' +
       formatWeight(totalStock) +
       '</div><div class="stat-label">' + t("dashboard.totalStock", "Stock total") + '</div></div>' +
-      '<div class="stat-card"><div class="stat-icon"><i data-lucide="coins"></i></div><div class="stat-value">' +
+      '<div class="stat-card"><div class="stat-icon"><i data-lucide="coins" aria-hidden="true"></i></div><div class="stat-value">' +
       formatCurrency(totalValue) +
       '</div><div class="stat-label">' + t("dashboard.value", "Valeur") + '</div></div>' +
-      '<div class="stat-card stat-warning" onclick="app.showLowStockModal()" style="cursor:pointer" title="Voir les produits en stock bas"><div class="stat-icon"><i data-lucide="alert-triangle"></i></div><div class="stat-value">' +
+      '<button type="button" class="stat-card stat-card-clickable stat-warning" onclick="app.showLowStockModal()" aria-label="' + t("dashboard.lowStock", "Stock bas") + ' — voir les produits en rupture imminente"><div class="stat-icon"><i data-lucide="alert-triangle" aria-hidden="true"></i></div><div class="stat-value">' +
       lowStockProducts.length +
-      '</div><div class="stat-label">' + t("dashboard.lowStock", "Stock bas") + '</div></div>' +
+      '</div><div class="stat-label">' + t("dashboard.lowStock", "Stock bas") + '</div></button>' +
       "</div>" +
       
       // Actions rapides

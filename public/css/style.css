@@ -654,8 +654,8 @@ input, select, textarea {
 }
 
 .btn-xs {
-  height: 28px;
-  padding: 0 var(--space-sm);
+  height: 32px;
+  padding: 0 var(--space-md);
   font-size: 12px;
 }
 
@@ -5342,4 +5342,136 @@ a[href="#AppFrameMain"],
   .channel-status {
     padding-left: 28px;
   }
+}
+
+/* =====================================================
+   ACCESSIBILITY HARDENING (kept at end so it overrides earlier rules)
+   - WCAG 2.1 AA target
+   - Respects user motion / contrast preferences
+   - Visible focus states for keyboard navigation
+   ===================================================== */
+
+/* Honor prefers-reduced-motion: kill decorative loops, neutralize transitions. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Visible, accessible focus ring for keyboard users only. */
+:where(a, button, input, select, textarea, [tabindex], [role="button"]):focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  border-radius: var(--radius-sm);
+}
+
+.btn:focus-visible,
+.btn-icon:focus-visible {
+  box-shadow: var(--focus-ring);
+  outline: none;
+}
+
+.nav-item:focus-visible {
+  box-shadow: var(--focus-ring);
+  outline: none;
+}
+
+/* Form fields: keep their accent border, add ring on top. */
+.form-input:focus-visible,
+.form-select:focus-visible,
+.form-textarea:focus-visible,
+.search-box input:focus-visible {
+  outline: none;
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px var(--accent-primary-glow);
+}
+
+/* Native button reset when used with .stat-card (after div->button conversion). */
+button.stat-card,
+button.stat-card-clickable {
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  width: 100%;
+}
+
+button.stat-card:hover {
+  border-color: var(--border-light);
+}
+
+/* High contrast mode: ensure interactive elements remain identifiable. */
+@media (forced-colors: active) {
+  .btn,
+  .nav-item,
+  .stat-card-clickable,
+  button.stat-card {
+    border: 1px solid CanvasText;
+  }
+  .btn:focus-visible,
+  .nav-item:focus-visible {
+    outline: 2px solid Highlight;
+    outline-offset: 2px;
+  }
+}
+
+/* Stock state icons: pair color with a leading glyph so daltonism / B&W
+   prints / forced-colors users can still distinguish states. */
+.stock-critical::before {
+  content: "● ";
+  speak: never;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.stock-warning::before {
+  content: "◐ ";
+  speak: never;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.stock-good::before {
+  content: "○ ";
+  speak: never;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+/* Skip-link visibility: only show when focused via keyboard. */
+.skip-link {
+  position: absolute;
+  inset-inline-start: var(--space-md);
+  inset-block-start: var(--space-md);
+  background: var(--accent-primary);
+  color: var(--accent-on);
+  padding: 8px 14px;
+  border-radius: var(--radius-sm);
+  font-weight: 700;
+  z-index: 10000;
+  transform: translateY(-200%);
+  transition: transform var(--transition-fast);
+}
+
+.skip-link:focus,
+.skip-link:focus-visible {
+  transform: translateY(0);
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.skip-link.visually-hidden:focus,
+.skip-link.visually-hidden:focus-visible {
+  position: absolute;
+  width: auto;
+  height: auto;
+  margin: 0;
+  padding: 8px 14px;
+  clip: auto;
+  overflow: visible;
+  white-space: nowrap;
 }
