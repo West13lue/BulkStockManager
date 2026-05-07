@@ -36,6 +36,7 @@
     'showEditCMPModal', 'saveCMP',
     'showProductOverrideModal', 'saveProductOverride', 'resetProductOverride',
     'showShopHealthModal', 'refreshShopHealth', 'refreshHealthBadge',
+    'setShopifyLocation', 'refreshShopifyLocations',
     'onSearchChange', 'onCategoryChange', 'onSortChange', 'sortByColumn', 'showCategoriesModal',
     'createCategory', 'deleteCategory', 'renameCategory', 'showRenameCategoryModal',
     'showAssignCategoriesModal', 'saveProductCategories',
@@ -6325,9 +6326,65 @@
       settingsData = data.settings || {};
       settingsOptions = data.options || {};
       renderSettingsContent();
+      // Charger les locations Shopify en arriere-plan puis re-render la section
+      loadShopifyLocations().then(function() {
+        if (document.getElementById("settingsContent")) renderSettingsContent();
+      });
     } catch (e) {
       document.getElementById("settingsContent").innerHTML = '<div class="card"><div class="card-body"><p class="text-danger">" + t("msg.error", "Erreur") + ": ' + e.message + '</p></div></div>';
     }
+  }
+
+  var shopifyLocations = null;
+  var currentLocationId = null;
+
+  async function loadShopifyLocations() {
+    try {
+      var [locRes, currRes] = await Promise.all([
+        authFetch(apiUrl("/shopify/locations")),
+        authFetch(apiUrl("/settings/location"))
+      ]);
+      if (locRes && locRes.ok) {
+        var data = await locRes.json();
+        shopifyLocations = Array.isArray(data.locations) ? data.locations : [];
+      } else {
+        shopifyLocations = [];
+      }
+      if (currRes && currRes.ok) {
+        var curr = await currRes.json();
+        currentLocationId = curr.locationId || null;
+      }
+    } catch (e) {
+      shopifyLocations = shopifyLocations || [];
+    }
+  }
+
+  async function setShopifyLocation(locationId) {
+    try {
+      var res = await authFetch(apiUrl("/settings/location"), {
+        method: "POST",
+        body: JSON.stringify({ locationId: Number(locationId) })
+      });
+      if (res.ok) {
+        showToast(t("settings.locationSaved", "Location enregistree"), "success");
+        currentLocationId = Number(locationId);
+        renderSettingsContent();
+        refreshHealthBadge();
+      } else {
+        var err = await res.json().catch(function() { return {}; });
+        showToast(err.error || t("msg.error", "Erreur"), "error");
+      }
+    } catch (e) {
+      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
+    }
+  }
+
+  async function refreshShopifyLocations() {
+    showToast(t("settings.locationsLoading", "Chargement des locations..."), "info");
+    shopifyLocations = null;
+    await loadShopifyLocations();
+    renderSettingsContent();
+    showToast(t("settings.locationsLoaded", "Locations rechargees"), "success");
   }
 
   function renderSettingsContent() {
@@ -6533,8 +6590,61 @@
       '<button class="btn btn-ghost btn-sm" onclick="app.resetAllTutorials()">' + t("settings.resetTutorialsBtn", "Reinitialiser") + '</button></div>' +
       '</div></div>';
 
-    document.getElementById("settingsContent").innerHTML = 
-      planSection + langSection + currencySection + stockSection + notifSection + advSection + dataSection + helpSection;
+    // Section Shopify (location de stock)
+    var shopifySection = renderShopifySection();
+
+    document.getElementById("settingsContent").innerHTML =
+      shopifySection + planSection + langSection + currencySection + stockSection + notifSection + advSection + dataSection + helpSection;
+
+    if (typeof lucide !== "undefined") lucide.createIcons();
+  }
+
+  function renderShopifySection() {
+    var locs = Array.isArray(shopifyLocations) ? shopifyLocations : [];
+    var current = currentLocationId ? Number(currentLocationId) : null;
+
+    var statusHtml;
+    if (!current) {
+      statusHtml = '<span class="badge badge-danger"><i data-lucide="alert-octagon" style="width:12px;height:12px"></i> ' + t("settings.locationNotSet", "Non configuree") + '</span>';
+    } else {
+      var match = locs.find(function(l) { return Number(l.id) === current; });
+      var locName = match ? match.name : ("ID " + current);
+      statusHtml = '<span class="badge badge-success"><i data-lucide="check" style="width:12px;height:12px"></i> ' + escPlain(locName) + '</span>';
+    }
+
+    var optionsHtml;
+    if (locs === null || (locs.length === 0 && shopifyLocations === null)) {
+      optionsHtml = '<div class="text-secondary" style="padding:var(--space-sm) 0;font-size:13px"><div class="spinner" style="display:inline-block;width:14px;height:14px;vertical-align:middle"></div> ' + t("settings.locationsLoading", "Chargement des locations...") + '</div>';
+    } else if (locs.length === 0) {
+      optionsHtml = '<p class="text-secondary" style="font-size:13px">' + t("settings.noLocations", "Aucune location detectee. Verifie que le token Shopify est valide.") + '</p>';
+    } else {
+      var opts = '<option value="">' + t("settings.locationPick", "-- Choisir une location --") + '</option>' +
+        locs.map(function(l) {
+          var sel = (current && Number(l.id) === current) ? ' selected' : '';
+          var addr = l.city || l.country ? ' (' + escPlain([l.city, l.country].filter(Boolean).join(", ")) + ')' : '';
+          return '<option value="' + Number(l.id) + '"' + sel + '>' + escPlain(l.name) + addr + '</option>';
+        }).join("");
+      optionsHtml =
+        '<select class="form-select setting-input" onchange="if(this.value)app.setShopifyLocation(this.value)">' + opts + '</select>';
+    }
+
+    return '<div class="settings-section">' +
+      '<div class="settings-section-header">' +
+        '<h3><i data-lucide="map-pin" aria-hidden="true"></i> ' + t("settings.shopifyTitle", "Synchronisation Shopify") + '</h3>' +
+        '<p class="text-secondary">' + t("settings.shopifyDesc", "Choisis la location ou sera ecrit l'inventaire de tes produits.") + '</p>' +
+      '</div>' +
+      '<div class="settings-section-body">' +
+        '<div class="setting-row"><label class="setting-label">' + t("settings.locationStatus", "Location active") + '</label>' +
+          '<div class="setting-input-help">' + statusHtml + '</div>' +
+        '</div>' +
+        '<div class="setting-row"><label class="setting-label">' + t("settings.locationSelect", "Choisir la location") + '</label>' +
+          '<div style="flex:1;min-width:0">' + optionsHtml + '</div>' +
+        '</div>' +
+        '<div class="setting-row"><label class="setting-label"></label>' +
+          '<button class="btn btn-secondary btn-sm" onclick="app.refreshShopifyLocations()"><i data-lucide="refresh-cw" style="width:14px;height:14px"></i> ' + t("settings.locationsReload", "Recharger depuis Shopify") + '</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
   }
 
   async function updateSetting(section, key, value) {
@@ -9916,6 +10026,8 @@
     showShopHealthModal: showShopHealthModal,
     refreshShopHealth: refreshShopHealth,
     refreshHealthBadge: refreshHealthBadge,
+    setShopifyLocation: setShopifyLocation,
+    refreshShopifyLocations: refreshShopifyLocations,
     // Filtres
     onSearchChange: onSearchChange,
     onCategoryChange: onCategoryChange,

@@ -862,6 +862,15 @@ router.get("/api/shopify/locations", (req, res) => {
   });
 });
 
+router.get("/api/settings/location", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    const settings = (settingsStore?.loadSettings && settingsStore.loadSettings(shop)) || {};
+    res.json({ locationId: settings.locationId || null });
+  });
+});
+
 router.post("/api/settings/location", (req, res) => {
   safeJson(req, res, () => {
     const shop = getShop(req);
