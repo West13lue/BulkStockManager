@@ -388,7 +388,7 @@
 }
 
 .toast-action:hover {
-  background: var(--accent-glow);
+  background: var(--accent-primary-glow);
 }
 
 .toast-close {
@@ -422,7 +422,7 @@
 
 .toast-info {
   border-color: var(--accent-primary);
-  background: rgba(99, 102, 241, 0.1);
+  background: var(--accent-primary-glow);
 }
 
 /* ============================================
@@ -717,7 +717,7 @@
   gap: 8px;
   margin-top: 24px;
   padding: 12px 24px;
-  background: rgba(99, 102, 241, 0.1);
+  background: var(--accent-primary-glow);
   border-radius: var(--radius-full);
   font-size: 14px;
   color: var(--accent-primary);
