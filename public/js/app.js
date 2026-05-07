@@ -1417,9 +1417,6 @@
           '<strong>' + t("dashboard.today", "Aujourd'hui") + '</strong> · ' + dateStr +
         '</p>' +
         '<div class="dashboard-today__actions">' +
-          '<button class="btn btn-secondary btn-sm" onclick="app.syncShopify()">' +
-            '<i data-lucide="refresh-cw" aria-hidden="true"></i> ' + t("dashboard.sync", "Sync") +
-          '</button>' +
           '<button class="btn btn-primary btn-sm" onclick="app.showAddProductModal()">' +
             '<i data-lucide="plus" aria-hidden="true"></i> ' + t("dashboard.addProduct", "Produit") +
           '</button>' +
@@ -1534,10 +1531,10 @@
     var productOptions = state.products.map(function(p) {
       return '<option value="' + p.id + '" data-cmp="' + (p.averageCostPerGram || 0) + '">' + esc(p.title || p.name) + ' (' + formatWeight(p.totalGrams || 0) + ')</option>';
     }).join('');
-    
+
     var currencySymbol = getCurrencySymbol();
     var weightUnit = getWeightUnit();
-    
+
     showModal({
       title: '<i data-lucide="package-plus"></i> ' + t("dashboard.quickRestock", "Réappro rapide"),
       size: "sm",
@@ -1562,30 +1559,29 @@
     });
     if (typeof lucide !== "undefined") lucide.createIcons();
   }
-  
+
   function updateQuickRestockCMP() {
     var select = document.getElementById('quickRestockProduct');
     var selectedOption = select.options[select.selectedIndex];
     var cmp = selectedOption ? parseFloat(selectedOption.dataset.cmp) || 0 : 0;
     var cmpDisplay = document.getElementById('quickRestockCurrentCMP');
     var priceInput = document.getElementById('quickRestockPrice');
-    
+
     if (cmpDisplay) {
       cmpDisplay.textContent = cmp > 0 ? formatPricePerUnit(cmp) : '-';
     }
-    // Pré-remplir avec le CMP actuel si pas de prix saisi
     if (priceInput && !priceInput.value && cmp > 0) {
       priceInput.value = cmp.toFixed(2);
     }
     updateQuickRestockTotal();
   }
-  
+
   function updateQuickRestockTotal() {
     var qty = parseFloat(document.getElementById('quickRestockQty').value) || 0;
     var price = parseFloat(document.getElementById('quickRestockPrice').value) || 0;
     var container = document.getElementById('quickRestockTotalContainer');
     var totalDisplay = document.getElementById('quickRestockTotalCost');
-    
+
     if (qty > 0 && price > 0) {
       var total = qty * price;
       if (totalDisplay) totalDisplay.textContent = formatCurrency(total);
@@ -1600,31 +1596,19 @@
     var qty = parseFloat(document.getElementById('quickRestockQty').value) || 0;
     var price = parseFloat(document.getElementById('quickRestockPrice').value) || 0;
     var note = document.getElementById('quickRestockNote').value || '';
-    
+
     if (!productId) { showToast(t("msg.selectProduct", "Sélectionnez un produit"), "error"); return; }
     if (qty <= 0) { showToast(t("msg.invalidQty", "Quantité invalide"), "error"); return; }
-    
-    // Convertir en grammes si nécessaire
+
     var qtyInGrams = toGrams(qty);
-    
-    // Préparer les données avec le profil actif
-    var data = { 
-      grams: qtyInGrams, 
-      note: note 
-    };
-    
-    // Ajouter le prix d'achat si spécifié
-    if (price > 0) {
-      data.purchasePricePerGram = price;
-    }
-    
-    // Ajouter le profil actif
+    var data = { grams: qtyInGrams, note: note };
+    if (price > 0) data.purchasePricePerGram = price;
     if (activeProfile) {
       data.profileId = activeProfile.id;
       data.profileName = activeProfile.name;
       data.profileColor = activeProfile.color;
     }
-    
+
     authFetch(apiUrl("/products/" + productId + "/restock"), {
       method: "POST",
       body: JSON.stringify(data)
@@ -1639,12 +1623,11 @@
     }).catch(function() { showToast(t("msg.error", "Erreur"), "error"); });
   }
 
-  // Ajustement rapide
   function showQuickAdjustModal() {
     var productOptions = state.products.map(function(p) {
       return '<option value="' + p.id + '">' + esc(p.title || p.name) + ' (' + formatWeight(p.totalGrams || 0) + ')</option>';
     }).join('');
-    
+
     showModal({
       title: '<i data-lucide="sliders"></i> ' + t("dashboard.quickAdjust", "Ajustement rapide"),
       size: "sm",
@@ -1669,10 +1652,10 @@
     var productId = document.getElementById('quickAdjustProduct').value;
     var qty = parseFloat(document.getElementById('quickAdjustQty').value);
     var reason = document.getElementById('quickAdjustReason').value || 'count';
-    
+
     if (!productId) { showToast(t("msg.selectProduct", "Sélectionnez un produit"), "error"); return; }
     if (isNaN(qty) || qty < 0) { showToast(t("msg.invalidQty", "Quantité invalide"), "error"); return; }
-    
+
     authFetch(apiUrl("/products/" + productId + "/adjust"), {
       method: "POST",
       body: JSON.stringify({ newGrams: qty, reason: reason })
@@ -1930,47 +1913,25 @@
     }
   }
 
+  // Post-sale entry point. Pre-fills the rich showLabelsModal with one tab
+  // per sold product so the user can pick format, customize the line,
+  // toggle QR/price/supplier and preview/print  the same flow as the
+  // standalone "Imprimer des etiquettes" modal.
   function showSaleLabelsModal(saleResults) {
-    var weightUnit = getWeightUnit();
-    var format = "70x40";
-    var customLine = "Taux de THC <0.3%";
-
-    // Build preview labels
-    var labelsData = saleResults.map(function(r) {
+    var prefilled = (saleResults || []).map(function (r) {
       return {
-        productName: r.productName || r.productId,
-        weight: r.qty || r.grams || 0,
-        lotId: "-",
-        lotData: null,
-        qty: 1,
-        format: format,
-        price: Math.round((r.price || r.sellingPriceTotal || 0) * 100) / 100,
-        customLine: customLine,
-        showQR: true,
-        showPrice: true,
-        showSupplier: false
+        productId: r.productId,
+        lotId:     r.lotId || "",
+        qty:       1,
+        weight:    r.qty || r.grams || 0,
+        price:     Math.round((r.price || r.sellingPriceTotal || 0) * 100) / 100,
+        lotData:   null
       };
     });
 
-    var previewHtml = "";
-    labelsData.forEach(function(d) { previewHtml += buildLabelHTML(d); });
-    var totalLabels = labelsData.length;
+    if (prefilled.length === 0) return;
 
-    showModal({
-      title: '<i data-lucide="tag"></i> ' + t("sale.printLabels", "Etiquettes de la commande"),
-      size: "lg",
-      content:
-        '<p style="font-size:13px;color:var(--text-secondary);margin-bottom:12px">' +
-        t("sale.labelsReady", "{count} etiquette(s) prete(s) pour impression.").replace("{count}", totalLabels) + '</p>' +
-        '<div style="display:flex;flex-wrap:wrap;gap:4px;justify-content:center;padding:16px;background:var(--bg-secondary);border-radius:8px">' + previewHtml + '</div>',
-      footer:
-        '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("sale.skipLabels", "Passer") + '</button>' +
-        '<button class="btn btn-primary" onclick="app.printSaleLabels()"><i data-lucide="printer"></i> ' + t("labels.print", "Imprimer") + '</button>'
-    });
-    if (typeof lucide !== "undefined") lucide.createIcons();
-
-    // Store for printing
-    window._saleLabelsData = labelsData;
+    showLabelsModal({ prefilledConfigs: prefilled });
   }
 
   function printSaleLabels() {
@@ -3151,8 +3112,28 @@
   var labelConfigs = [];
   var activeLabelTab = 0;
 
-  function showLabelsModal(preselectedProductId, preselectedLotId) {
-    labelConfigs = [{ productId: preselectedProductId || "", lotId: preselectedLotId || "", qty: 1, weight: "", price: "", lotData: null }];
+  // showLabelsModal(preselectedProductId?, preselectedLotId?)
+  // showLabelsModal({ prefilledConfigs: [...] })  ← used by sale flow
+  function showLabelsModal(arg1, arg2) {
+    var prefilled = null;
+    if (arg1 && typeof arg1 === "object" && Array.isArray(arg1.prefilledConfigs)) {
+      prefilled = arg1.prefilledConfigs;
+    }
+
+    if (prefilled && prefilled.length > 0) {
+      labelConfigs = prefilled.map(function (c) {
+        return {
+          productId: c.productId || "",
+          lotId:     c.lotId || "",
+          qty:       c.qty || 1,
+          weight:    c.weight || "",
+          price:     c.price || "",
+          lotData:   c.lotData || null
+        };
+      });
+    } else {
+      labelConfigs = [{ productId: arg1 || "", lotId: arg2 || "", qty: 1, weight: "", price: "", lotData: null }];
+    }
     activeLabelTab = 0;
 
     showModal({
@@ -3195,9 +3176,10 @@
     renderLabelTabs();
     renderLabelConfig();
 
-    if (preselectedProductId) {
-      loadLabelLots(0);
-    }
+    // Load lots for any config that already has a productId (preselect or sale flow).
+    labelConfigs.forEach(function (cfg, idx) {
+      if (cfg.productId) loadLabelLots(idx);
+    });
   }
 
   function renderLabelTabs() {
