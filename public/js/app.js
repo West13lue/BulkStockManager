@@ -1309,16 +1309,14 @@
     var outOfStockProducts = dashProducts.filter(function (p) {
       return (p.totalGrams || 0) === 0;
     });
-    var lowStockProducts = dashProducts.filter(function (p) {
-      var g = p.totalGrams || 0;
-      return g > 0 && g < 100;
-    });
 
     // ----- Urgency state machine -----
+    // Rupture = critique. L'anticipation "stock bas" est traitee dans
+    // l'onglet Forecast (rate journalier + saisonnalite + lead time) qui
+    // donne une vraie evaluation du risque, contrairement a un seuil fixe.
     var isEmpty = totalProducts === 0;
     var isCritical = !isEmpty && outOfStockProducts.length > 0;
-    var isWarning = !isEmpty && !isCritical && lowStockProducts.length > 0;
-    var isClear = !isEmpty && !isCritical && !isWarning;
+    var isClear = !isEmpty && !isCritical;
 
     // ----- Date string (locale-aware) -----
     var lang = (typeof I18N !== "undefined" && I18N.getLanguage) ? I18N.getLanguage() : "fr";
@@ -1360,47 +1358,25 @@
           '</p>' +
         '</section>';
     } else {
-      var stateClass = isCritical ? "is-critical" : "is-warning";
-      var titleParts = [];
-      if (outOfStockProducts.length) {
-        var outLbl = outOfStockProducts.length === 1
-          ? t("dashboard.urgency.outOfStockOne", "produit en rupture")
-          : t("dashboard.urgency.outOfStockMany", "produits en rupture");
-        titleParts.push(outOfStockProducts.length + ' ' + outLbl);
-      }
-      if (lowStockProducts.length) {
-        titleParts.push(lowStockProducts.length + ' ' + t("dashboard.urgency.lowStock", "en stock bas"));
-      }
-      var title = titleParts.join(' · ') + '.';
+      // Etat critique : rupture(s) en cours
+      var outLbl = outOfStockProducts.length === 1
+        ? t("dashboard.urgency.outOfStockOne", "produit en rupture")
+        : t("dashboard.urgency.outOfStockMany", "produits en rupture");
+      var title = outOfStockProducts.length + ' ' + outLbl + '.';
 
-      var items = '';
-      if (outOfStockProducts.length) {
-        items +=
-          '<button type="button" class="urgency-block__item" onclick="app.showOutOfStockModal()" ' +
-          'aria-label="' + outOfStockProducts.length + ' ' + t("dashboard.urgency.outOfStockMany", "produits en rupture") + ', ouvrir la liste">' +
-            '<i data-lucide="x-circle" class="urgency-block__item-icon" aria-hidden="true"></i>' +
-            '<span class="urgency-block__item-count" style="color:var(--danger)">' + outOfStockProducts.length + '</span>' +
-            '<span class="urgency-block__item-label">' +
-              t("dashboard.urgency.outOfStockLabel", "à réapprovisionner immédiatement") +
-            '</span>' +
-            '<i data-lucide="chevron-right" class="urgency-block__item-arrow" aria-hidden="true"></i>' +
-          '</button>';
-      }
-      if (lowStockProducts.length) {
-        items +=
-          '<button type="button" class="urgency-block__item" onclick="app.showLowStockModal()" ' +
-          'aria-label="' + lowStockProducts.length + ' ' + t("dashboard.urgency.lowStock", "en stock bas") + ', ouvrir la liste">' +
-            '<i data-lucide="alert-triangle" class="urgency-block__item-icon" aria-hidden="true"></i>' +
-            '<span class="urgency-block__item-count" style="color:var(--warning)">' + lowStockProducts.length + '</span>' +
-            '<span class="urgency-block__item-label">' +
-              t("dashboard.urgency.lowStockLabel", "à anticiper avant rupture") +
-            '</span>' +
-            '<i data-lucide="chevron-right" class="urgency-block__item-arrow" aria-hidden="true"></i>' +
-          '</button>';
-      }
+      var items =
+        '<button type="button" class="urgency-block__item" onclick="app.showOutOfStockModal()" ' +
+        'aria-label="' + outOfStockProducts.length + ' ' + t("dashboard.urgency.outOfStockMany", "produits en rupture") + ', ouvrir la liste">' +
+          '<i data-lucide="x-circle" class="urgency-block__item-icon" aria-hidden="true"></i>' +
+          '<span class="urgency-block__item-count" style="color:var(--danger)">' + outOfStockProducts.length + '</span>' +
+          '<span class="urgency-block__item-label">' +
+            t("dashboard.urgency.outOfStockLabel", "à réapprovisionner immédiatement") +
+          '</span>' +
+          '<i data-lucide="chevron-right" class="urgency-block__item-arrow" aria-hidden="true"></i>' +
+        '</button>';
 
       urgencyHtml =
-        '<section class="urgency-block ' + stateClass + '" aria-labelledby="urgencyTitle">' +
+        '<section class="urgency-block is-critical" aria-labelledby="urgencyTitle">' +
           '<div class="urgency-block__header"><h2 id="urgencyTitle" class="urgency-block__title">' + title + '</h2></div>' +
           '<div class="urgency-block__items">' + items + '</div>' +
         '</section>';
