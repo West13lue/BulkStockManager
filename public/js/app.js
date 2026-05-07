@@ -299,11 +299,14 @@
     // Trial info
     trial: { active: false, daysLeft: null, planId: null },
     effective: { planId: "free", reason: "default" },
-    // Filtres produits
+    // Filtres produits.
+    // Tri par defaut = stock croissant : ruptures et critiques remontent en
+    // haut, ce qui aligne le catalogue avec la carte "Stocks les plus bas"
+    // du dashboard. L'utilisateur peut basculer via le selecteur Tri.
     filters: {
       search: "",
       category: "",
-      sort: "alpha"
+      sort: "stock_asc"
     }
   };
 
