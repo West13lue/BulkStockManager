@@ -1492,9 +1492,39 @@
         '</div>' +
       '</div>';
 
-    loadDashboardActivity();
-    loadDashboardMovements();
+    // Une seule requete /movements partagee entre les deux cartes (Activite +
+    // Mouvements). Avant ce regroupement, chaque carte appelait l'API
+    // independamment -> 2x la meme requete a chaque render dashboard.
+    loadDashboardMovementsAndActivity();
     if (typeof lucide !== "undefined") lucide.createIcons();
+  }
+
+  // Fetch unique des mouvements pour les deux cartes du dashboard.
+  // Affiche un message d'erreur identique dans les deux containers si l'API
+  // echoue, et laisse chaque container rendre dans son propre style.
+  async function loadDashboardMovementsAndActivity() {
+    var actC = document.getElementById("dashboardActivity");
+    var movC = document.getElementById("dashboardMovements");
+    if (!actC && !movC) return;
+
+    try {
+      var res = await authFetch(apiUrl("/movements?limit=20"));
+      if (!res.ok) {
+        var errHtml = '<p class="text-secondary text-center">' + t("msg.error", "Erreur") + '</p>';
+        if (actC) actC.innerHTML = errHtml;
+        if (movC) movC.innerHTML = errHtml;
+        return;
+      }
+      var data = await res.json();
+      var movements = data.movements || [];
+      renderDashboardActivityList(movements, actC);
+      renderDashboardMovementsList(movements, movC);
+      if (typeof lucide !== "undefined") lucide.createIcons();
+    } catch (e) {
+      var errHtml2 = '<p class="text-secondary text-center">' + t("msg.error", "Erreur") + '</p>';
+      if (actC) actC.innerHTML = errHtml2;
+      if (movC) movC.innerHTML = errHtml2;
+    }
   }
 
   // Modal produits stock bas (utilise les seuils Parametres > Gestion du stock)
@@ -2381,121 +2411,83 @@
     }
   }
 
-  async function loadDashboardMovements() {
-    try {
-      var res = await authFetch(apiUrl("/movements?limit=20"));
-      var container = document.getElementById("dashboardMovements");
-      if (!container) return;
-      
-      if (!res.ok) {
-        container.innerHTML = '<p class="text-secondary text-center">' + t("msg.error", "Erreur") + '</p>';
-        return;
-      }
-      
-      var data = await res.json();
-      var movements = data.movements || [];
-      
-      if (movements.length === 0) {
-        container.innerHTML = '<div class="empty-state-small"><div class="empty-icon"><i data-lucide="activity"></i></div><p class="text-secondary">' + t("dashboard.noMovements", "Aucun mouvement") + '</p></div>';
-        if (typeof lucide !== "undefined") lucide.createIcons();
-        return;
-      }
-      
-      // Container scrollable limité à 5 éléments (~250px)
-      var html = '<div class="movements-list" style="max-height:250px;overflow-y:auto">';
-      movements.forEach(function(m) {
-        var mType = m.type || m.source || 'adjustment';
-        var typeIcon = getMovementIcon(mType);
-        var typeClass = getMovementClass(mType);
-        var typeLabel = getMovementLabel(mType);
-        var delta = m.delta || m.gramsDelta || 0;
-        var deltaStr = delta >= 0 ? '+' + formatWeight(delta) : formatWeight(delta);
-        var dateStr = formatRelativeDate(m.createdAt || m.date || m.ts);
-        
-        html += '<div class="movement-item">' +
-          '<div class="movement-icon ' + typeClass + '"><i data-lucide="' + typeIcon + '"></i></div>' +
-          '<div class="movement-info">' +
-          '<div class="movement-product">' + esc(m.productName || m.product || 'Produit') + '</div>' +
-          '<div class="movement-meta"><span class="movement-type">' + typeLabel + '</span><span class="movement-date">' + dateStr + '</span></div>' +
-          '</div>' +
-          '<div class="movement-delta ' + typeClass + '">' + deltaStr + '</div>' +
-          '</div>';
-      });
-      html += '</div>';
-      
-      container.innerHTML = html;
-      if (typeof lucide !== "undefined") lucide.createIcons();
-      
-    } catch (e) {
-      var container = document.getElementById("dashboardMovements");
-      if (container) {
-        container.innerHTML = '<p class="text-secondary text-center">' + t("msg.error", "Erreur") + '</p>';
-      }
+  // Rendu pur de la carte "Mouvements recents" du dashboard.
+  // N'effectue aucun fetch : les data viennent de loadDashboardMovementsAndActivity.
+  function renderDashboardMovementsList(movements, container) {
+    container = container || document.getElementById("dashboardMovements");
+    if (!container) return;
+
+    if (!movements || movements.length === 0) {
+      container.innerHTML = '<div class="empty-state-small"><div class="empty-icon"><i data-lucide="activity"></i></div><p class="text-secondary">' + t("dashboard.noMovements", "Aucun mouvement") + '</p></div>';
+      return;
     }
+
+    var html = '<div class="movements-list" style="max-height:250px;overflow-y:auto">';
+    movements.forEach(function(m) {
+      var mType = m.type || m.source || 'adjustment';
+      var typeIcon = getMovementIcon(mType);
+      var typeClass = getMovementClass(mType);
+      var typeLabel = getMovementLabel(mType);
+      var delta = m.delta || m.gramsDelta || 0;
+      var deltaStr = delta >= 0 ? '+' + formatWeight(delta) : formatWeight(delta);
+      var dateStr = formatRelativeDate(m.createdAt || m.date || m.ts);
+
+      html += '<div class="movement-item">' +
+        '<div class="movement-icon ' + typeClass + '"><i data-lucide="' + typeIcon + '"></i></div>' +
+        '<div class="movement-info">' +
+        '<div class="movement-product">' + esc(m.productName || m.product || 'Produit') + '</div>' +
+        '<div class="movement-meta"><span class="movement-type">' + typeLabel + '</span><span class="movement-date">' + dateStr + '</span></div>' +
+        '</div>' +
+        '<div class="movement-delta ' + typeClass + '">' + deltaStr + '</div>' +
+        '</div>';
+    });
+    html += '</div>';
+
+    container.innerHTML = html;
   }
 
-  // Activité récente avec profils
-  async function loadDashboardActivity() {
-    try {
-      var res = await authFetch(apiUrl("/movements?limit=20"));
-      var container = document.getElementById("dashboardActivity");
-      if (!container) return;
-      
-      if (!res.ok) {
-        container.innerHTML = '<p class="text-secondary text-center">' + t("msg.error", "Erreur") + '</p>';
-        return;
-      }
-      
-      var data = await res.json();
-      var movements = data.movements || [];
-      
-      if (movements.length === 0) {
-        container.innerHTML = '<div class="empty-state-small"><div class="empty-icon"><i data-lucide="history"></i></div><p class="text-secondary">' + t("dashboard.noActivity", "Aucune activite") + '</p></div>';
-        if (typeof lucide !== "undefined") lucide.createIcons();
-        return;
-      }
-      
-      // Container scrollable limité à 5 éléments (~280px)
-      var html = '<div class="activity-list" style="max-height:280px;overflow-y:auto">';
-      movements.forEach(function(m) {
-        var mType = m.type || m.source || 'adjustment';
-        var typeIcon = getMovementIcon(mType);
-        var typeClass = getMovementClass(mType);
-        var typeLabel = getMovementLabel(mType);
-        var delta = m.delta || m.gramsDelta || 0;
-        var deltaStr = delta >= 0 ? '+' + formatWeight(delta) : formatWeight(delta);
-        var dateStr = formatRelativeDate(m.createdAt || m.date || m.ts);
-        var profileName = m.profileName || m.userName || 'User';
-        var profileColor = m.profileColor || '#6366f1';
-        var profileInitials = getInitials(profileName);
-        
-        html += '<div class="activity-item" style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border-color)">' +
-          '<div class="activity-avatar" style="width:32px;height:32px;border-radius:50%;background:' + profileColor + ';display:flex;align-items:center;justify-content:center;color:white;font-size:11px;font-weight:600;flex-shrink:0">' + profileInitials + '</div>' +
-          '<div class="activity-content" style="flex:1;min-width:0">' +
-          '<div class="activity-action" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">' +
-          '<span style="font-weight:500;color:var(--text-primary)">' + esc(profileName) + '</span>' +
-          '<span style="color:var(--text-secondary)">' + getActivityVerb(mType) + '</span>' +
-          '<span style="font-weight:500;color:var(--text-primary)">' + esc(m.productName || m.product || 'Produit') + '</span>' +
-          '</div>' +
-          '<div class="activity-details" style="display:flex;align-items:center;gap:8px;margin-top:2px">' +
-          '<span class="badge badge-' + typeClass + '" style="font-size:10px">' + typeLabel + '</span>' +
-          '<span style="font-weight:600;color:var(--' + (delta >= 0 ? 'success' : 'danger') + ')">' + deltaStr + '</span>' +
-          '<span style="color:var(--text-tertiary);font-size:12px">' + dateStr + '</span>' +
-          '</div>' +
-          '</div>' +
-          '</div>';
-      });
-      html += '</div>';
-      
-      container.innerHTML = html;
-      if (typeof lucide !== "undefined") lucide.createIcons();
-      
-    } catch (e) {
-      var container = document.getElementById("dashboardActivity");
-      if (container) {
-        container.innerHTML = '<p class="text-secondary text-center">' + t("msg.error", "Erreur") + '</p>';
-      }
+  // Rendu pur de la carte "Activite recente" (avec avatars / profils).
+  // N'effectue aucun fetch : les data viennent de loadDashboardMovementsAndActivity.
+  function renderDashboardActivityList(movements, container) {
+    container = container || document.getElementById("dashboardActivity");
+    if (!container) return;
+
+    if (!movements || movements.length === 0) {
+      container.innerHTML = '<div class="empty-state-small"><div class="empty-icon"><i data-lucide="history"></i></div><p class="text-secondary">' + t("dashboard.noActivity", "Aucune activite") + '</p></div>';
+      return;
     }
+
+    var html = '<div class="activity-list" style="max-height:280px;overflow-y:auto">';
+    movements.forEach(function(m) {
+      var mType = m.type || m.source || 'adjustment';
+      var typeClass = getMovementClass(mType);
+      var typeLabel = getMovementLabel(mType);
+      var delta = m.delta || m.gramsDelta || 0;
+      var deltaStr = delta >= 0 ? '+' + formatWeight(delta) : formatWeight(delta);
+      var dateStr = formatRelativeDate(m.createdAt || m.date || m.ts);
+      var profileName = m.profileName || m.userName || 'User';
+      var profileColor = m.profileColor || '#6366f1';
+      var profileInitials = getInitials(profileName);
+
+      html += '<div class="activity-item" style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border-color)">' +
+        '<div class="activity-avatar" style="width:32px;height:32px;border-radius:50%;background:' + profileColor + ';display:flex;align-items:center;justify-content:center;color:white;font-size:11px;font-weight:600;flex-shrink:0">' + profileInitials + '</div>' +
+        '<div class="activity-content" style="flex:1;min-width:0">' +
+        '<div class="activity-action" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">' +
+        '<span style="font-weight:500;color:var(--text-primary)">' + esc(profileName) + '</span>' +
+        '<span style="color:var(--text-secondary)">' + getActivityVerb(mType) + '</span>' +
+        '<span style="font-weight:500;color:var(--text-primary)">' + esc(m.productName || m.product || 'Produit') + '</span>' +
+        '</div>' +
+        '<div class="activity-details" style="display:flex;align-items:center;gap:8px;margin-top:2px">' +
+        '<span class="badge badge-' + typeClass + '" style="font-size:10px">' + typeLabel + '</span>' +
+        '<span style="font-weight:600;color:var(--' + (delta >= 0 ? 'success' : 'danger') + ')">' + deltaStr + '</span>' +
+        '<span style="color:var(--text-tertiary);font-size:12px">' + dateStr + '</span>' +
+        '</div>' +
+        '</div>' +
+        '</div>';
+    });
+    html += '</div>';
+
+    container.innerHTML = html;
   }
 
   function getActivityVerb(type) {
