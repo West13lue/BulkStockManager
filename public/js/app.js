@@ -5800,7 +5800,9 @@
       renderKitsFilters();
       renderKitsContent();
     } catch (e) {
-      document.getElementById("kitsContent").innerHTML = '<div class="card"><p class="text-danger text-center py-lg">" + t("msg.error", "Erreur") + ": ' + e.message + '</p></div>';
+      // Fix HTML casse identique a Inventory/Forecast (3e occurrence du
+      // pattern). Ouvrait '<div...>"' double quote dans une string simple.
+      document.getElementById("kitsContent").innerHTML = '<div class="card"><p class="text-danger text-center py-lg">' + t("msg.error", "Erreur") + ': ' + esc(e.message) + '</p></div>';
     }
   }
 
@@ -5857,7 +5859,7 @@
       var typeBadge = getKitTypeBadge(kit.type);
       var statusBadge = getKitStatusBadge(kit.status);
       var marginClass = kit.calculatedMarginPercent >= 30 ? "success" : (kit.calculatedMarginPercent >= 15 ? "warning" : "danger");
-      return '<tr class="kit-row" onclick="app.openKitDetails(\'' + kit.id + '\')">' +
+      return '<tr class="kit-row" onclick="app.openKitDetails(\'' + esc(kit.id) + '\')">' +
         '<td><strong>' + esc(kit.name) + '</strong></td>' +
         '<td>' + typeBadge + '</td>' +
         '<td>' + kit.itemCount + '</td>' +
@@ -5868,14 +5870,25 @@
         '<td>' + (kit.maxProducible || 0) + '</td>' +
         '<td>' + statusBadge + '</td>' +
         '<td onclick="event.stopPropagation()" style="white-space:nowrap">' +
-        '<button class="btn btn-ghost btn-sm" onclick="app.showAssembleKitModal(\'' + kit.id + '\')" title="Assembler"><i data-lucide="hammer"></i></button>' +
-        '<button class="btn btn-ghost btn-sm text-danger" onclick="app.deleteKit(\'' + kit.id + '\')" title="Supprimer"><i data-lucide="trash-2"></i></button>' +
+        '<button class="btn btn-ghost btn-sm" onclick="app.showAssembleKitModal(\'' + esc(kit.id) + '\')" title="' + t("kits.assemble", "Assembler") + '"><i data-lucide="hammer"></i></button>' +
+        '<button class="btn btn-ghost btn-sm text-danger" onclick="app.deleteKit(\'' + esc(kit.id) + '\')" title="' + t("action.delete", "Supprimer") + '"><i data-lucide="trash-2"></i></button>' +
         '</td></tr>';
     }).join("");
 
     container.innerHTML =
       '<div class="card"><div class="table-container"><table class="data-table">' +
-      '<thead><tr><th>Nom</th><th>Type</th><th>Composants</th><th>Prix</th><th>Cout</th><th>Marge</th><th>%</th><th>Prod. max</th><th>Statut</th><th></th></tr></thead>' +
+      '<thead><tr>' +
+      '<th>' + t("kits.colName", "Nom") + '</th>' +
+      '<th>' + t("kits.colType", "Type") + '</th>' +
+      '<th>' + t("kits.colItems", "Composants") + '</th>' +
+      '<th>' + t("kits.colPrice", "Prix") + '</th>' +
+      '<th>' + t("kits.colCost", "Cout") + '</th>' +
+      '<th>' + t("kits.colMargin", "Marge") + '</th>' +
+      '<th>%</th>' +
+      '<th>' + t("kits.colMax", "Prod. max") + '</th>' +
+      '<th>' + t("kits.colStatus", "Statut") + '</th>' +
+      '<th></th>' +
+      '</tr></thead>' +
       '<tbody>' + rows + '</tbody></table></div></div>';
     if (typeof lucide !== "undefined") lucide.createIcons();
   }
@@ -5935,9 +5948,14 @@
     } catch (e) { showToast(t("msg.error", "Erreur") + ": " + e.message, "error"); }
   }
 
+  // Helper local : URL d'un kit (toujours encodee).
+  function _kitUrl(kitId, suffix) {
+    return "/kits/" + encodeURIComponent(kitId) + (suffix || "");
+  }
+
   async function openKitDetails(kitId) {
     try {
-      var res = await authFetch(apiUrl("/kits/" + kitId));
+      var res = await authFetch(apiUrl(_kitUrl(kitId)));
       if (!res.ok) throw new Error("Kit non trouve");
       var data = await res.json();
       var kit = data.kit;
@@ -5948,14 +5966,20 @@
       if (kit.items && kit.items.length > 0) {
         var itemRows = kit.items.map(function(item) {
           var detail = (costData.itemDetails || []).find(function(d) { return d.itemId === item.id; }) || {};
-          return '<tr><td>' + esc(item.productName || item.productId) + '</td><td>' + item.quantity + ' ' + item.unitType + '</td>' +
+          return '<tr><td>' + esc(item.productName || item.productId) + '</td><td>' + item.quantity + ' ' + esc(item.unitType || "") + '</td>' +
             '<td>' + formatPricePerUnit(detail.costPerUnit || 0) + '</td><td>' + formatCurrency(detail.itemCost || 0) + '</td>' +
             '<td>' + formatWeight(detail.availableStock || 0) + '</td>' +
-            '<td><button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();app.removeKitItem(\'' + kit.id + '\',\'' + item.id + '\')"><i data-lucide="trash-2"></i></button></td></tr>';
+            '<td><button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();app.removeKitItem(\'' + esc(kit.id) + '\',\'' + esc(item.id) + '\')"><i data-lucide="trash-2"></i></button></td></tr>';
         }).join("");
-        itemsHtml = '<table class="data-table data-table-compact"><thead><tr><th>Composant</th><th>Qte</th><th>Cout unit.</th><th>Cout total</th><th>Stock</th><th></th></tr></thead><tbody>' + itemRows + '</tbody></table>';
+        itemsHtml = '<table class="data-table data-table-compact"><thead><tr>' +
+          '<th>' + t("kits.component", "Composant") + '</th>' +
+          '<th>' + t("kits.qty", "Qte") + '</th>' +
+          '<th>' + t("kits.unitCost", "Cout unit.") + '</th>' +
+          '<th>' + t("kits.totalCost", "Cout total") + '</th>' +
+          '<th>' + t("kits.stock", "Stock") + '</th>' +
+          '<th></th></tr></thead><tbody>' + itemRows + '</tbody></table>';
       } else {
-        itemsHtml = '<p class="text-secondary text-center py-md">Aucun composant. Ajoutez-en pour calculer les couts.</p>';
+        itemsHtml = '<p class="text-secondary text-center py-md">' + t("kits.noComponents", "Aucun composant. Ajoutez-en pour calculer les couts.") + '</p>';
       }
 
       showModal({
@@ -5968,30 +5992,35 @@
           '<div class="stat-card"><div class="stat-value">' + formatCurrency(costData.totalCost || 0) + '</div><div class="stat-label">Cout</div></div>' +
           '<div class="stat-card stat-' + marginClass + '"><div class="stat-value">' + formatCurrency(costData.margin || 0) + '</div><div class="stat-label">Marge</div></div>' +
           '<div class="stat-card stat-' + marginClass + '"><div class="stat-value">' + (costData.marginPercent || 0).toFixed(1) + '%</div><div class="stat-label">Marge %</div></div></div>' +
-          '<div class="section-header mt-lg"><h3>Composants (BOM)</h3><button class="btn btn-sm btn-secondary" onclick="app.showAddKitItemModal(\'' + kit.id + '\')"><i data-lucide="plus"></i> Ajouter</button></div>' +
+          '<div class="section-header mt-lg"><h3>' + t("kits.componentsBOM", "Composants (BOM)") + '</h3><button class="btn btn-sm btn-secondary" onclick="app.showAddKitItemModal(\'' + esc(kit.id) + '\')"><i data-lucide="plus"></i> ' + t("action.add", "Ajouter") + '</button></div>' +
           '<div class="card-body">' + itemsHtml + '</div>' +
-          '<div class="section-header mt-lg"><h3>Simulation</h3></div>' +
-          '<div class="card-body"><div style="display:flex;gap:16px;align-items:center"><span>Si vendu</span><input type="number" class="form-input" id="simQty" value="1" style="width:80px" min="1"><span>fois</span>' +
-          '<button class="btn btn-secondary" onclick="app.runKitSimulation(\'' + kit.id + '\')">Simuler</button></div><div id="simResults" class="mt-md"></div></div>',
-        footer: '<button class="btn btn-ghost text-danger" onclick="app.deleteKit(\'' + kit.id + '\')"><i data-lucide="trash-2"></i> Supprimer</button>' +
-          '<button class="btn btn-secondary" onclick="app.closeModal()">Fermer</button>' +
-          (kit.status === "draft" ? '<button class="btn btn-success" onclick="app.activateKit(\'' + kit.id + '\')">Activer</button>' : '') +
-          '<button class="btn btn-primary" onclick="app.showAssembleKitModal(\'' + kit.id + '\')">Assembler</button>'
+          '<div class="section-header mt-lg"><h3>' + t("kits.simulation", "Simulation") + '</h3></div>' +
+          '<div class="card-body"><div style="display:flex;gap:16px;align-items:center"><span>' + t("kits.ifSold", "Si vendu") + '</span><input type="number" class="form-input" id="simQty" value="1" style="width:80px" min="1"><span>' + t("kits.times", "fois") + '</span>' +
+          '<button class="btn btn-secondary" onclick="app.runKitSimulation(\'' + esc(kit.id) + '\')">' + t("kits.simulate", "Simuler") + '</button></div><div id="simResults" class="mt-md"></div></div>',
+        footer: '<button class="btn btn-ghost text-danger" onclick="app.deleteKit(\'' + esc(kit.id) + '\')"><i data-lucide="trash-2"></i> ' + t("action.delete", "Supprimer") + '</button>' +
+          '<button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.close", "Fermer") + '</button>' +
+          (kit.status === "draft" ? '<button class="btn btn-success" onclick="app.activateKit(\'' + esc(kit.id) + '\')">' + t("kits.activate", "Activer") + '</button>' : '') +
+          '<button class="btn btn-primary" onclick="app.showAssembleKitModal(\'' + esc(kit.id) + '\')">' + t("kits.assemble", "Assembler") + '</button>'
       });
       if (typeof lucide !== "undefined") lucide.createIcons();
     } catch (e) { showToast(t("msg.error", "Erreur") + ": " + e.message, "error"); }
   }
 
   function showAddKitItemModal(kitId) {
-    var productOptions = (productsData || []).map(function(p) { return '<option value="' + p.productId + '" data-name="' + esc(p.name) + '">' + esc(p.name) + '</option>'; }).join("");
+    // BUG critique avant : utilisait `productsData` qui n'existe nulle part
+    // dans le code -> select toujours vide -> impossible d'ajouter un
+    // composant a un kit. Corrige : la source canonique est state.products.
+    var productOptions = (state.products || []).map(function(p) {
+      return '<option value="' + esc(p.productId) + '" data-name="' + esc(p.name) + '">' + esc(p.name) + '</option>';
+    }).join("");
     showModal({
       title: t("kits.addComponent", "Ajouter un composant"),
       content:
-        '<div class="form-group"><label class="form-label">Produit *</label><select class="form-select" id="itemProduct"><option value="">-- Selectionner --</option>' + productOptions + '</select></div>' +
-        '<div style="display:flex;gap:16px"><div class="form-group" style="flex:1"><label class="form-label">Quantite *</label><input type="number" class="form-input" id="itemQty" step="0.01" placeholder="10"></div>' +
-        '<div class="form-group" style="flex:1"><label class="form-label">Unite</label><select class="form-select" id="itemUnit"><option value="g">' + getWeightUnit() + '</option><option value="unit">Unite</option><option value="ml">ml</option></select></div></div>' +
-        '<div class="form-group"><label class="form-check"><input type="checkbox" id="itemFreebie"> Freebie (cadeau inclus)</label></div>',
-      footer: '<button class="btn btn-secondary" onclick="app.closeModal()">Annuler</button><button class="btn btn-primary" onclick="app.saveKitItem(\'' + kitId + '\')">Ajouter</button>'
+        '<div class="form-group"><label class="form-label">' + t("kits.product", "Produit") + ' *</label><select class="form-select" id="itemProduct"><option value="">' + t("form.select", "-- Selectionner --") + '</option>' + productOptions + '</select></div>' +
+        '<div style="display:flex;gap:16px"><div class="form-group" style="flex:1"><label class="form-label">' + t("kits.qtyRequired", "Quantite") + ' *</label><input type="number" class="form-input" id="itemQty" step="0.01" placeholder="10"></div>' +
+        '<div class="form-group" style="flex:1"><label class="form-label">' + t("kits.unit", "Unite") + '</label><select class="form-select" id="itemUnit"><option value="g">' + getWeightUnit() + '</option><option value="unit">' + t("kits.unitPiece", "Unite") + '</option><option value="ml">ml</option></select></div></div>' +
+        '<div class="form-group"><label class="form-check"><input type="checkbox" id="itemFreebie"> ' + t("kits.freebie", "Freebie (cadeau inclus)") + '</label></div>',
+      footer: '<button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.cancel", "Annuler") + '</button><button class="btn btn-primary" onclick="app.saveKitItem(\'' + esc(kitId) + '\')">' + t("action.add", "Ajouter") + '</button>'
     });
   }
 
@@ -6002,7 +6031,7 @@
     var qty = parseFloat(document.getElementById("itemQty").value);
     if (!productId || !qty) { showToast(t("msg.productQtyRequired", "Produit et quantite requis"), "error"); return; }
     try {
-      var res = await authFetch(apiUrl("/kits/" + kitId + "/items"), {
+      var res = await authFetch(apiUrl(_kitUrl(kitId, "/items")), {
         method: "POST",
         body: JSON.stringify({
           productId: productId,
@@ -6020,9 +6049,9 @@
   }
 
   async function removeKitItem(kitId, itemId) {
-    var _ok = await showConfirmDialog("Supprimer ce composant ?", {danger: true}); if (!_ok) return;
+    var _ok = await showConfirmDialog(t("kits.confirmRemoveItem", "Supprimer ce composant ?"), {danger: true}); if (!_ok) return;
     try {
-      var res = await authFetch(apiUrl("/kits/" + kitId + "/items/" + itemId), { method: "DELETE" });
+      var res = await authFetch(apiUrl(_kitUrl(kitId, "/items/" + encodeURIComponent(itemId))), { method: "DELETE" });
       if (!res.ok) throw new Error("Erreur");
       showToast(t("kits.componentRemoved", "Composant supprime"), "success");
       openKitDetails(kitId);
@@ -6031,7 +6060,7 @@
 
   async function activateKit(kitId) {
     try {
-      var res = await authFetch(apiUrl("/kits/" + kitId), { method: "PUT", body: JSON.stringify({ status: "active" }) });
+      var res = await authFetch(apiUrl(_kitUrl(kitId)), { method: "PUT", body: JSON.stringify({ status: "active" }) });
       if (!res.ok) throw new Error("Erreur");
       showToast(t("kits.activated", "Kit active"), "success");
       closeModal();
@@ -6042,7 +6071,7 @@
   async function deleteKit(kitId) {
     var _ok = await showConfirmDialog(t("kits.confirmDelete", "Supprimer ce kit ?"), {danger: true}); if (!_ok) return;
     try {
-      var res = await authFetch(apiUrl("/kits/" + kitId), { method: "DELETE" });
+      var res = await authFetch(apiUrl(_kitUrl(kitId)), { method: "DELETE" });
       if (!res.ok) throw new Error("Erreur");
       showToast(t("kits.deleted", "Kit supprime"), "success");
       closeModal();
@@ -6054,9 +6083,9 @@
     showModal({
       title: t("kits.assemble", "Assembler des kits"),
       content:
-        '<div class="form-group"><label class="form-label">Quantite a assembler</label><input type="number" class="form-input" id="assembleQty" value="1" min="1"></div>' +
-        '<div class="form-group"><label class="form-label">Notes</label><input type="text" class="form-input" id="assembleNotes" placeholder="Optionnel"></div>',
-      footer: '<button class="btn btn-secondary" onclick="app.closeModal()">Annuler</button><button class="btn btn-primary" onclick="app.assembleKit(\'' + kitId + '\')">Assembler</button>'
+        '<div class="form-group"><label class="form-label">' + t("kits.qtyToAssemble", "Quantite a assembler") + '</label><input type="number" class="form-input" id="assembleQty" value="1" min="1"></div>' +
+        '<div class="form-group"><label class="form-label">' + t("products.note", "Notes") + '</label><input type="text" class="form-input" id="assembleNotes" placeholder="' + t("kits.notesPlaceholder", "Optionnel") + '"></div>',
+      footer: '<button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.cancel", "Annuler") + '</button><button class="btn btn-primary" onclick="app.assembleKit(\'' + esc(kitId) + '\')">' + t("kits.assemble", "Assembler") + '</button>'
     });
   }
 
@@ -6064,7 +6093,7 @@
     var qty = parseInt(document.getElementById("assembleQty").value) || 1;
     var notes = document.getElementById("assembleNotes").value;
     try {
-      var res = await authFetch(apiUrl("/kits/" + kitId + "/assemble"), { method: "POST", body: JSON.stringify({ quantity: qty, notes: notes }) });
+      var res = await authFetch(apiUrl(_kitUrl(kitId, "/assemble")), { method: "POST", body: JSON.stringify({ quantity: qty, notes: notes }) });
       var data = await res.json();
       if (!data.success) throw new Error(data.message || "Erreur");
       closeModal();
@@ -6077,17 +6106,20 @@
     var qty = parseInt(document.getElementById("simQty").value) || 1;
     var container = document.getElementById("simResults");
     try {
-      var res = await authFetch(apiUrl("/kits/" + kitId + "/simulate"), { method: "POST", body: JSON.stringify({ quantity: qty }) });
+      var res = await authFetch(apiUrl(_kitUrl(kitId, "/simulate")), { method: "POST", body: JSON.stringify({ quantity: qty }) });
       var data = await res.json();
       container.innerHTML =
         '<div class="stats-grid stats-grid-3">' +
-        '<div class="stat-card"><div class="stat-value">' + formatCurrency(data.totalRevenue || 0) + '</div><div class="stat-label">CA total</div></div>' +
-        '<div class="stat-card"><div class="stat-value">' + formatCurrency(data.totalCost || 0) + '</div><div class="stat-label">Cout total</div></div>' +
-        '<div class="stat-card"><div class="stat-value">' + formatCurrency(data.totalMargin || 0) + '</div><div class="stat-label">Marge totale</div></div></div>' +
-        (data.hasShortage ? '<div class="alert alert-warning mt-md">Stock insuffisant pour certains composants</div>' : '') +
-        '<p class="text-secondary mt-md">Capacite max de production: <strong>' + (data.maxProducible || 0) + '</strong> kits</p>';
+        '<div class="stat-card"><div class="stat-value">' + formatCurrency(data.totalRevenue || 0) + '</div><div class="stat-label">' + t("kits.totalRevenue", "CA total") + '</div></div>' +
+        '<div class="stat-card"><div class="stat-value">' + formatCurrency(data.totalCost || 0) + '</div><div class="stat-label">' + t("kits.totalCostShort", "Cout total") + '</div></div>' +
+        '<div class="stat-card"><div class="stat-value">' + formatCurrency(data.totalMargin || 0) + '</div><div class="stat-label">' + t("kits.totalMargin", "Marge totale") + '</div></div></div>' +
+        (data.hasShortage ? '<div class="alert alert-warning mt-md">' + t("kits.shortage", "Stock insuffisant pour certains composants") + '</div>' : '') +
+        '<p class="text-secondary mt-md">' + t("kits.maxCapacity", "Capacite max de production") + ': <strong>' + (data.maxProducible || 0) + '</strong> ' + t("kits.kits", "kits") + '</p>';
       if (typeof lucide !== "undefined") lucide.createIcons();
-    } catch (e) { container.innerHTML = '<p class="text-danger">" + t("msg.error", "Erreur") + ": ' + e.message + '</p>'; }
+    } catch (e) {
+      // 4e occurrence du meme bug HTML casse '"' dans une string '. Fix.
+      container.innerHTML = '<p class="text-danger">' + t("msg.error", "Erreur") + ': ' + esc(e.message) + '</p>';
+    }
   }
 
   // ============================================
@@ -9893,24 +9925,38 @@
       return;
     }
 
+    // Plage de dates explicite (lecture seule)
+    var _days = parseInt(analyticsPeriod, 10) || 30;
+    var _now = new Date();
+    var _from = new Date(_now.getTime() - _days * 86400000);
+    var _fmt = function(d) { return d.toLocaleDateString(); };
+    var dateRange = _fmt(_from) + " → " + _fmt(_now);
+
     // Afficher loading puis charger les donnees
     c.innerHTML =
-      '<div class="page-header"><div><h1 class="page-title"><i data-lucide="bar-chart-3"></i> ' + t("analytics.title", "Analytics PRO") + '</h1><p class="page-subtitle">' + t("analytics.subtitle", "Sales, margins and performance") + '</p></div>' +
-      '<div class="page-actions">' +
-      '<button class="btn btn-ghost" onclick="app.exportAnalyticsCSV()" title="' + t("export.analytics", "Export CSV") + '"><i data-lucide="download"></i></button>' +
-      '<select class="form-select" id="analyticsPeriod" onchange="app.changeAnalyticsPeriod(this.value)">' +
-      '<option value="7"' + (analyticsPeriod === "7" ? " selected" : "") + '>' + t("analytics.last7days", "Last 7 days") + '</option>' +
-      '<option value="30"' + (analyticsPeriod === "30" ? " selected" : "") + '>' + t("analytics.last30days", "Last 30 days") + '</option>' +
-      '<option value="90"' + (analyticsPeriod === "90" ? " selected" : "") + '>' + t("analytics.last90days", "Last 90 days") + '</option>' +
-      '</select>' +
-      '<div class="analytics-tabs">' +
-      '<button class="tab-btn active" data-tab="sales" onclick="app.switchAnalyticsTab(\'sales\')">' + t("analytics.sales", "Sales") + '</button>' +
-      '<button class="tab-btn" data-tab="stock" onclick="app.switchAnalyticsTab(\'stock\')">' + t("analytics.stock", "Stock") + '</button>' +
-      '<button class="tab-btn" data-tab="manual" onclick="app.switchAnalyticsTab(\'manual\')">' + t("analytics.manualSales", "Ventes manuelles") + '</button>' +
-      '<button class="tab-btn" data-tab="orders" onclick="app.switchAnalyticsTab(\'orders\')">' + t("analytics.ordersRecap", "Recap commandes") + '</button>' +
+      '<div class="page-header">' +
+        '<div>' +
+          '<h1 class="page-title"><i data-lucide="bar-chart-3"></i> ' + t("analytics.title", "Analytics PRO") + '</h1>' +
+          '<p class="page-subtitle">' + t("analytics.subtitle", "Sales, margins and performance") + '</p>' +
+          '<div class="analytics-meta"><span class="meta-range">' + esc(dateRange) + '</span></div>' +
+        '</div>' +
+        '<div class="page-actions">' +
+          '<button class="btn btn-ghost" onclick="app.exportAnalyticsCSV()" title="' + t("export.analytics", "Export CSV") + '" aria-label="' + t("export.analytics", "Export CSV") + '"><i data-lucide="download"></i></button>' +
+          '<select class="form-select" id="analyticsPeriod" onchange="app.changeAnalyticsPeriod(this.value)" aria-label="' + t("analytics.period", "Periode") + '">' +
+            '<option value="7"'  + (analyticsPeriod === "7"  ? " selected" : "") + '>' + t("analytics.last7days",  "7 derniers jours")  + '</option>' +
+            '<option value="30"' + (analyticsPeriod === "30" ? " selected" : "") + '>' + t("analytics.last30days", "30 derniers jours") + '</option>' +
+            '<option value="90"' + (analyticsPeriod === "90" ? " selected" : "") + '>' + t("analytics.last90days", "90 derniers jours") + '</option>' +
+          '</select>' +
+        '</div>' +
       '</div>' +
-      '</div></div>' +
-      '<div id="analyticsContent"><div class="text-center" style="padding:60px"><div class="spinner"></div><p class="text-secondary mt-md">' + t("analytics.loading", "Loading analytics...") + '</p></div></div>';
+      // Tabs sur leur propre ligne, full-width, style underline + accessibilité
+      '<div class="analytics-tabs-row" role="tablist" aria-label="' + t("analytics.tabsLabel", "Vues analytics") + '">' +
+        '<button class="tab-btn active" role="tab" aria-selected="true"  data-tab="sales"   onclick="app.switchAnalyticsTab(\'sales\')">'   + t("analytics.sales",        "Ventes")           + '</button>' +
+        '<button class="tab-btn"        role="tab" aria-selected="false" data-tab="stock"   onclick="app.switchAnalyticsTab(\'stock\')">'   + t("analytics.stock",        "Stock")            + '</button>' +
+        '<button class="tab-btn"        role="tab" aria-selected="false" data-tab="manual"  onclick="app.switchAnalyticsTab(\'manual\')">'  + t("analytics.manualSales",  "Ventes manuelles") + '</button>' +
+        '<button class="tab-btn"        role="tab" aria-selected="false" data-tab="orders"  onclick="app.switchAnalyticsTab(\'orders\')">'  + t("analytics.ordersRecap",  "Recap commandes")  + '</button>' +
+      '</div>' +
+      '<div id="analyticsContent" role="tabpanel"><div class="text-center" style="padding:60px"><div class="spinner"></div><p class="text-secondary mt-md">' + t("analytics.loading", "Loading analytics...") + '</p></div></div>';
 
     analyticsTab = "sales";
     loadAnalyticsSales();
@@ -9921,8 +9967,11 @@
 
   function switchAnalyticsTab(tab) {
     analyticsTab = tab;
-    document.querySelectorAll(".analytics-tabs .tab-btn").forEach(function(btn) {
-      btn.classList.toggle("active", btn.dataset.tab === tab);
+    // Couvre l'ancien sélecteur ET le nouveau .analytics-tabs-row
+    document.querySelectorAll(".analytics-tabs .tab-btn, .analytics-tabs-row .tab-btn").forEach(function(btn) {
+      var on = btn.dataset.tab === tab;
+      btn.classList.toggle("active", on);
+      btn.setAttribute("aria-selected", on ? "true" : "false");
     });
     
     if (tab === "sales") {
