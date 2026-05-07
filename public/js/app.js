@@ -10005,8 +10005,7 @@
         "success"
       );
       // Recharger la vue
-      if (typeof loadOrdersDebug === "function") loadOrdersDebug();
-      else loadAnalyticsTab();
+      if (typeof loadOrdersDebugTab === "function") loadOrdersDebugTab();
     } catch (e) {
       showToast(t("ordersDebug.mergeError", "Echec") + ": " + e.message, "error");
     }
