@@ -1202,82 +1202,185 @@
   }
 
   function renderDashboard(c) {
+    var totalProducts = state.products.length;
     var totalStock = state.products.reduce(function (s, p) {
       return s + (p.totalGrams || 0);
     }, 0);
     var totalValue = state.products.reduce(function (s, p) {
       return s + (p.totalGrams || 0) * (p.averageCostPerGram || 0);
     }, 0);
-    var lowStockProducts = state.products.filter(function (p) {
-      return (p.totalGrams || 0) < 100;
-    });
     var outOfStockProducts = state.products.filter(function (p) {
       return (p.totalGrams || 0) === 0;
     });
+    var lowStockProducts = state.products.filter(function (p) {
+      var g = p.totalGrams || 0;
+      return g > 0 && g < 100;
+    });
 
-    c.innerHTML =
-      '<div class="page-header"><div><h1 class="page-title">' + t("dashboard.title", "Tableau de bord") + '</h1><p class="page-subtitle">' + t("dashboard.subtitle", "Vue d\'ensemble") + '</p></div>' +
-      '<div class="page-actions"><button class="btn btn-secondary" onclick="app.syncShopify()">' + t("dashboard.sync", "Sync") + '</button>' +
-      '<button class="btn btn-primary" onclick="app.showAddProductModal()">' + t("dashboard.addProduct", "+ Produit") + '</button></div></div>' +
-      
-      // Stats principales
-      '<div class="stats-grid">' +
-      '<button type="button" class="stat-card stat-card-clickable" onclick="app.navigateTo(\'products\')" aria-label="' + t("dashboard.products", "Produits") + ' — voir tous les produits"><div class="stat-icon"><i data-lucide="boxes" aria-hidden="true"></i></div><div class="stat-value">' +
-      state.products.length +
-      '</div><div class="stat-label">' + t("dashboard.products", "Produits") + '</div></button>' +
-      '<div class="stat-card"><div class="stat-icon"><i data-lucide="scale" aria-hidden="true"></i></div><div class="stat-value">' +
-      formatWeight(totalStock) +
-      '</div><div class="stat-label">' + t("dashboard.totalStock", "Stock total") + '</div></div>' +
-      '<div class="stat-card"><div class="stat-icon"><i data-lucide="coins" aria-hidden="true"></i></div><div class="stat-value">' +
-      formatCurrency(totalValue) +
-      '</div><div class="stat-label">' + t("dashboard.value", "Valeur") + '</div></div>' +
-      '<button type="button" class="stat-card stat-card-clickable stat-warning" onclick="app.showLowStockModal()" aria-label="' + t("dashboard.lowStock", "Stock bas") + ' — voir les produits en rupture imminente"><div class="stat-icon"><i data-lucide="alert-triangle" aria-hidden="true"></i></div><div class="stat-value">' +
-      lowStockProducts.length +
-      '</div><div class="stat-label">' + t("dashboard.lowStock", "Stock bas") + '</div></button>' +
-      "</div>" +
-      
-      // Actions rapides
-      '<div class="quick-actions-bar">' +
-      '<div class="quick-actions-title"><i data-lucide="zap"></i> ' + t("dashboard.quickActions", "Actions rapides") + '</div>' +
-      '<div class="quick-actions-buttons">' +
-      '<button class="btn btn-ghost btn-sm" onclick="app.showQuickRestockModal()"><i data-lucide="package-plus"></i> ' + t("dashboard.quickRestock", "Réappro rapide") + '</button>' +
-      '<button class="btn btn-ghost btn-sm" onclick="app.showScannerModal()"><i data-lucide="scan-barcode"></i> ' + t("dashboard.scanBarcode", "Scanner") + '</button>' +
-      '<button class="btn btn-ghost btn-sm" onclick="app.showQuickAdjustModal()"><i data-lucide="sliders"></i> ' + t("dashboard.quickAdjust", "Ajustement") + '</button>' +
-      '<button class="btn btn-ghost btn-sm" onclick="app.showManualSaleModal()"><i data-lucide="shopping-cart"></i> ' + t("dashboard.manualSale", "Vente manuelle") + '</button>' +
-      (hasFeature("hasInventoryCount") ? '<button class="btn btn-ghost btn-sm" onclick="app.navigateTo(\'inventory\')"><i data-lucide="clipboard-check"></i> ' + t("dashboard.inventory", "Inventaire") + '</button>' : '') +
-      '</div></div>' +
-      
-      '<div class="dashboard-grid">' +
-      
-      // Alertes si stock bas ou rupture
-      (lowStockProducts.length > 0 || outOfStockProducts.length > 0 ? 
-        '<div class="card card-alerts">' +
-        '<div class="card-header"><h3 class="card-title"><i data-lucide="alert-circle"></i> ' + t("dashboard.alerts", "Alertes") + '</h3></div>' +
-        '<div class="card-body">' +
-        (outOfStockProducts.length > 0 ? '<div class="alert-item alert-danger" onclick="app.showOutOfStockModal()"><span class="alert-icon"><i data-lucide="x-circle"></i></span><span class="alert-text">' + outOfStockProducts.length + ' ' + t("dashboard.outOfStock", "produit(s) en rupture") + '</span><span class="alert-action"><i data-lucide="chevron-right"></i></span></div>' : '') +
-        (lowStockProducts.length > 0 ? '<div class="alert-item alert-warning" onclick="app.showLowStockModal()"><span class="alert-icon"><i data-lucide="alert-triangle"></i></span><span class="alert-text">' + lowStockProducts.length + ' ' + t("dashboard.lowStockAlert", "produit(s) stock bas") + '</span><span class="alert-action"><i data-lucide="chevron-right"></i></span></div>' : '') +
-        '</div></div>' : '') +
-      
-      // Activité récente (nouveau!)
-      '<div class="card card-activity">' +
-      '<div class="card-header"><h3 class="card-title"><i data-lucide="history"></i> ' + t("dashboard.activityLog", "Activite recente") + '</h3>' +
-      '<button class="btn btn-ghost btn-sm" onclick="app.showFullActivityLog()">' + t("dashboard.viewAll", "Voir tout") + '</button></div>' +
-      '<div class="card-body" id="dashboardActivity"><div class="text-center py-lg"><div class="spinner"></div></div></div></div>' +
-      
-      // Produits
-      '<div class="card"><div class="card-header"><h3 class="card-title"><i data-lucide="boxes"></i> ' + t("dashboard.products", "Produits") + '</h3>' +
-      '<button class="btn btn-ghost btn-sm" onclick="app.navigateTo(\'products\')">' + t("dashboard.viewAll", "Voir tout") + '</button></div>' +
-      '<div class="card-body" style="padding:0">' +
-      (state.products.length ? renderTable(state.products.slice(0, 5)) : renderEmpty()) +
-      "</div></div>" +
-      
-      // Mouvements récents
-      '<div class="card"><div class="card-header"><h3 class="card-title"><i data-lucide="activity"></i> ' + t("dashboard.recentMovements", "Recent movements") + '</h3>' +
-      '<button class="btn btn-ghost btn-sm" onclick="app.exportMovementsCSV()" title="' + t("export.movements", "Export CSV") + '"><i data-lucide="download"></i></button></div>' +
-      '<div class="card-body" id="dashboardMovements"><div class="text-center py-lg"><div class="spinner"></div></div></div></div>' +
-      
+    // ----- Urgency state machine -----
+    var isEmpty = totalProducts === 0;
+    var isCritical = !isEmpty && outOfStockProducts.length > 0;
+    var isWarning = !isEmpty && !isCritical && lowStockProducts.length > 0;
+    var isClear = !isEmpty && !isCritical && !isWarning;
+
+    // ----- Date string (locale-aware) -----
+    var lang = (typeof I18N !== "undefined" && I18N.getLanguage) ? I18N.getLanguage() : "fr";
+    var locale = lang === "fr" ? "fr-FR" : "en-US";
+    var dateStr;
+    try {
+      dateStr = new Intl.DateTimeFormat(locale, { weekday: "short", day: "numeric", month: "short" }).format(new Date());
+    } catch (_) {
+      dateStr = new Date().toLocaleDateString();
+    }
+
+    // ----- Build urgency block HTML -----
+    var urgencyHtml;
+    if (isEmpty) {
+      urgencyHtml =
+        '<section class="urgency-block is-empty" aria-labelledby="urgencyTitle">' +
+          '<div class="urgency-block__header"><h2 id="urgencyTitle" class="urgency-block__title">' +
+            t("dashboard.empty.title", "Bienvenue dans Stock Manager.") +
+          '</h2></div>' +
+          '<p class="urgency-block__detail">' +
+            t("dashboard.empty.detail", "Importe ton catalogue depuis Shopify pour démarrer. Ça prend 30 secondes.") +
+          '</p>' +
+          '<div style="margin-top:var(--space-sm)">' +
+            '<button class="btn btn-primary" onclick="app.syncShopify()">' +
+              '<i data-lucide="download" aria-hidden="true"></i> ' +
+              t("dashboard.empty.cta", "Importer depuis Shopify") +
+            '</button>' +
+          '</div>' +
+        '</section>';
+    } else if (isClear) {
+      urgencyHtml =
+        '<section class="urgency-block is-clear" aria-labelledby="urgencyTitle">' +
+          '<div class="urgency-block__header"><h2 id="urgencyTitle" class="urgency-block__title">' +
+            t("dashboard.clear.title", "Tout est sous contrôle.") +
+          '</h2></div>' +
+          '<p class="urgency-block__detail">' +
+            totalProducts + ' ' + t("dashboard.clear.activeProducts", "produits actifs") +
+            ' · ' + t("dashboard.clear.zeroAlert", "0 alerte") +
+          '</p>' +
+        '</section>';
+    } else {
+      var stateClass = isCritical ? "is-critical" : "is-warning";
+      var titleParts = [];
+      if (outOfStockProducts.length) {
+        var outLbl = outOfStockProducts.length === 1
+          ? t("dashboard.urgency.outOfStockOne", "produit en rupture")
+          : t("dashboard.urgency.outOfStockMany", "produits en rupture");
+        titleParts.push(outOfStockProducts.length + ' ' + outLbl);
+      }
+      if (lowStockProducts.length) {
+        titleParts.push(lowStockProducts.length + ' ' + t("dashboard.urgency.lowStock", "en stock bas"));
+      }
+      var title = titleParts.join(' · ') + '.';
+
+      var items = '';
+      if (outOfStockProducts.length) {
+        items +=
+          '<button type="button" class="urgency-block__item" onclick="app.showOutOfStockModal()" ' +
+          'aria-label="' + outOfStockProducts.length + ' ' + t("dashboard.urgency.outOfStockMany", "produits en rupture") + ', ouvrir la liste">' +
+            '<i data-lucide="x-circle" class="urgency-block__item-icon" aria-hidden="true"></i>' +
+            '<span class="urgency-block__item-count" style="color:var(--danger)">' + outOfStockProducts.length + '</span>' +
+            '<span class="urgency-block__item-label">' +
+              t("dashboard.urgency.outOfStockLabel", "à réapprovisionner immédiatement") +
+            '</span>' +
+            '<i data-lucide="chevron-right" class="urgency-block__item-arrow" aria-hidden="true"></i>' +
+          '</button>';
+      }
+      if (lowStockProducts.length) {
+        items +=
+          '<button type="button" class="urgency-block__item" onclick="app.showLowStockModal()" ' +
+          'aria-label="' + lowStockProducts.length + ' ' + t("dashboard.urgency.lowStock", "en stock bas") + ', ouvrir la liste">' +
+            '<i data-lucide="alert-triangle" class="urgency-block__item-icon" aria-hidden="true"></i>' +
+            '<span class="urgency-block__item-count" style="color:var(--warning)">' + lowStockProducts.length + '</span>' +
+            '<span class="urgency-block__item-label">' +
+              t("dashboard.urgency.lowStockLabel", "à anticiper avant rupture") +
+            '</span>' +
+            '<i data-lucide="chevron-right" class="urgency-block__item-arrow" aria-hidden="true"></i>' +
+          '</button>';
+      }
+
+      urgencyHtml =
+        '<section class="urgency-block ' + stateClass + '" aria-labelledby="urgencyTitle">' +
+          '<div class="urgency-block__header"><h2 id="urgencyTitle" class="urgency-block__title">' + title + '</h2></div>' +
+          '<div class="urgency-block__items">' + items + '</div>' +
+        '</section>';
+    }
+
+    // ----- KPI strip -----
+    var kpiStrip =
+      '<div class="kpi-strip" role="group" aria-label="' + t("dashboard.kpis", "Indicateurs") + '">' +
+        '<button type="button" class="kpi-strip__item is-link" onclick="app.navigateTo(\'products\')" ' +
+        'aria-label="' + totalProducts + ' ' + t("dashboard.products", "Produits") + ', ouvrir la liste">' +
+          '<span class="kpi-strip__label">' + t("dashboard.products", "Produits") + '</span>' +
+          '<span class="kpi-strip__value">' + totalProducts + '</span>' +
+        '</button>' +
+        '<div class="kpi-strip__item">' +
+          '<span class="kpi-strip__label">' + t("dashboard.totalStock", "Stock total") + '</span>' +
+          '<span class="kpi-strip__value">' + formatWeight(totalStock) + '</span>' +
+        '</div>' +
+        '<div class="kpi-strip__item">' +
+          '<span class="kpi-strip__label">' + t("dashboard.value", "Valeur") + '</span>' +
+          '<span class="kpi-strip__value">' + formatCurrency(totalValue) + '</span>' +
+        '</div>' +
       '</div>';
-    
+
+    // ----- Compose -----
+    c.innerHTML =
+      '<header class="dashboard-today">' +
+        '<p class="dashboard-today__date">' +
+          '<strong>' + t("dashboard.today", "Aujourd'hui") + '</strong> · ' + dateStr +
+        '</p>' +
+        '<div class="dashboard-today__actions">' +
+          '<button class="btn btn-secondary btn-sm" onclick="app.syncShopify()">' +
+            '<i data-lucide="refresh-cw" aria-hidden="true"></i> ' + t("dashboard.sync", "Sync") +
+          '</button>' +
+          '<button class="btn btn-primary btn-sm" onclick="app.showAddProductModal()">' +
+            '<i data-lucide="plus" aria-hidden="true"></i> ' + t("dashboard.addProduct", "Produit") +
+          '</button>' +
+        '</div>' +
+      '</header>' +
+
+      urgencyHtml +
+      kpiStrip +
+
+      // Quick actions (existing)
+      '<div class="quick-actions-bar">' +
+        '<div class="quick-actions-title"><i data-lucide="zap" aria-hidden="true"></i> ' + t("dashboard.quickActions", "Actions rapides") + '</div>' +
+        '<div class="quick-actions-buttons">' +
+          '<button class="btn btn-ghost btn-sm" onclick="app.showQuickRestockModal()"><i data-lucide="package-plus" aria-hidden="true"></i> ' + t("dashboard.quickRestock", "Réappro rapide") + '</button>' +
+          '<button class="btn btn-ghost btn-sm" onclick="app.showScannerModal()"><i data-lucide="scan-barcode" aria-hidden="true"></i> ' + t("dashboard.scanBarcode", "Scanner") + '</button>' +
+          '<button class="btn btn-ghost btn-sm" onclick="app.showQuickAdjustModal()"><i data-lucide="sliders" aria-hidden="true"></i> ' + t("dashboard.quickAdjust", "Ajustement") + '</button>' +
+          '<button class="btn btn-ghost btn-sm" onclick="app.showManualSaleModal()"><i data-lucide="shopping-cart" aria-hidden="true"></i> ' + t("dashboard.manualSale", "Vente manuelle") + '</button>' +
+          (hasFeature("hasInventoryCount") ? '<button class="btn btn-ghost btn-sm" onclick="app.navigateTo(\'inventory\')"><i data-lucide="clipboard-check" aria-hidden="true"></i> ' + t("dashboard.inventory", "Inventaire") + '</button>' : '') +
+        '</div>' +
+      '</div>' +
+
+      // Below-the-fold cards (sante / context)
+      '<div class="dashboard-grid">' +
+        '<div class="card card-activity">' +
+          '<div class="card-header"><h3 class="card-title"><i data-lucide="history" aria-hidden="true"></i> ' + t("dashboard.activityLog", "Activite recente") + '</h3>' +
+          '<button class="btn btn-ghost btn-sm" onclick="app.showFullActivityLog()">' + t("dashboard.viewAll", "Voir tout") + '</button></div>' +
+          '<div class="card-body" id="dashboardActivity"><div class="text-center py-lg"><div class="spinner"></div></div></div>' +
+        '</div>' +
+
+        '<div class="card">' +
+          '<div class="card-header"><h3 class="card-title"><i data-lucide="boxes" aria-hidden="true"></i> ' + t("dashboard.products", "Produits") + '</h3>' +
+          '<button class="btn btn-ghost btn-sm" onclick="app.navigateTo(\'products\')">' + t("dashboard.viewAll", "Voir tout") + '</button></div>' +
+          '<div class="card-body" style="padding:0">' +
+            (state.products.length ? renderTable(state.products.slice(0, 5)) : renderEmpty()) +
+          '</div>' +
+        '</div>' +
+
+        '<div class="card">' +
+          '<div class="card-header"><h3 class="card-title"><i data-lucide="activity" aria-hidden="true"></i> ' + t("dashboard.recentMovements", "Recent movements") + '</h3>' +
+          '<button class="btn btn-ghost btn-sm" onclick="app.exportMovementsCSV()" title="' + t("export.movements", "Export CSV") + '"><i data-lucide="download" aria-hidden="true"></i></button></div>' +
+          '<div class="card-body" id="dashboardMovements"><div class="text-center py-lg"><div class="spinner"></div></div></div>' +
+        '</div>' +
+      '</div>';
+
     loadDashboardActivity();
     loadDashboardMovements();
     if (typeof lucide !== "undefined") lucide.createIcons();
