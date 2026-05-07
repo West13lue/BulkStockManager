@@ -1306,17 +1306,31 @@
     var totalValue = dashProducts.reduce(function (s, p) {
       return s + (p.totalGrams || 0) * (p.averageCostPerGram || 0);
     }, 0);
+
+    // Seuils provenant des settings utilisateur (Parametres > Gestion du stock)
+    var criticalThreshold = (settingsData && settingsData.stock && Number(settingsData.stock.criticalThreshold)) || 0;
+    var lowThreshold = (settingsData && settingsData.stock && Number(settingsData.stock.lowStockThreshold)) || 0;
+    var lowAlertsEnabled = !(settingsData && settingsData.stock && settingsData.stock.lowStockEnabled === false);
+
     var outOfStockProducts = dashProducts.filter(function (p) {
-      return (p.totalGrams || 0) === 0;
+      var g = p.totalGrams || 0;
+      return g === 0 || (criticalThreshold > 0 && g < criticalThreshold);
     });
+    var lowStockProducts = (lowAlertsEnabled && lowThreshold > 0)
+      ? dashProducts.filter(function (p) {
+          var g = p.totalGrams || 0;
+          return g >= Math.max(criticalThreshold, 0) && g < lowThreshold && g > 0;
+        })
+      : [];
 
     // ----- Urgency state machine -----
-    // Rupture = critique. L'anticipation "stock bas" est traitee dans
-    // l'onglet Forecast (rate journalier + saisonnalite + lead time) qui
-    // donne une vraie evaluation du risque, contrairement a un seuil fixe.
+    // Rupture/critique base sur les seuils configures par l'utilisateur
+    // dans Parametres > Gestion du stock. Pas de seuil hardcode :
+    // l'utilisateur sait mieux que nous ce qui compte sur son catalogue.
     var isEmpty = totalProducts === 0;
     var isCritical = !isEmpty && outOfStockProducts.length > 0;
-    var isClear = !isEmpty && !isCritical;
+    var isWarning = !isEmpty && !isCritical && lowStockProducts.length > 0;
+    var isClear = !isEmpty && !isCritical && !isWarning;
 
     // ----- Date string (locale-aware) -----
     var lang = (typeof I18N !== "undefined" && I18N.getLanguage) ? I18N.getLanguage() : "fr";
@@ -1358,25 +1372,49 @@
           '</p>' +
         '</section>';
     } else {
-      // Etat critique : rupture(s) en cours
-      var outLbl = outOfStockProducts.length === 1
-        ? t("dashboard.urgency.outOfStockOne", "produit en rupture")
-        : t("dashboard.urgency.outOfStockMany", "produits en rupture");
-      var title = outOfStockProducts.length + ' ' + outLbl + '.';
+      var stateClass = isCritical ? "is-critical" : "is-warning";
+      var titleParts = [];
+      if (outOfStockProducts.length) {
+        var outLbl = outOfStockProducts.length === 1
+          ? t("dashboard.urgency.outOfStockOne", "produit en rupture/critique")
+          : t("dashboard.urgency.outOfStockMany", "produits en rupture/critique");
+        titleParts.push(outOfStockProducts.length + ' ' + outLbl);
+      }
+      if (lowStockProducts.length) {
+        titleParts.push(lowStockProducts.length + ' ' + t("dashboard.urgency.lowStock", "en stock bas"));
+      }
+      var title = titleParts.join(' · ') + '.';
 
-      var items =
-        '<button type="button" class="urgency-block__item" onclick="app.showOutOfStockModal()" ' +
-        'aria-label="' + outOfStockProducts.length + ' ' + t("dashboard.urgency.outOfStockMany", "produits en rupture") + ', ouvrir la liste">' +
-          '<i data-lucide="x-circle" class="urgency-block__item-icon" aria-hidden="true"></i>' +
-          '<span class="urgency-block__item-count" style="color:var(--danger)">' + outOfStockProducts.length + '</span>' +
-          '<span class="urgency-block__item-label">' +
-            t("dashboard.urgency.outOfStockLabel", "à réapprovisionner immédiatement") +
-          '</span>' +
-          '<i data-lucide="chevron-right" class="urgency-block__item-arrow" aria-hidden="true"></i>' +
-        '</button>';
+      var items = '';
+      if (outOfStockProducts.length) {
+        items +=
+          '<button type="button" class="urgency-block__item" onclick="app.showOutOfStockModal()" ' +
+          'aria-label="' + outOfStockProducts.length + ' produits en rupture, ouvrir la liste">' +
+            '<i data-lucide="x-circle" class="urgency-block__item-icon" aria-hidden="true"></i>' +
+            '<span class="urgency-block__item-count" style="color:var(--danger)">' + outOfStockProducts.length + '</span>' +
+            '<span class="urgency-block__item-label">' +
+              t("dashboard.urgency.outOfStockLabel", "à réapprovisionner immédiatement") +
+              (criticalThreshold > 0 ? ' <span style="opacity:0.6;font-size:11px">(stock < ' + criticalThreshold + ' g)</span>' : '') +
+            '</span>' +
+            '<i data-lucide="chevron-right" class="urgency-block__item-arrow" aria-hidden="true"></i>' +
+          '</button>';
+      }
+      if (lowStockProducts.length) {
+        items +=
+          '<button type="button" class="urgency-block__item" onclick="app.showLowStockModal()" ' +
+          'aria-label="' + lowStockProducts.length + ' produits en stock bas, ouvrir la liste">' +
+            '<i data-lucide="alert-triangle" class="urgency-block__item-icon" aria-hidden="true"></i>' +
+            '<span class="urgency-block__item-count" style="color:var(--warning)">' + lowStockProducts.length + '</span>' +
+            '<span class="urgency-block__item-label">' +
+              t("dashboard.urgency.lowStockLabel", "à anticiper avant rupture") +
+              (lowThreshold > 0 ? ' <span style="opacity:0.6;font-size:11px">(stock < ' + lowThreshold + ' g)</span>' : '') +
+            '</span>' +
+            '<i data-lucide="chevron-right" class="urgency-block__item-arrow" aria-hidden="true"></i>' +
+          '</button>';
+      }
 
       urgencyHtml =
-        '<section class="urgency-block is-critical" aria-labelledby="urgencyTitle">' +
+        '<section class="urgency-block ' + stateClass + '" aria-labelledby="urgencyTitle">' +
           '<div class="urgency-block__header"><h2 id="urgencyTitle" class="urgency-block__title">' + title + '</h2></div>' +
           '<div class="urgency-block__items">' + items + '</div>' +
         '</section>';
@@ -1458,12 +1496,17 @@
     if (typeof lucide !== "undefined") lucide.createIcons();
   }
 
-  // Modal produits stock bas
+  // Modal produits stock bas (utilise les seuils Parametres > Gestion du stock)
   function showLowStockModal() {
-    var lowStockProducts = state.products.filter(function (p) {
-      return (p.totalGrams || 0) < 100 && (p.totalGrams || 0) > 0;
-    });
-    
+    var critT = (settingsData && settingsData.stock && Number(settingsData.stock.criticalThreshold)) || 0;
+    var lowT = (settingsData && settingsData.stock && Number(settingsData.stock.lowStockThreshold)) || 100;
+    var lowStockProducts = (state.products || [])
+      .filter(function(p) { return !p.trackByUnit && !p.archived; })
+      .filter(function(p) {
+        var g = p.totalGrams || 0;
+        return g >= Math.max(critT, 0) && g < lowT && g > 0;
+      });
+
     if (lowStockProducts.length === 0) {
       showToast(t("dashboard.noLowStock", "Aucun produit en stock bas"), "success");
       return;
