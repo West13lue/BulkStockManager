@@ -741,15 +741,21 @@
   function translateNavigationLabels() {
     var navLabels = {
       "dashboard": t("nav.dashboard", "Tableau de bord"),
-      "products": t("nav.products", "Produits"),
-      "batches": t("nav.batches", "Lots et DLC"),
-      "suppliers": t("nav.suppliers", "Fournisseurs"),
-      "orders": t("nav.orders", "Commandes"),
-      "forecast": t("nav.forecast", "Previsions"),
-      "kits": t("nav.kits", "Kits et Bundles"),
-      "analytics": t("nav.analytics", "Analytics"),
+      // Parent sections (post-IA refactor)
+      "catalogue": t("nav.catalogue", "Catalogue"),
+      "achats":    t("nav.achats", "Achats"),
+      "analyse":   t("nav.analyse", "Analyse"),
+      // Standalone leaf sections
+      "batches":   t("nav.batches", "Lots et DLC"),
       "inventory": t("nav.inventory", "Inventaire"),
-      "settings": t("nav.settings", "Parametres")
+      "settings":  t("nav.settings", "Parametres"),
+      // Legacy leaf labels kept for any DOM lookup that still references them
+      "products":  t("nav.products", "Produits"),
+      "suppliers": t("nav.suppliers", "Fournisseurs"),
+      "orders":    t("nav.orders", "Commandes"),
+      "forecast":  t("nav.forecast", "Previsions"),
+      "kits":      t("nav.kits", "Kits et Bundles"),
+      "analytics": t("nav.analytics", "Analytics")
     };
     
     document.querySelectorAll(".nav-item[data-tab]").forEach(function(el) {
@@ -835,10 +841,78 @@
     }
   }
 
+  // ============================================
+  // IA: parent sections + leaf sub-views (top-rail).
+  // Parent ID lives in the sidebar; leaf IDs are kept for back-compat
+  // so existing navigateTo("products") calls still work.
+  // ============================================
+  var TAB_PARENTS = {
+    products:  "catalogue",
+    kits:      "catalogue",
+    suppliers: "achats",
+    orders:    "achats",
+    analytics: "analyse",
+    forecast:  "analyse"
+  };
+
+  var TAB_SUBVIEWS = {
+    catalogue: [
+      { id: "products", labelKey: "subtabs.products", labelFr: "Produits",      icon: "boxes",  feature: null },
+      { id: "kits",     labelKey: "subtabs.kits",     labelFr: "Kits & Bundles", icon: "puzzle", feature: "hasKits" }
+    ],
+    achats: [
+      { id: "suppliers", labelKey: "subtabs.suppliers", labelFr: "Fournisseurs", icon: "factory",       feature: "hasSuppliers" },
+      { id: "orders",    labelKey: "subtabs.orders",    labelFr: "Commandes",    icon: "clipboard-list", feature: "hasPurchaseOrders" }
+    ],
+    analyse: [
+      { id: "analytics", labelKey: "subtabs.analytics", labelFr: "Performance", icon: "bar-chart-3",  feature: "hasAnalytics" },
+      { id: "forecast",  labelKey: "subtabs.forecast",  labelFr: "Previsions",  icon: "trending-up",  feature: "hasForecast" }
+    ]
+  };
+
+  function isParentTab(tab)  { return Object.prototype.hasOwnProperty.call(TAB_SUBVIEWS, tab); }
+  function parentOf(tab)     { return TAB_PARENTS[tab] || null; }
+  function sidebarKeyFor(tab){ return TAB_PARENTS[tab] || tab; }
+
+  function firstAvailableSub(parentId) {
+    var subs = TAB_SUBVIEWS[parentId] || [];
+    for (var i = 0; i < subs.length; i++) {
+      var s = subs[i];
+      if (!s.feature || (typeof hasFeature === "function" && hasFeature(s.feature))) return s;
+    }
+    return subs[0] || null;
+  }
+
+  function buildSubrail(parentId, activeLeafId) {
+    var subs = TAB_SUBVIEWS[parentId];
+    if (!subs) return "";
+    var parts = subs.map(function (s) {
+      var locked = !!(s.feature && typeof hasFeature === "function" && !hasFeature(s.feature));
+      var active = s.id === activeLeafId;
+      var classes = "subtab" + (active ? " is-active" : "") + (locked ? " is-locked" : "");
+      var click = locked
+        ? "app.showUpgradeModal && app.showUpgradeModal()"
+        : "app.navigateTo('" + s.id + "')";
+      var label = t(s.labelKey, s.labelFr);
+      return '<button type="button" class="' + classes + '" role="tab" aria-selected="' + active + '" tabindex="' + (active ? '0' : '-1') + '" onclick="' + click + '">' +
+               '<i data-lucide="' + s.icon + '" class="subtab-icon" aria-hidden="true"></i>' +
+               '<span class="subtab-label">' + label + '</span>' +
+               (locked ? '<i data-lucide="lock" class="subtab-lock" aria-hidden="true"></i>' : '') +
+             '</button>';
+    });
+    return '<nav class="subtab-rail" role="tablist" aria-label="' + parentId + '">' + parts.join('') + '</nav>';
+  }
+
   function navigateTo(tab) {
+    // If user clicked a parent in the sidebar, redirect to the first available sub.
+    if (isParentTab(tab)) {
+      var first = firstAvailableSub(tab);
+      tab = first ? first.id : tab;
+    }
     state.currentTab = tab;
+    var sidebarKey = sidebarKeyFor(tab);
     document.querySelectorAll(".nav-item").forEach(function (el) {
-      el.classList.toggle("active", el.dataset.tab === tab);
+      el.classList.toggle("active", el.dataset.tab === sidebarKey);
     });
     closeSidebarOnMobile();
     renderTab(tab);
@@ -915,9 +989,18 @@
       default:
         renderDashboard(c);
     }
+
+    // If this leaf belongs to a merged parent section, inject the sub-rail
+    // at the top of the page so user can switch between sibling sub-views.
+    var parentId = parentOf(tab);
+    if (parentId) {
+      var rail = buildSubrail(parentId, tab);
+      if (rail) c.insertAdjacentHTML("afterbegin", rail);
+    }
+
     // Refresh Lucide icons after rendering
     if (typeof lucide !== "undefined") lucide.createIcons();
-    
+
     // Afficher tutoriel si première visite de cet onglet
     setTimeout(function() { showTabTutorialIfNeeded(tab); }, 500);
   }

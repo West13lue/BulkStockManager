@@ -1572,7 +1572,85 @@ input, select, textarea {
 }
 
 /* ============================================
-   TABS
+   SUBTAB RAIL — top-rail navigation between sibling
+   leaf views inside a merged parent section
+   (Catalogue, Achats, Analyse).
+   Style: bottom underline on active, no pill background.
+   ============================================ */
+
+.subtab-rail {
+  display: flex;
+  gap: var(--space-md);
+  align-items: stretch;
+  border-bottom: 1px solid var(--border);
+  margin: 0 0 var(--space-lg);
+  padding: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.subtab-rail::-webkit-scrollbar { display: none; }
+
+.subtab {
+  appearance: none;
+  background: transparent;
+  border: none;
+  font: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 4px;
+  margin-bottom: -1px; /* overlap parent border so active underline replaces it */
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  color: var(--text-secondary);
+  border-bottom: 2px solid transparent;
+  white-space: nowrap;
+  transition: color var(--transition-fast), border-color var(--transition-fast);
+}
+
+.subtab:hover {
+  color: var(--text-primary);
+}
+
+.subtab.is-active {
+  color: var(--text-primary);
+  border-bottom-color: var(--accent-primary);
+}
+
+.subtab.is-locked {
+  color: var(--text-tertiary);
+  cursor: pointer;
+}
+
+.subtab.is-locked:hover {
+  color: var(--text-secondary);
+}
+
+.subtab-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.subtab-lock {
+  width: 12px;
+  height: 12px;
+  margin-left: 2px;
+  opacity: 0.7;
+}
+
+.subtab:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  border-radius: var(--radius-sm);
+}
+
+/* ============================================
+   TABS (pill style — used inside content, e.g.
+   analytics period switch, orders status filter)
    ============================================ */
 
 .tabs {
