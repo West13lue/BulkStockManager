@@ -1860,8 +1860,8 @@
         '<div class="form-row" style="display:flex;gap:12px">' +
         '<div class="form-group" style="flex:1"><label>' + t("products.quantity", "Quantité") + ' (' + weightUnit + ')</label>' +
         '<input type="number" id="quickRestockQty" class="form-input" placeholder="0" min="0" step="0.1" onchange="app.updateQuickRestockTotal()"></div>' +
-        '<div class="form-group" style="flex:1"><label>' + t("products.purchasePrice", "Prix d\'achat") + ' (' + currencySymbol + '/' + weightUnit + ')</label>' +
-        '<input type="number" id="quickRestockPrice" class="form-input" placeholder="0.00" min="0" step="0.01" onchange="app.updateQuickRestockTotal()"></div>' +
+        '<div class="form-group" style="flex:1"><label>' + t("products.purchasePrice", "Prix d\'achat") + ' (' + currencySymbol + '/' + weightUnit + ') <span class="text-danger">*</span></label>' +
+        '<input type="number" id="quickRestockPrice" class="form-input" placeholder="0.00" min="0.01" step="0.01" required onchange="app.updateQuickRestockTotal()"></div>' +
         '</div>' +
         '<div class="form-group" id="quickRestockTotalContainer" style="display:none">' +
         '<div class="quick-restock-summary" style="background:var(--bg-tertiary);padding:12px;border-radius:var(--radius-md)">' +
@@ -1915,10 +1915,15 @@
 
     if (!productId) { showToast(t("msg.selectProduct", "Sélectionnez un produit"), "error"); return; }
     if (qty <= 0) { showToast(t("msg.invalidQty", "Quantité invalide"), "error"); return; }
+    if (price <= 0) {
+      showToast(t("msg.purchasePriceRequired", "Prix d'achat requis pour actualiser le CMP"), "error");
+      var pi = document.getElementById('quickRestockPrice');
+      if (pi) pi.focus();
+      return;
+    }
 
     var qtyInGrams = toGrams(qty);
-    var data = { grams: qtyInGrams, note: note };
-    if (price > 0) data.purchasePricePerGram = price;
+    var data = { grams: qtyInGrams, note: note, purchasePricePerGram: price };
     if (activeProfile) {
       data.profileId = activeProfile.id;
       data.profileName = activeProfile.name;
