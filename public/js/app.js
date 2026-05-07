@@ -1452,6 +1452,7 @@
     var kpiStrip =
       '<div class="kpi-strip" role="group" aria-label="' + t("dashboard.kpis", "Indicateurs") + '">' +
         '<button type="button" class="kpi-strip__item is-link" onclick="app.navigateTo(\'products\')" ' +
+        'data-tooltip="' + t("tooltip.kpiProducts", "Ouvrir le catalogue complet") + '" data-tooltip-pos="bottom" ' +
         'aria-label="' + totalProducts + ' ' + t("dashboard.products", "Produits") + ', ouvrir la liste">' +
           '<span class="kpi-strip__label">' + t("dashboard.products", "Produits") + '</span>' +
           '<span class="kpi-strip__value">' + totalProducts + '</span>' +
@@ -1466,12 +1467,12 @@
         '</div>' +
         // Slots ventes 7j et commandes 7j (rendus async si plan PRO+)
         (hasFeature("hasAnalytics")
-          ? '<div class="kpi-strip__item is-link" id="kpiSales7" role="button" tabindex="0" onclick="app.navigateTo(\'analytics\')" aria-label="' + t("dashboard.sales7d", "Ventes 7j") + '">' +
+          ? '<div class="kpi-strip__item is-link" id="kpiSales7" role="button" tabindex="0" onclick="app.navigateTo(\'analytics\')" data-tooltip="' + t("tooltip.kpiSales7", "Chiffre d\'affaires net des 7 derniers jours - cliquer pour ouvrir Analytics") + '" data-tooltip-pos="bottom" aria-label="' + t("dashboard.sales7d", "Ventes 7j") + '">' +
               '<span class="kpi-strip__label"><i data-lucide="trending-up" aria-hidden="true"></i> ' + t("dashboard.sales7d", "Ventes 7j") + '</span>' +
               '<span class="kpi-strip__value" id="kpiSales7Value">—</span>' +
               '<div class="kpi-strip__sparkline" id="kpiSales7Spark"></div>' +
             '</div>' +
-            '<div class="kpi-strip__item is-link" id="kpiOrders7" role="button" tabindex="0" onclick="app.navigateTo(\'analytics\')" aria-label="' + t("dashboard.orders7d", "Commandes 7j") + '">' +
+            '<div class="kpi-strip__item is-link" id="kpiOrders7" role="button" tabindex="0" onclick="app.navigateTo(\'analytics\')" data-tooltip="' + t("tooltip.kpiOrders7", "Nombre de commandes des 7 derniers jours - cliquer pour ouvrir Analytics") + '" data-tooltip-pos="bottom" aria-label="' + t("dashboard.orders7d", "Commandes 7j") + '">' +
               '<span class="kpi-strip__label"><i data-lucide="shopping-bag" aria-hidden="true"></i> ' + t("dashboard.orders7d", "Commandes 7j") + '</span>' +
               '<span class="kpi-strip__value" id="kpiOrders7Value">—</span>' +
               '<div class="kpi-strip__sparkline" id="kpiOrders7Spark"></div>' +
@@ -1487,7 +1488,8 @@
     // ----- CTA principal du header : Réappro rapide (action #1 du matin) -----
     var primaryCta = isEmpty
       ? ''
-      : '<button class="btn btn-primary btn-sm" onclick="app.showQuickRestockModal()">' +
+      : '<button class="btn btn-primary btn-sm" onclick="app.showQuickRestockModal()" ' +
+          'data-tooltip="' + t("tooltip.quickRestock", "Ajouter du stock et mettre a jour le CMP du produit") + '" data-tooltip-pos="bottom">' +
           '<i data-lucide="package-plus" aria-hidden="true"></i> ' + t("dashboard.quickRestock", "Réappro rapide") +
         '</button>';
 
@@ -1511,7 +1513,7 @@
         '<div class="card">' +
           '<div class="card-header">' +
             '<h3 class="card-title"><i data-lucide="calendar-clock" aria-hidden="true"></i> ' + t("dashboard.expiringBatches", "Lots qui expirent < 30j") + '</h3>' +
-            '<button class="btn btn-ghost btn-sm" onclick="app.navigateTo(\'batches\')">' + t("dashboard.viewAll", "Voir tout") + '</button>' +
+            '<button class="btn btn-ghost btn-sm" onclick="app.navigateTo(\'batches\')" data-tooltip="' + t("tooltip.viewAllBatches", "Voir tous les lots avec leurs DLC/DLUO") + '" data-tooltip-pos="left">' + t("dashboard.viewAll", "Voir tout") + '</button>' +
           '</div>' +
           '<div class="card-body" id="dashboardExpiringBatches"><div class="text-center py-lg"><div class="spinner"></div></div></div>' +
         '</div>';
@@ -1523,7 +1525,7 @@
         '<div class="dashboard-today__meta">' +
           '<p style="margin:0"><strong>' + t("dashboard.today", "Aujourd'hui") + '</strong> · ' + dateStr + '</p>' +
           '<button type="button" class="dashboard-today__sync' + (sync.stale ? ' is-stale' : '') + '" onclick="app.syncShopifyProducts()" ' +
-            'title="' + t("dashboard.syncTitle", "Cliquer pour synchroniser maintenant") + '" aria-label="' + esc(sync.label) + '">' +
+            'data-tooltip="' + t("tooltip.syncShopify", "Synchroniser produits, stocks et variantes depuis Shopify") + '" data-tooltip-pos="bottom" aria-label="' + esc(sync.label) + '">' +
             '<i data-lucide="refresh-cw" aria-hidden="true"></i>' +
             '<span>' + esc(sync.label) + '</span>' +
           '</button>' +
@@ -1538,12 +1540,12 @@
       '<div class="quick-actions-bar">' +
         '<div class="quick-actions-title"><i data-lucide="zap" aria-hidden="true"></i> ' + t("dashboard.quickActions", "Actions rapides") + '</div>' +
         '<div class="quick-actions-buttons">' +
-          '<button class="btn btn-ghost btn-sm" onclick="app.showQuickRestockModal()"><i data-lucide="package-plus" aria-hidden="true"></i> ' + t("dashboard.quickRestock", "Réappro rapide") + '</button>' +
-          '<button class="btn btn-ghost btn-sm" onclick="app.showScannerModal()"><i data-lucide="scan-barcode" aria-hidden="true"></i> ' + t("dashboard.scanBarcode", "Scanner") + '</button>' +
-          '<button class="btn btn-ghost btn-sm" onclick="app.showQuickAdjustModal()"><i data-lucide="sliders" aria-hidden="true"></i> ' + t("dashboard.quickAdjust", "Ajustement") + '</button>' +
-          '<button class="btn btn-ghost btn-sm" onclick="app.showManualSaleModal()"><i data-lucide="shopping-cart" aria-hidden="true"></i> ' + t("dashboard.manualSale", "Vente manuelle") + '</button>' +
-          (hasFeature("hasInventoryCount") ? '<button class="btn btn-ghost btn-sm" onclick="app.navigateTo(\'inventory\')"><i data-lucide="clipboard-check" aria-hidden="true"></i> ' + t("dashboard.inventory", "Inventaire") + '</button>' : '') +
-          '<button class="btn btn-ghost btn-sm" onclick="app.showAddProductModal()"><i data-lucide="plus" aria-hidden="true"></i> ' + t("dashboard.addProduct", "Produit") + '</button>' +
+          '<button class="btn btn-ghost btn-sm" onclick="app.showQuickRestockModal()" data-tooltip="' + t("tooltip.quickRestock", "Ajouter du stock et mettre a jour le CMP du produit") + '"><i data-lucide="package-plus" aria-hidden="true"></i> ' + t("dashboard.quickRestock", "Réappro rapide") + '</button>' +
+          '<button class="btn btn-ghost btn-sm" onclick="app.showScannerModal()" data-tooltip="' + t("tooltip.scanner", "Scanner un code-barre pour acceder rapidement au produit") + '"><i data-lucide="scan-barcode" aria-hidden="true"></i> ' + t("dashboard.scanBarcode", "Scanner") + '</button>' +
+          '<button class="btn btn-ghost btn-sm" onclick="app.showQuickAdjustModal()" data-tooltip="' + t("tooltip.quickAdjust", "Corriger le stock (vol, casse, comptage) sans toucher au CMP") + '"><i data-lucide="sliders" aria-hidden="true"></i> ' + t("dashboard.quickAdjust", "Ajustement") + '</button>' +
+          '<button class="btn btn-ghost btn-sm" onclick="app.showManualSaleModal()" data-tooltip="' + t("tooltip.manualSale", "Enregistrer une vente effectuee hors Shopify (boutique physique, etc.)") + '"><i data-lucide="shopping-cart" aria-hidden="true"></i> ' + t("dashboard.manualSale", "Vente manuelle") + '</button>' +
+          (hasFeature("hasInventoryCount") ? '<button class="btn btn-ghost btn-sm" onclick="app.navigateTo(\'inventory\')" data-tooltip="' + t("tooltip.inventory", "Lancer une session d\'inventaire physique") + '"><i data-lucide="clipboard-check" aria-hidden="true"></i> ' + t("dashboard.inventory", "Inventaire") + '</button>' : '') +
+          '<button class="btn btn-ghost btn-sm" onclick="app.showAddProductModal()" data-tooltip="' + t("tooltip.addProduct", "Creer un nouveau produit dans le catalogue") + '"><i data-lucide="plus" aria-hidden="true"></i> ' + t("dashboard.addProduct", "Produit") + '</button>' +
         '</div>' +
       '</div>' +
 
@@ -1553,8 +1555,8 @@
           '<div class="card-header">' +
             '<h3 class="card-title"><i data-lucide="history" aria-hidden="true"></i> ' + t("dashboard.activityLog", "Activite recente") + '</h3>' +
             '<div style="display:flex;gap:8px;align-items:center">' +
-              '<button class="btn btn-ghost btn-sm" onclick="app.exportMovementsCSV()" title="' + t("export.movements", "Export CSV") + '" aria-label="' + t("export.movements", "Export CSV") + '"><i data-lucide="download" aria-hidden="true"></i></button>' +
-              '<button class="btn btn-ghost btn-sm" onclick="app.showFullActivityLog()">' + t("dashboard.viewAll", "Voir tout") + '</button>' +
+              '<button class="btn btn-ghost btn-sm" onclick="app.exportMovementsCSV()" data-tooltip="' + t("tooltip.exportCsv", "Exporter l\'historique des mouvements en CSV") + '" data-tooltip-pos="left" aria-label="' + t("export.movements", "Export CSV") + '"><i data-lucide="download" aria-hidden="true"></i></button>' +
+              '<button class="btn btn-ghost btn-sm" onclick="app.showFullActivityLog()" data-tooltip="' + t("tooltip.viewAllActivity", "Voir l\'historique complet de tous les mouvements") + '" data-tooltip-pos="left">' + t("dashboard.viewAll", "Voir tout") + '</button>' +
             '</div>' +
           '</div>' +
           '<div class="activity-tabs" role="tablist" id="dashboardActivityTabs">' +
@@ -1572,7 +1574,7 @@
             '<h3 class="card-title"><i data-lucide="boxes" aria-hidden="true"></i> ' + t("dashboard.watchlistTitle", "Stocks à surveiller") +
               (watchlistProducts.length ? ' <span class="badge-count" style="margin-left:6px">' + watchlistProducts.length + '</span>' : '') +
             '</h3>' +
-            '<button class="btn btn-ghost btn-sm" onclick="app.navigateTo(\'products\')">' + t("dashboard.viewAll", "Voir tout") + '</button>' +
+            '<button class="btn btn-ghost btn-sm" onclick="app.navigateTo(\'products\')" data-tooltip="' + t("tooltip.viewAllProducts", "Ouvrir le catalogue complet trie par stock croissant") + '" data-tooltip-pos="left">' + t("dashboard.viewAll", "Voir tout") + '</button>' +
           '</div>' +
           '<div class="card-body" style="padding:0">' + watchlistHtml + '</div>' +
         '</div>' +
