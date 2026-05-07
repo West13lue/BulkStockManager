@@ -4265,8 +4265,8 @@
       
       // Tabs Achats / Ventes
       '<div class="orders-tabs">' +
-      (hasPurchases ? '<button class="orders-tab' + (ordersTab === "purchases" ? " active" : "") + '" onclick="app.switchOrdersTab(\'purchases\')"><i data-lucide="shopping-bag"></i> ' + t("orders.tabPurchases", "Achats") + '</button>' : '') +
-      (hasSales ? '<button class="orders-tab' + (ordersTab === "sales" ? " active" : "") + '" onclick="app.switchOrdersTab(\'sales\')"><i data-lucide="receipt"></i> ' + t("orders.tabSales", "Ventes") + '</button>' : '') +
+      (hasPurchases ? '<button class="orders-tab' + (ordersTab === "purchases" ? " active" : "") + '" data-orders-tab="purchases" onclick="app.switchOrdersTab(\'purchases\')"><i data-lucide="shopping-bag"></i> ' + t("orders.tabPurchases", "Achats") + '</button>' : '') +
+      (hasSales ? '<button class="orders-tab' + (ordersTab === "sales" ? " active" : "") + '" data-orders-tab="sales" onclick="app.switchOrdersTab(\'sales\')"><i data-lucide="receipt"></i> ' + t("orders.tabSales", "Ventes") + '</button>' : '') +
       '</div>' +
       
       '<div id="ordersKpis"><div class="text-center py-lg"><div class="spinner"></div></div></div>' +
@@ -4282,10 +4282,12 @@
 
   function switchOrdersTab(tab) {
     ordersTab = tab;
+    // Matching fiable via data-orders-tab plutot que textContent
+    // (qui casse a la moindre traduction des labels Achats/Ventes).
     document.querySelectorAll(".orders-tab").forEach(function(btn) {
-      btn.classList.toggle("active", btn.textContent.toLowerCase().includes(tab === "purchases" ? "achat" : "vente"));
+      btn.classList.toggle("active", btn.dataset.ordersTab === tab);
     });
-    
+
     if (tab === "purchases") {
       loadPurchaseOrders();
     } else {
@@ -4853,7 +4855,7 @@
 
   async function openPODetails(poId) {
     try {
-      var res = await authFetch(apiUrl("/purchase-orders/" + poId));
+      var res = await authFetch(apiUrl("/purchase-orders/" + encodeURIComponent(poId)));
       if (!res.ok) throw new Error("Commande non trouvee");
 
       var data = await res.json();
@@ -4875,11 +4877,11 @@
 
       var actionsHtml = '';
       if (po.status === 'draft') {
-        actionsHtml = '<button class="btn btn-primary" onclick="app.sendPO(\'' + po.id + '\')">' + t("orders.send", "Envoyer") + '</button>';
+        actionsHtml = '<button class="btn btn-primary" onclick="app.sendPO(\'' + esc(po.id) + '\')">' + t("orders.send", "Envoyer") + '</button>';
       } else if (po.status === 'sent') {
-        actionsHtml = '<button class="btn btn-primary" onclick="app.confirmPO(\'' + po.id + '\')">' + t("orders.confirm", "Confirmer") + '</button>';
+        actionsHtml = '<button class="btn btn-primary" onclick="app.confirmPO(\'' + esc(po.id) + '\')">' + t("orders.confirm", "Confirmer") + '</button>';
       } else if (['sent', 'confirmed', 'partial'].includes(po.status)) {
-        actionsHtml = '<button class="btn btn-primary" onclick="app.showReceivePOModal(\'' + po.id + '\')">' + t("orders.receive", "Recevoir") + '</button>';
+        actionsHtml = '<button class="btn btn-primary" onclick="app.showReceivePOModal(\'' + esc(po.id) + '\')">' + t("orders.receive", "Recevoir") + '</button>';
       }
 
       showModal({
@@ -4903,8 +4905,8 @@
           '<th>' + t("orders.received", "Recu") + '</th>' +
           '</tr></thead><tbody>' + linesHtml + '</tbody></table>' +
           '<div class="po-total-section">' +
-          '<div class="po-total-row"><span>Sous-total:</span><span>' + formatCurrency(po.subtotal || 0) + '</span></div>' +
-          (po.shippingCost ? '<div class="po-total-row"><span>Frais de port:</span><span>' + formatCurrency(po.shippingCost) + '</span></div>' : '') +
+          '<div class="po-total-row"><span>' + t("orders.subtotal", "Sous-total") + ':</span><span>' + formatCurrency(po.subtotal || 0) + '</span></div>' +
+          (po.shippingCost ? '<div class="po-total-row"><span>' + t("orders.shipping", "Frais de port") + ':</span><span>' + formatCurrency(po.shippingCost) + '</span></div>' : '') +
           '<div class="po-total-row po-total-final"><span>' + t("orders.total", "Total") + ':</span><span>' + formatCurrency(po.total || 0) + '</span></div>' +
           '</div>',
         footer:
@@ -4917,9 +4919,14 @@
     }
   }
 
+  // Helper local : URL d'une PO (toujours encodee).
+  function _poUrl(poId, suffix) {
+    return "/purchase-orders/" + encodeURIComponent(poId) + (suffix || "");
+  }
+
   async function sendPO(poId) {
     try {
-      await authFetch(apiUrl("/purchase-orders/" + poId + "/send"), { method: "POST" });
+      await authFetch(apiUrl(_poUrl(poId, "/send")), { method: "POST" });
       closeModal();
       showToast(t("orders.poSent", "Commande envoyee"), "success");
       loadPurchaseOrders();
@@ -4930,7 +4937,7 @@
 
   async function confirmPO(poId) {
     try {
-      await authFetch(apiUrl("/purchase-orders/" + poId + "/confirm"), { method: "POST" });
+      await authFetch(apiUrl(_poUrl(poId, "/confirm")), { method: "POST" });
       closeModal();
       showToast(t("orders.poConfirmed", "Commande confirmee"), "success");
       loadPurchaseOrders();
@@ -4939,22 +4946,16 @@
     }
   }
 
-  async function receivePO(poId) {
-    try {
-      var res = await authFetch(apiUrl("/purchase-orders/" + poId + "/receive"), { method: "POST" });
-      if (!res.ok) throw new Error((await res.json().catch(function(){return {};}).message || "Erreur"));
-      closeModal();
-      showToast(t("orders.poReceived", "Commande receptionnee - stock mis a jour"), "success");
-      loadPurchaseOrders();
-    } catch (e) {
-      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
-    }
-  }
+  // (Une premiere version de receivePO existait ici sans lecture du textarea
+  // "receiveNotes" et avec une chaine de Promise buggee
+  // `res.json().catch(...).message` qui lisait .message sur la Promise au lieu
+  // de la valeur resolue. Elle etait silencieusement ecrasee plus bas par la
+  // vraie implementation qui lit les notes et envoie un body. Supprimee.)
 
   async function cancelPO(poId) {
     var _ok = await showConfirmDialog(t("orders.confirmCancel", "Annuler cette commande ?"), {danger: true}); if (!_ok) return;
     try {
-      var res = await authFetch(apiUrl("/purchase-orders/" + poId + "/cancel"), { method: "POST" });
+      var res = await authFetch(apiUrl(_poUrl(poId, "/cancel")), { method: "POST" });
       if (!res.ok) throw new Error("Erreur");
       closeModal();
       showToast(t("orders.poCancelled", "Commande annulee"), "success");
@@ -4968,9 +4969,10 @@
 
   async function loadSalesOrders() {
     try {
-      var days = ordersFilters.period || "30";
+      var days = parseInt(ordersFilters.period, 10);
+      if (!Number.isFinite(days) || days <= 0) days = 30;
       var from = new Date();
-      from.setDate(from.getDate() - parseInt(days));
+      from.setDate(from.getDate() - days);
 
       var res = await authFetch(apiUrl("/sales-orders?from=" + from.toISOString().slice(0, 10) + "&limit=100"));
       if (!res.ok) throw new Error("Erreur");
@@ -4981,7 +4983,7 @@
       renderSalesTable();
     } catch (e) {
       document.getElementById("ordersContent").innerHTML =
-        '<div class="card"><div class="card-body text-center"><p class="text-danger">' + e.message + '</p></div></div>';
+        '<div class="card"><div class="card-body text-center"><p class="text-danger">' + esc(e.message) + '</p></div></div>';
     }
   }
 
@@ -5087,7 +5089,7 @@
   // Détails d'une commande de vente
   async function openSODetails(orderId) {
     try {
-      var res = await authFetch(apiUrl("/sales-orders/" + orderId));
+      var res = await authFetch(apiUrl("/sales-orders/" + encodeURIComponent(orderId)));
       if (!res.ok) throw new Error("Commande non trouvee");
       var data = await res.json();
       var so = data.order || data;
@@ -5156,15 +5158,15 @@
         '</div>',
       footer:
         '<button class="btn btn-secondary" onclick="app.closeModal()">' + t("action.cancel", "Annuler") + '</button>' +
-        '<button class="btn btn-primary" onclick="app.receivePO(\'' + poId + '\')">' + t("orders.confirmReceive", "Confirmer reception") + '</button>'
+        '<button class="btn btn-primary" onclick="app.receivePO(\'' + esc(poId) + '\')">' + t("orders.confirmReceive", "Confirmer reception") + '</button>'
     });
   }
 
   async function receivePO(poId) {
     var notes = (document.getElementById("receiveNotes") || {}).value || "";
-    
+
     try {
-      var res = await authFetch(apiUrl("/purchase-orders/" + poId + "/receive"), {
+      var res = await authFetch(apiUrl(_poUrl(poId, "/receive")), {
         method: "POST",
         body: JSON.stringify({ notes: notes })
       });
@@ -5185,7 +5187,7 @@
   // Modal pour lier un produit à un fournisseur
   function showLinkProductModal(supplierId) {
     var productOptions = (state.products || []).map(function(p) {
-      return '<option value="' + p.productId + '">' + esc(p.name) + '</option>';
+      return '<option value="' + esc(p.productId) + '">' + esc(p.name) + '</option>';
     }).join('');
     
     showModal({
