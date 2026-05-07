@@ -34,6 +34,7 @@
     'toggleProductSelect', 'toggleSelectAll', 'deleteSelectedProducts', 'clearProductSelection',
     'toggleBatchSection', 'calcPurchaseTotal', 'calcCmpFromTotal',
     'showEditCMPModal', 'saveCMP',
+    'showProductOverrideModal', 'saveProductOverride', 'resetProductOverride',
     'onSearchChange', 'onCategoryChange', 'onSortChange', 'sortByColumn', 'showCategoriesModal',
     'createCategory', 'deleteCategory', 'renameCategory', 'showRenameCategoryModal',
     'showAssignCategoriesModal', 'saveProductCategories',
@@ -8350,6 +8351,7 @@
       '<button class="btn btn-primary btn-sm" onclick="app.closeModal();app.showRestockModal(\'' + p.productId + '\')"><i data-lucide="package-plus"></i> ' + t("action.restock", "Reappro") + '</button>' +
       '<button class="btn btn-secondary btn-sm" onclick="app.closeModal();app.showAdjustModal(\'' + p.productId + '\')"><i data-lucide="sliders"></i> ' + t("action.adjust", "Ajuster") + '</button>' +
       '<button class="btn btn-ghost btn-sm" onclick="app.showEditCMPModal(\'' + p.productId + '\',' + p.averageCostPerGram + ')"><i data-lucide="coins"></i> ' + t("action.editCMP", "Modifier CMP") + '</button>' +
+      '<button class="btn btn-ghost btn-sm" onclick="app.showProductOverrideModal(\'' + p.productId + '\')"><i data-lucide="settings-2"></i> ' + t("products.config", "Configuration") + '</button>' +
       (hasFeature("hasBatchTracking") ? '<button class="btn btn-ghost btn-sm" onclick="app.closeModal();app.showAddBatchForProduct(\'' + p.productId + '\',\'' + esc(p.name).replace(/'/g, "\\'") + '\')"><i data-lucide="layers"></i> + ' + t("batches.addBatch", "Lot") + '</button>' : '') +
       '</div>' +
 
@@ -8581,6 +8583,119 @@
       }
     } catch (e) {
       showToast(t("msg.error", "Error") + ": " + e.message, "error");
+    }
+  }
+
+  // ============================================
+  // Product overrides : poids fixe / suivi a l'unite
+  // ============================================
+  async function showProductOverrideModal(productId) {
+    var product = (state.products || []).find(function(p) {
+      return String(p.productId || p.id) === String(productId);
+    });
+    var productName = product ? (product.name || product.title || productId) : productId;
+    var current = (product && product.override) || {};
+    var currentGrams = Number(current.gramsPerUnit) || 0;
+    var currentTrack = current.trackByUnit === true;
+
+    closeModal();
+    showModal({
+      title: t("products.configFor", "Configuration") + ' — ' + escPlain(productName),
+      size: "md",
+      content:
+        '<p class="text-secondary mb-md" style="font-size:13px">' +
+        t("products.configHint", "A utiliser quand le poids des variantes ne peut pas etre devine depuis leur titre (joints pre-roules, packs, accessoires).") +
+        '</p>' +
+
+        '<div class="form-group">' +
+        '<label class="form-label" style="display:flex;align-items:center;gap:8px;cursor:pointer">' +
+        '<input type="checkbox" id="ovrTrackByUnit" ' + (currentTrack ? 'checked' : '') + '>' +
+        '<span><strong>' + t("products.trackByUnit", "Suivi a l'unite") + '</strong> — ' +
+        t("products.trackByUnitHint", "Produit non vendu au gramme (accessoires, briquets, grinders).") +
+        '</span></label>' +
+        '</div>' +
+
+        '<div class="form-group" id="ovrGramsGroup">' +
+        '<label class="form-label">' + t("products.fixedGrams", "Poids fixe par unite (grammes)") + '</label>' +
+        '<input type="number" class="form-input" id="ovrGramsPerUnit" min="0" step="0.1" placeholder="0,5" value="' + (currentGrams > 0 ? currentGrams : '') + '">' +
+        '<p class="form-hint">' + t("products.fixedGramsHint", "Ex : 0,5 pour un joint pre-roule, 7,5 pour un pack 7,5g. Laisser vide pour utiliser le parsing automatique.") + '</p>' +
+        '</div>',
+      footer:
+        (currentGrams > 0 || currentTrack
+          ? '<button class="btn btn-ghost" onclick="app.resetProductOverride(\'' + productId + '\')" style="margin-right:auto;color:var(--danger)"><i data-lucide="trash-2"></i> ' + t("action.reset", "Reinitialiser") + '</button>'
+          : '') +
+        '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.cancel", "Annuler") + '</button>' +
+        '<button class="btn btn-primary" onclick="app.saveProductOverride(\'' + productId + '\')">' + t("action.save", "Enregistrer") + '</button>'
+    });
+
+    // Toggle masque le champ grams quand trackByUnit est coche
+    var trackInput = document.getElementById("ovrTrackByUnit");
+    var gramsGroup = document.getElementById("ovrGramsGroup");
+    function syncGramsVisibility() {
+      if (trackInput && gramsGroup) {
+        gramsGroup.style.opacity = trackInput.checked ? "0.4" : "1";
+        gramsGroup.style.pointerEvents = trackInput.checked ? "none" : "auto";
+      }
+    }
+    if (trackInput) {
+      trackInput.addEventListener("change", syncGramsVisibility);
+      syncGramsVisibility();
+    }
+  }
+
+  async function saveProductOverride(productId) {
+    var trackEl = document.getElementById("ovrTrackByUnit");
+    var gramsEl = document.getElementById("ovrGramsPerUnit");
+    var trackByUnit = trackEl ? Boolean(trackEl.checked) : false;
+    var gramsRaw = gramsEl ? gramsEl.value : "";
+    var gramsPerUnit = gramsRaw === "" ? null : parseFloat(gramsRaw);
+    if (gramsPerUnit !== null && (!Number.isFinite(gramsPerUnit) || gramsPerUnit < 0)) {
+      showToast(t("msg.invalidValue", "Valeur invalide"), "error");
+      return;
+    }
+
+    try {
+      var res = await authFetch(apiUrl("/products/" + encodeURIComponent(productId) + "/override"), {
+        method: "PATCH",
+        body: JSON.stringify({
+          trackByUnit: trackByUnit,
+          gramsPerUnit: trackByUnit ? null : (gramsPerUnit || null)
+        }),
+      });
+      if (res.ok) {
+        showToast(t("products.configSaved", "Configuration enregistree. Lance une sync pour appliquer."), "success");
+        closeModal();
+        await loadProducts(true);
+        renderTab(state.currentTab);
+      } else {
+        var e = await res.json().catch(function() { return {}; });
+        showToast(e.error || t("msg.error", "Erreur"), "error");
+      }
+    } catch (e) {
+      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
+    }
+  }
+
+  async function resetProductOverride(productId) {
+    var ok = await showConfirmDialog(
+      t("products.resetConfirm", "Reinitialiser la configuration de ce produit ? La prochaine sync re-analysera les variantes automatiquement."),
+      { danger: true }
+    );
+    if (!ok) return;
+    try {
+      var res = await authFetch(apiUrl("/products/" + encodeURIComponent(productId) + "/override"), {
+        method: "DELETE",
+      });
+      if (res.ok) {
+        showToast(t("products.configReset", "Configuration reinitialisee"), "success");
+        closeModal();
+        await loadProducts(true);
+        renderTab(state.currentTab);
+      } else {
+        showToast(t("msg.error", "Erreur"), "error");
+      }
+    } catch (e) {
+      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
     }
   }
 
@@ -9634,6 +9749,9 @@
     calcCmpFromTotal: calcCmpFromTotal,
     showEditCMPModal: showEditCMPModal,
     saveCMP: saveCMP,
+    showProductOverrideModal: showProductOverrideModal,
+    saveProductOverride: saveProductOverride,
+    resetProductOverride: resetProductOverride,
     // Filtres
     onSearchChange: onSearchChange,
     onCategoryChange: onCategoryChange,

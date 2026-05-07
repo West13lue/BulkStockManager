@@ -149,6 +149,19 @@ try {
   };
 }
 
+// --- Product Overrides (poids fixe ou suivi a l'unite par produit)
+let productOverridesStore = null;
+try {
+  productOverridesStore = require("./productOverridesStore");
+} catch (e) {
+  productOverridesStore = {
+    getOverride: () => null,
+    setOverride: () => null,
+    removeOverride: () => false,
+    listOverrides: () => ({}),
+  };
+}
+
 // --- Kit Store (Kits & Bundles)
 let kitStore = null;
 try {
@@ -515,14 +528,15 @@ function safeJson(req, res, fn) {
   }
 }
 
-function parseGramsFromVariant(v) {
+function parseGramsFromVariant(v, productTitle) {
   // 1) Priorité: utiliser le champ "grams" de Shopify (toujours en grammes)
   if (v?.grams && Number.isFinite(Number(v.grams)) && Number(v.grams) > 0) {
     return Number(v.grams);
   }
-  
+
   // 2) Sinon: parser depuis option1/option2/option3/title/sku avec détection de l'unité
-  const candidates = [v?.option1, v?.option2, v?.option3, v?.title, v?.sku].filter(Boolean);
+  // Fallback final: product.title (utile pour les packs nommes "Pack 7,5g" avec variante "Default Title")
+  const candidates = [v?.option1, v?.option2, v?.option3, v?.title, v?.sku, productTitle].filter(Boolean);
   
   // Facteurs de conversion vers grammes
   const unitFactors = {
@@ -897,6 +911,25 @@ router.get("/api/stock", (req, res) => {
     const snapshot = stock.getCatalogSnapshot ? stock.getCatalogSnapshot(shop) : { products: [], categories: [] };
     const categoriesList = catalogStore.listCategories ? catalogStore.listCategories(shop) : [];
     let products = Array.isArray(snapshot.products) ? snapshot.products.slice() : [];
+
+    // Decorer chaque produit avec son override (gramsPerUnit fixe ou suivi a l'unite)
+    // Quand trackByUnit=true : remplacer totalGrams par le compteur d'unites pour
+    // que le frontend affiche "X unites" plutot que "X g" (les variantes ont
+    // ete enregistrees avec gramsPerUnit=1 par la sync).
+    const overridesMap = (productOverridesStore.listOverrides && productOverridesStore.listOverrides(shop)) || {};
+    products = products.map((p) => {
+      const ovr = overridesMap[String(p.productId || p.id || "")];
+      if (!ovr) return p;
+      const enriched = { ...p, override: ovr };
+      if (ovr.trackByUnit) {
+        enriched.trackByUnit = true;
+        enriched.unitCount = Number(p.totalGrams || 0); // sync stocke gramsPerUnit=1, donc totalGrams = nb unites
+      }
+      if (Number(ovr.gramsPerUnit) > 0) {
+        enriched.gramsPerUnitOverride = Number(ovr.gramsPerUnit);
+      }
+      return enriched;
+    });
 
     // Filtre par recherche (nom produit)
     if (q && q.trim()) {
@@ -1586,6 +1619,48 @@ router.patch("/api/products/:productId/average-cost", (req, res) => {
   });
 });
 
+// =====================================================
+// Product overrides : poids fixe / suivi a l'unite
+// =====================================================
+router.get("/api/products/:productId/override", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    const productId = String(req.params.productId);
+    const ovr = productOverridesStore.getOverride(shop, productId) || null;
+    res.json({ productId, override: ovr });
+  });
+});
+
+router.patch("/api/products/:productId/override", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    const productId = String(req.params.productId);
+    const patch = {};
+    if (req.body && Object.prototype.hasOwnProperty.call(req.body, "gramsPerUnit")) {
+      patch.gramsPerUnit = req.body.gramsPerUnit;
+    }
+    if (req.body && Object.prototype.hasOwnProperty.call(req.body, "trackByUnit")) {
+      patch.trackByUnit = Boolean(req.body.trackByUnit);
+    }
+    const next = productOverridesStore.setOverride(shop, productId, patch);
+    logEvent("product_override_updated", { shop, productId, patch });
+    res.json({ productId, override: next });
+  });
+});
+
+router.delete("/api/products/:productId/override", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    const productId = String(req.params.productId);
+    const removed = productOverridesStore.removeOverride(shop, productId);
+    logEvent("product_override_removed", { shop, productId, removed });
+    res.json({ productId, removed });
+  });
+});
+
 router.post("/api/products/:productId/categories", (req, res) => {
   safeJson(req, res, () => {
     const shop = getShop(req);
@@ -1869,46 +1944,63 @@ router.post("/api/sync/shopify", async (req, res) => {
       for (const shopifyProduct of products) {
         const productId = shopifyProduct.id.toString();
         const existingProduct = stock.getProductSnapshot ? stock.getProductSnapshot(shop, productId) : null;
-        
+
+        // Override par-produit : poids fixe ou suivi a l'unite (accessoires)
+        const ovr = productOverridesStore.getOverride(shop, productId) || {};
+        const ovrGrams = Number(ovr.gramsPerUnit) > 0 ? Number(ovr.gramsPerUnit) : null;
+        const ovrTrackByUnit = ovr.trackByUnit === true;
+
         // Préparer les variantes au format attendu par stockManager
         // IMPORTANT: normalizeVariants exige inventoryItemId ET gramsPerUnit > 0
         const variantsObj = {};
         let hasValidVariant = false;
-        
+
         if (shopifyProduct.variants && shopifyProduct.variants.length > 0) {
           for (const v of shopifyProduct.variants) {
             // inventory_item_id est fourni par Shopify API
             const inventoryItemId = v.inventory_item_id || v.inventoryItemId || 0;
-            
-            // Utiliser parseGramsFromVariant qui gère les unités (kg, g, oz, lb)
-            // Priorité: grams de Shopify > parsing du titre/option
-            let gramsPerUnit = parseGramsFromVariant(v);
-            
-            // Fallback 1: utiliser le champ grams de Shopify directement
-            if (!gramsPerUnit && v.grams && Number(v.grams) > 0) {
-              gramsPerUnit = Number(v.grams);
-            }
-            
-            // Fallback 2: utiliser weight de Shopify (converti en grammes selon weight_unit)
-            if (!gramsPerUnit && v.weight && Number(v.weight) > 0) {
-              const weight = Number(v.weight);
-              const weightUnit = (v.weight_unit || 'g').toLowerCase();
-              if (weightUnit === 'kg') {
-                gramsPerUnit = weight * 1000;
-              } else if (weightUnit === 'lb') {
-                gramsPerUnit = weight * 453.592;
-              } else if (weightUnit === 'oz') {
-                gramsPerUnit = weight * 28.3495;
-              } else {
-                gramsPerUnit = weight; // Assume grammes
+
+            let gramsPerUnit = 0;
+
+            if (ovrGrams) {
+              // Override explicite : court-circuite tout le parsing
+              gramsPerUnit = ovrGrams;
+            } else if (ovrTrackByUnit) {
+              // Suivi a l'unite : on enregistre 1g/unite pour ne pas casser le data model,
+              // les routes en lecture remettront totalGrams a 0 et exposeront unitCount.
+              gramsPerUnit = 1;
+            } else {
+              // Parsing standard avec fallback sur product title
+              gramsPerUnit = parseGramsFromVariant(v, shopifyProduct.title);
+
+              // Fallback 1: utiliser le champ grams de Shopify directement
+              if (!gramsPerUnit && v.grams && Number(v.grams) > 0) {
+                gramsPerUnit = Number(v.grams);
+              }
+
+              // Fallback 2: utiliser weight de Shopify (converti en grammes selon weight_unit)
+              if (!gramsPerUnit && v.weight && Number(v.weight) > 0) {
+                const weight = Number(v.weight);
+                const weightUnit = (v.weight_unit || 'g').toLowerCase();
+                if (weightUnit === 'kg') {
+                  gramsPerUnit = weight * 1000;
+                } else if (weightUnit === 'lb') {
+                  gramsPerUnit = weight * 453.592;
+                } else if (weightUnit === 'oz') {
+                  gramsPerUnit = weight * 28.3495;
+                } else {
+                  gramsPerUnit = weight; // Assume grammes
+                }
+              }
+
+              // Dernier fallback: 1000g (1kg). Toujours mauvais pour pre-roules / packs
+              // sans poids explicite, mais l'override gramsPerUnit ou trackByUnit doit
+              // etre utilise dans ces cas.
+              if (!gramsPerUnit || gramsPerUnit <= 0) {
+                gramsPerUnit = 1000;
               }
             }
-            
-            // Dernier fallback: 1000g (1kg) - plus raisonnable que 1g
-            if (!gramsPerUnit || gramsPerUnit <= 0) {
-              gramsPerUnit = 1000; // 1kg par défaut
-            }
-            
+
             if (inventoryItemId && gramsPerUnit > 0) {
               // Utiliser le titre de la variante comme clé (ex: "0.5kg", "100g", "1kg")
               const label = v.title || v.id.toString();
