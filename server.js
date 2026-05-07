@@ -1813,13 +1813,15 @@ router.get("/api/shop-health", (req, res) => {
           const rev = Number(s.netRevenue) || 0;
           const cpg = Number(s.costPerGram) || 0;
           // Heuristiques :
-          //  a) > 5 kg vendus en une ligne = saisie unite probablement fausse
-          //  b) costPerGram > 100 EUR/g = CMP figÃ© sous bug x1000
-          //  c) Perte > 1000 EUR sur une seule ligne = aberration
+          //  a) > 1 kg vendus en une ligne = saisie unite probablement fausse
+          //  b) costPerGram > 20 EUR/g (= 20k EUR/kg) = irrealiste meme haut de gamme
+          //  c) cost > 5x revenue = ratio aberrant (au-dela d'une marge legitimement negative)
+          //  d) Perte > 100 EUR sur une seule ligne dans un shop CBD typique
           return (
-            (grams > 5000 && qty <= 1) ||
-            cpg > 100 ||
-            (cost - rev) > 1000
+            (grams > 1000 && qty <= 1) ||
+            cpg > 20 ||
+            (rev > 0 && cost / rev > 5) ||
+            (cost - rev) > 100
           );
         });
         anomalousSales = aberrant.length;
@@ -1881,9 +1883,10 @@ router.get("/api/analytics/anomalies", (req, res) => {
       const rev = Number(s.netRevenue) || 0;
       const cpg = Number(s.costPerGram) || 0;
       const reasons = [];
-      if (grams > 5000 && qty <= 1) reasons.push(`quantite ${grams} g pour 1 unite`);
-      if (cpg > 100) reasons.push(`CMP ${cpg.toFixed(2)} EUR/g (= ${(cpg * 1000).toFixed(0)} EUR/kg)`);
-      if ((cost - rev) > 1000) reasons.push(`perte ${(cost - rev).toFixed(2)} EUR sur la ligne`);
+      if (grams > 1000 && qty <= 1) reasons.push(`quantite ${grams} g pour 1 unite`);
+      if (cpg > 20) reasons.push(`CMP ${cpg.toFixed(2)} EUR/g (= ${(cpg * 1000).toFixed(0)} EUR/kg)`);
+      if (rev > 0 && cost / rev > 5) reasons.push(`cout ${(cost / rev).toFixed(1)}x le CA`);
+      if ((cost - rev) > 100) reasons.push(`perte ${(cost - rev).toFixed(2)} EUR sur la ligne`);
       if (reasons.length > 0) {
         anomalies.push({
           id: s.id,
@@ -1905,6 +1908,88 @@ router.get("/api/analytics/anomalies", (req, res) => {
 
     anomalies.sort((a, b) => new Date(b.orderDate || 0) - new Date(a.orderDate || 0));
     res.json({ shop, total: anomalies.length, anomalies });
+  });
+});
+
+// =====================================================
+// Editeur de ventes analytics : list / update / delete
+// =====================================================
+router.get("/api/analytics/sales", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    if (!analyticsStore || !analyticsStore.listSales) return apiError(res, 500, "Analytics non disponible");
+
+    const limit = Math.min(Math.max(Number(req.query.limit) || 500, 1), 50000);
+    const from = req.query.from || null;
+    const to = req.query.to || null;
+    const productId = req.query.productId || null;
+
+    const sales = analyticsStore.listSales({ shop, from, to, productId, limit });
+    res.json({ shop, total: sales.length, sales });
+  });
+});
+
+router.patch("/api/analytics/sales/:id", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    if (!analyticsStore || !analyticsStore.updateSale) return apiError(res, 500, "Editeur indisponible");
+
+    const id = String(req.params.id || "").trim();
+    if (!id) return apiError(res, 400, "id manquant");
+
+    const next = analyticsStore.updateSale(shop, id, req.body || {});
+    if (!next) return apiError(res, 404, "Vente introuvable");
+    logEvent("analytics_sale_updated", { shop, id });
+    res.json({ success: true, sale: next });
+  });
+});
+
+router.delete("/api/analytics/sales/:id", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    if (!analyticsStore || !analyticsStore.deleteSale) return apiError(res, 500, "Editeur indisponible");
+
+    const id = String(req.params.id || "").trim();
+    if (!id) return apiError(res, 400, "id manquant");
+
+    const removed = analyticsStore.deleteSale(shop, id);
+    if (!removed) return apiError(res, 404, "Vente introuvable");
+    logEvent("analytics_sale_deleted", { shop, id });
+    res.json({ success: true, removed: true });
+  });
+});
+
+router.post("/api/analytics/wipe", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    if (!analyticsStore) return apiError(res, 500, "Analytics non disponible");
+
+    const confirm = String(req.body?.confirm || "").toUpperCase();
+    if (confirm !== "RESET") return apiError(res, 400, "Confirmation requise (envoyer { confirm: 'RESET' })");
+
+    try {
+      if (typeof analyticsStore.clearShopAnalytics === "function") {
+        analyticsStore.clearShopAnalytics(shop);
+      } else {
+        // Fallback : supprimer manuellement le dossier analytics
+        const fs = require("fs");
+        const path = require("path");
+        const DATA_DIR = process.env.DATA_DIR || "/var/data";
+        const analyticsDir = path.join(DATA_DIR, shop.replace(/[^a-z0-9._-]/g, "_"), "analytics");
+        if (fs.existsSync(analyticsDir)) {
+          fs.rmSync(analyticsDir, { recursive: true, force: true });
+        }
+      }
+      logEvent("analytics_wiped", { shop });
+      res.json({ success: true, shop });
+    } catch (e) {
+      logEvent("analytics_wipe_error", { shop, error: e.message }, "error");
+      return apiError(res, 500, "Erreur de purge: " + e.message);
+    }
   });
 });
 

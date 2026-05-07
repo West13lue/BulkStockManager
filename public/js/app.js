@@ -38,6 +38,7 @@
     'showShopHealthModal', 'refreshShopHealth', 'refreshHealthBadge',
     'runAutoFix', 'applyAutoFix',
     'showAnomaliesModal', 'toggleAllAnomalies', 'updateAnomalyPurgeBtn', 'purgeSelectedAnomalies',
+    'wipeAnalytics', 'showAllSalesEditor', 'refreshSalesEditor', 'saveSaleEdit', 'deleteSale',
     'setShopifyLocation', 'refreshShopifyLocations',
     'onSearchChange', 'onCategoryChange', 'onSortChange', 'sortByColumn', 'showCategoriesModal',
     'createCategory', 'deleteCategory', 'renameCategory', 'showRenameCategoryModal',
@@ -9037,6 +9038,8 @@
       content: '<div id="anomaliesBody"><div class="text-center py-lg"><div class="spinner"></div></div></div>',
       footer:
         '<button class="btn btn-ghost" onclick="app.showShopHealthModal()">' + t("action.back", "Retour") + '</button>' +
+        '<button class="btn btn-secondary" onclick="app.showAllSalesEditor()"><i data-lucide="list"></i> ' + t("anomalies.openEditor", "Editer toutes les ventes") + '</button>' +
+        '<button class="btn btn-danger" onclick="app.wipeAnalytics()" style="margin-left:auto"><i data-lucide="alert-triangle"></i> ' + t("anomalies.wipeAll", "Tout effacer") + '</button>' +
         '<button class="btn btn-danger" id="purgeAnomaliesBtn" onclick="app.purgeSelectedAnomalies()" disabled><i data-lucide="trash-2"></i> ' + t("anomalies.purgeSelected", "Supprimer les ventes cochees") + '</button>'
     });
     if (typeof lucide !== "undefined") lucide.createIcons();
@@ -9122,6 +9125,223 @@
     btn.disabled = n === 0;
     btn.innerHTML = '<i data-lucide="trash-2"></i> ' + t("anomalies.purge", "Supprimer") + ' (' + n + ')';
     if (typeof lucide !== "undefined") lucide.createIcons();
+  }
+
+  async function wipeAnalytics() {
+    var ok = await showConfirmDialog(
+      t("anomalies.wipeConfirm", "Effacer DEFINITIVEMENT toutes les ventes enregistrees dans analytics ? Le stock physique n'est PAS modifie. Aucun retour en arriere possible."),
+      { danger: true, confirmText: t("anomalies.wipeBtn", "Tout effacer") }
+    );
+    if (!ok) return;
+    try {
+      var res = await authFetch(apiUrl("/analytics/wipe"), {
+        method: "POST",
+        body: JSON.stringify({ confirm: "RESET" })
+      });
+      if (!res.ok) {
+        var err = await res.json().catch(function() { return {}; });
+        showToast(err.error || t("anomalies.wipeError", "Echec de la purge"), "error");
+        return;
+      }
+      showToast(t("anomalies.wipeDone", "Analytics videes"), "success");
+      closeModal();
+      refreshHealthBadge();
+      // Force le re-render si on est sur Analyse
+      if (state.currentTab === "analytics" || state.currentTab === "analyse") {
+        renderTab(state.currentTab);
+      }
+    } catch (e) {
+      showToast(t("anomalies.wipeError", "Echec") + ": " + e.message, "error");
+    }
+  }
+
+  // ============================================
+  // Editeur des ventes analytics : edit inline + delete
+  // ============================================
+  var _allSalesCache = [];
+
+  async function showAllSalesEditor() {
+    closeModal();
+    showModal({
+      title: '<i data-lucide="list"></i> ' + t("salesEditor.title", "Editeur des ventes analytics"),
+      size: "xl",
+      content: '<div id="salesEditorBody"><div class="text-center py-lg"><div class="spinner"></div></div></div>',
+      footer:
+        '<button class="btn btn-ghost" onclick="app.showAnomaliesModal()">' + t("action.back", "Retour") + '</button>' +
+        '<button class="btn btn-secondary" onclick="app.refreshSalesEditor()"><i data-lucide="refresh-cw"></i> ' + t("salesEditor.refresh", "Recharger") + '</button>' +
+        '<button class="btn btn-danger" onclick="app.wipeAnalytics()" style="margin-left:auto"><i data-lucide="alert-triangle"></i> ' + t("anomalies.wipeAll", "Tout effacer") + '</button>'
+    });
+    if (typeof lucide !== "undefined") lucide.createIcons();
+    await loadSalesEditor();
+  }
+
+  async function refreshSalesEditor() {
+    var body = document.getElementById("salesEditorBody");
+    if (body) body.innerHTML = '<div class="text-center py-lg"><div class="spinner"></div></div>';
+    await loadSalesEditor();
+  }
+
+  async function loadSalesEditor() {
+    try {
+      var res = await authFetch(apiUrl("/analytics/sales?limit=2000"));
+      if (!res.ok) {
+        document.getElementById("salesEditorBody").innerHTML = '<p class="text-secondary">' + t("salesEditor.loadError", "Erreur de chargement") + '</p>';
+        return;
+      }
+      var data = await res.json();
+      _allSalesCache = data.sales || [];
+      renderSalesEditor(_allSalesCache);
+    } catch (e) {
+      document.getElementById("salesEditorBody").innerHTML = '<p class="text-secondary">' + escPlain(e.message) + '</p>';
+    }
+  }
+
+  function renderSalesEditor(sales) {
+    var body = document.getElementById("salesEditorBody");
+    if (!body) return;
+    if (!sales || sales.length === 0) {
+      body.innerHTML = '<div class="health-clear">' +
+        '<i data-lucide="inbox" style="width:48px;height:48px;color:var(--text-secondary)"></i>' +
+        '<h3>' + t("salesEditor.empty", "Aucune vente enregistree") + '</h3>' +
+        '<p class="text-secondary">' + t("salesEditor.emptyDetail", "Les ventes manuelles et les commandes Shopify apparaitront ici une fois enregistrees.") + '</p>' +
+      '</div>';
+      if (typeof lucide !== "undefined") lucide.createIcons();
+      return;
+    }
+
+    // Resume
+    var totalRev = sales.reduce(function(s, x) { return s + (Number(x.netRevenue) || 0); }, 0);
+    var totalCost = sales.reduce(function(s, x) { return s + (Number(x.totalCost) || 0); }, 0);
+    var totalGrams = sales.reduce(function(s, x) { return s + (Number(x.totalGrams) || 0); }, 0);
+    var marginColor = (totalRev - totalCost) >= 0 ? "var(--success)" : "var(--danger)";
+
+    var summary =
+      '<div class="health-summary">' +
+        '<div class="health-stat"><span class="health-stat-value">' + sales.length + '</span><span class="health-stat-label">' + t("salesEditor.lines", "lignes") + '</span></div>' +
+        '<div class="health-stat"><span class="health-stat-value">' + formatWeight(totalGrams) + '</span><span class="health-stat-label">' + t("salesEditor.volume", "Volume") + '</span></div>' +
+        '<div class="health-stat"><span class="health-stat-value">' + totalRev.toFixed(2) + ' ' + getCurrencySymbol() + '</span><span class="health-stat-label">' + t("salesEditor.revenue", "CA") + '</span></div>' +
+        '<div class="health-stat"><span class="health-stat-value">' + totalCost.toFixed(2) + ' ' + getCurrencySymbol() + '</span><span class="health-stat-label">' + t("salesEditor.cost", "Cout") + '</span></div>' +
+        '<div class="health-stat"><span class="health-stat-value" style="color:' + marginColor + '">' + (totalRev - totalCost).toFixed(2) + ' ' + getCurrencySymbol() + '</span><span class="health-stat-label">' + t("salesEditor.margin", "Marge") + '</span></div>' +
+      '</div>';
+
+    var rows = sales.map(function(s, i) {
+      var dateStr = s.orderDate ? new Date(s.orderDate).toLocaleString() : "-";
+      var sourceBadge = (s.source === "manual" || (s.orderId && String(s.orderId).indexOf("manual_") === 0))
+        ? '<span class="badge badge-info" style="font-size:10px">manual</span>'
+        : '<span class="badge" style="font-size:10px">' + escPlain(s.source || "?") + '</span>';
+      var marginVal = Number(s.margin) || ((Number(s.netRevenue) || 0) - (Number(s.totalCost) || 0));
+      var marginCol = marginVal >= 0 ? "var(--success)" : "var(--danger)";
+      return '<tr data-sale-id="' + escPlain(s.id || "") + '">' +
+        '<td style="font-size:11px;white-space:nowrap">' + escPlain(dateStr) + '<br>' + sourceBadge + '</td>' +
+        '<td style="font-size:12px">' + escPlain(s.orderName || s.orderNumber || s.orderId || "-") + '</td>' +
+        '<td style="font-size:12px">' + escPlain(s.productName || "-") + '</td>' +
+        '<td style="text-align:right"><input type="number" class="form-input se-input" data-field="quantity" value="' + (Number(s.quantity) || 1) + '" step="1" min="0" style="width:60px;text-align:right"></td>' +
+        '<td style="text-align:right"><input type="number" class="form-input se-input" data-field="totalGrams" value="' + (Number(s.totalGrams) || 0) + '" step="0.1" min="0" style="width:80px;text-align:right"></td>' +
+        '<td style="text-align:right"><input type="number" class="form-input se-input" data-field="netRevenue" value="' + (Number(s.netRevenue) || 0) + '" step="0.01" min="0" style="width:80px;text-align:right"></td>' +
+        '<td style="text-align:right"><input type="number" class="form-input se-input" data-field="costPerGram" value="' + (Number(s.costPerGram) || 0) + '" step="0.01" min="0" style="width:80px;text-align:right"></td>' +
+        '<td style="text-align:right;font-variant-numeric:tabular-nums" class="se-cost-cell">' + (Number(s.totalCost) || 0).toFixed(2) + '</td>' +
+        '<td style="text-align:right;font-variant-numeric:tabular-nums;color:' + marginCol + '" class="se-margin-cell">' + marginVal.toFixed(2) + '</td>' +
+        '<td style="text-align:right;white-space:nowrap">' +
+          '<button class="btn btn-primary btn-xs" onclick="app.saveSaleEdit(\'' + escPlain(s.id || "") + '\')" title="' + t("action.save", "Enregistrer") + '"><i data-lucide="check" style="width:12px;height:12px"></i></button>' +
+          '<button class="btn btn-ghost btn-xs text-danger" onclick="app.deleteSale(\'' + escPlain(s.id || "") + '\')" title="' + t("action.delete", "Supprimer") + '"><i data-lucide="trash-2" style="width:12px;height:12px"></i></button>' +
+        '</td>' +
+      '</tr>';
+    }).join("");
+
+    body.innerHTML = summary +
+      '<p class="text-secondary mb-md" style="font-size:12px">' +
+        t("salesEditor.hint", "Modifie les valeurs puis clique sur la coche pour enregistrer une ligne. Le cout total et la marge se recalculent automatiquement (totalCost = totalGrams x costPerGram).") +
+      '</p>' +
+      '<div style="max-height:55vh;overflow:auto;border:1px solid var(--border);border-radius:var(--radius-md)">' +
+        '<table class="table table-compact" style="margin:0;font-size:12px">' +
+          '<thead><tr>' +
+            '<th>' + t("salesEditor.date", "Date") + '</th>' +
+            '<th>' + t("salesEditor.order", "Commande") + '</th>' +
+            '<th>' + t("salesEditor.product", "Produit") + '</th>' +
+            '<th style="text-align:right">' + t("salesEditor.qty", "Qte") + '</th>' +
+            '<th style="text-align:right">' + t("salesEditor.grams", "Grammes") + '</th>' +
+            '<th style="text-align:right">' + t("salesEditor.revenue", "CA") + '</th>' +
+            '<th style="text-align:right">' + t("salesEditor.cmp", "CMP/g") + '</th>' +
+            '<th style="text-align:right">' + t("salesEditor.cost", "Cout") + '</th>' +
+            '<th style="text-align:right">' + t("salesEditor.margin", "Marge") + '</th>' +
+            '<th style="text-align:right"></th>' +
+          '</tr></thead>' +
+          '<tbody>' + rows + '</tbody>' +
+        '</table>' +
+      '</div>';
+    if (typeof lucide !== "undefined") lucide.createIcons();
+
+    // Recompute cost/margin live as user types
+    document.querySelectorAll(".se-input").forEach(function(input) {
+      input.addEventListener("input", function() {
+        var tr = input.closest("tr");
+        if (!tr) return;
+        var grams = parseFloat(tr.querySelector('[data-field="totalGrams"]').value) || 0;
+        var cpg = parseFloat(tr.querySelector('[data-field="costPerGram"]').value) || 0;
+        var rev = parseFloat(tr.querySelector('[data-field="netRevenue"]').value) || 0;
+        var cost = grams * cpg;
+        var margin = rev - cost;
+        var costCell = tr.querySelector(".se-cost-cell");
+        var marginCell = tr.querySelector(".se-margin-cell");
+        if (costCell) costCell.textContent = cost.toFixed(2);
+        if (marginCell) {
+          marginCell.textContent = margin.toFixed(2);
+          marginCell.style.color = margin >= 0 ? "var(--success)" : "var(--danger)";
+        }
+      });
+    });
+  }
+
+  async function saveSaleEdit(saleId) {
+    var tr = document.querySelector('tr[data-sale-id="' + saleId + '"]');
+    if (!tr) return;
+    var patch = {};
+    tr.querySelectorAll(".se-input").forEach(function(input) {
+      var f = input.dataset.field;
+      if (f) patch[f] = parseFloat(input.value);
+    });
+
+    try {
+      var res = await authFetch(apiUrl("/analytics/sales/" + encodeURIComponent(saleId)), {
+        method: "PATCH",
+        body: JSON.stringify(patch)
+      });
+      if (!res.ok) {
+        var err = await res.json().catch(function() { return {}; });
+        showToast(err.error || t("salesEditor.saveError", "Echec"), "error");
+        return;
+      }
+      showToast(t("salesEditor.saved", "Ligne enregistree"), "success");
+      // Visual feedback
+      tr.style.background = "color-mix(in oklch, var(--success) 12%, transparent)";
+      setTimeout(function() { tr.style.background = ""; }, 800);
+      refreshHealthBadge();
+    } catch (e) {
+      showToast(t("salesEditor.saveError", "Echec") + ": " + e.message, "error");
+    }
+  }
+
+  async function deleteSale(saleId) {
+    var ok = await showConfirmDialog(
+      t("salesEditor.deleteConfirm", "Supprimer definitivement cette ligne d'analytics ? Le stock physique n'est pas modifie."),
+      { danger: true, confirmText: t("action.delete", "Supprimer") }
+    );
+    if (!ok) return;
+    try {
+      var res = await authFetch(apiUrl("/analytics/sales/" + encodeURIComponent(saleId)), {
+        method: "DELETE"
+      });
+      if (!res.ok) {
+        showToast(t("salesEditor.deleteError", "Echec"), "error");
+        return;
+      }
+      showToast(t("salesEditor.deleted", "Ligne supprimee"), "success");
+      var tr = document.querySelector('tr[data-sale-id="' + saleId + '"]');
+      if (tr) tr.remove();
+      refreshHealthBadge();
+    } catch (e) {
+      showToast(t("salesEditor.deleteError", "Echec") + ": " + e.message, "error");
+    }
   }
 
   async function purgeSelectedAnomalies() {
@@ -10369,6 +10589,11 @@
     toggleAllAnomalies: toggleAllAnomalies,
     updateAnomalyPurgeBtn: updateAnomalyPurgeBtn,
     purgeSelectedAnomalies: purgeSelectedAnomalies,
+    wipeAnalytics: wipeAnalytics,
+    showAllSalesEditor: showAllSalesEditor,
+    refreshSalesEditor: refreshSalesEditor,
+    saveSaleEdit: saveSaleEdit,
+    deleteSale: deleteSale,
     setShopifyLocation: setShopifyLocation,
     refreshShopifyLocations: refreshShopifyLocations,
     // Filtres

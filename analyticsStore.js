@@ -230,6 +230,92 @@ function clearShopAnalytics(shop) {
   }
 }
 
+/**
+ * Reecrit l'integralite des fichiers mensuels apres une operation de groupe
+ * (delete / update). Atomique par mois via .tmp + rename.
+ */
+function rewriteAllSales(shop, sales) {
+  const s = shop || "default";
+  const dir = analyticsDir(s);
+  ensureDir(dir);
+
+  // Group by month
+  const byMonth = new Map();
+  for (const sale of sales) {
+    const d = new Date(sale.orderDate || sale.ts || Date.now());
+    const monthKey = d.toISOString().slice(0, 7);
+    if (!byMonth.has(monthKey)) byMonth.set(monthKey, []);
+    byMonth.get(monthKey).push(sale);
+  }
+
+  // Wipe existing files
+  const existing = fs.readdirSync(dir).filter((f) => f.endsWith(".ndjson") || f.endsWith(".jsonl"));
+  for (const file of existing) fs.unlinkSync(path.join(dir, file));
+
+  // Rewrite each month atomically
+  for (const [monthKey, list] of byMonth) {
+    const filePath = path.join(dir, `${monthKey}.ndjson`);
+    const tmp = filePath + ".tmp";
+    const content = list.map((s) => JSON.stringify(s)).join("\n") + (list.length ? "\n" : "");
+    fs.writeFileSync(tmp, content, "utf8");
+    fs.renameSync(tmp, filePath);
+  }
+}
+
+/**
+ * Supprime une vente par son id. Renvoie true si trouvÃ©e/supprimÃ©e.
+ */
+function deleteSale(shop, saleId) {
+  const all = listSales({ shop, limit: 50000 });
+  const next = all.filter((s) => String(s.id) !== String(saleId));
+  if (next.length === all.length) return false;
+  rewriteAllSales(shop, next);
+  return true;
+}
+
+/**
+ * Met a jour une vente par son id. Recalcule margin / marginPercent / totalCost
+ * a partir des champs numeriques fournis pour eviter des incoherences.
+ */
+function updateSale(shop, saleId, patch = {}) {
+  const all = listSales({ shop, limit: 50000 });
+  const idx = all.findIndex((s) => String(s.id) === String(saleId));
+  if (idx === -1) return null;
+
+  const current = all[idx];
+  const next = { ...current };
+
+  // Champs editables
+  const numFields = ["quantity", "gramsPerUnit", "totalGrams", "grossPrice", "discountAmount", "netRevenue", "costPerGram", "totalCost"];
+  for (const k of numFields) {
+    if (patch[k] !== undefined && patch[k] !== null && patch[k] !== "") {
+      const n = Number(patch[k]);
+      if (Number.isFinite(n) && n >= 0) next[k] = n;
+    }
+  }
+  const strFields = ["productName", "orderName", "orderNumber", "customerName"];
+  for (const k of strFields) {
+    if (patch[k] !== undefined) next[k] = String(patch[k] || "");
+  }
+
+  // Recalcul auto si pas explicitement fourni
+  if (patch.totalCost === undefined && patch.costPerGram !== undefined) {
+    next.totalCost = (Number(next.totalGrams) || 0) * (Number(next.costPerGram) || 0);
+  }
+  if (patch.totalGrams === undefined && patch.gramsPerUnit !== undefined) {
+    next.totalGrams = (Number(next.quantity) || 1) * (Number(next.gramsPerUnit) || 0);
+  }
+  next.margin = (Number(next.netRevenue) || 0) - (Number(next.totalCost) || 0);
+  next.marginPercent = (Number(next.netRevenue) || 0) > 0
+    ? Math.round((next.margin / next.netRevenue) * 100)
+    : 0;
+  next.updatedAt = new Date().toISOString();
+
+  all[idx] = next;
+  rewriteAllSales(shop, all);
+  return next;
+}
+
 // ============================================
 // Export Helpers
 // ============================================
@@ -338,11 +424,14 @@ module.exports = {
   getSalesByProduct,
   getSaleById,
   clearShopAnalytics,
-  
+  updateSale,
+  deleteSale,
+  rewriteAllSales,
+
   // Exports
   toCSV,
   toJSON,
-  
+
   // Utilities
   sanitizeShop,
   shopDir,
