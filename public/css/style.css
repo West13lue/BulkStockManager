@@ -3725,6 +3725,10 @@ html, body {
   margin-top: var(--space-lg);
 }
 
+.dashboard-grid .card-full-row {
+  grid-column: 1 / -1;
+}
+
 @media (max-width: 1024px) {
   .dashboard-grid {
     grid-template-columns: 1fr;

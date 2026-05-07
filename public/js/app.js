@@ -1440,6 +1440,8 @@
       '</div>' +
 
       // Below-the-fold cards (sante / context)
+      // Row 1 : Activite (gauche) + Mouvements (droite)
+      // Row 2 : Produits (pleine largeur)
       '<div class="dashboard-grid">' +
         '<div class="card card-activity">' +
           '<div class="card-header"><h3 class="card-title"><i data-lucide="history" aria-hidden="true"></i> ' + t("dashboard.activityLog", "Activite recente") + '</h3>' +
@@ -1448,17 +1450,17 @@
         '</div>' +
 
         '<div class="card">' +
+          '<div class="card-header"><h3 class="card-title"><i data-lucide="activity" aria-hidden="true"></i> ' + t("dashboard.recentMovements", "Recent movements") + '</h3>' +
+          '<button class="btn btn-ghost btn-sm" onclick="app.exportMovementsCSV()" title="' + t("export.movements", "Export CSV") + '"><i data-lucide="download" aria-hidden="true"></i></button></div>' +
+          '<div class="card-body" id="dashboardMovements"><div class="text-center py-lg"><div class="spinner"></div></div></div>' +
+        '</div>' +
+
+        '<div class="card card-full-row">' +
           '<div class="card-header"><h3 class="card-title"><i data-lucide="boxes" aria-hidden="true"></i> ' + t("dashboard.products", "Produits") + '</h3>' +
           '<button class="btn btn-ghost btn-sm" onclick="app.navigateTo(\'products\')">' + t("dashboard.viewAll", "Voir tout") + '</button></div>' +
           '<div class="card-body" style="padding:0">' +
             (state.products.length ? renderTable(state.products.slice(0, 5)) : renderEmpty()) +
           '</div>' +
-        '</div>' +
-
-        '<div class="card">' +
-          '<div class="card-header"><h3 class="card-title"><i data-lucide="activity" aria-hidden="true"></i> ' + t("dashboard.recentMovements", "Recent movements") + '</h3>' +
-          '<button class="btn btn-ghost btn-sm" onclick="app.exportMovementsCSV()" title="' + t("export.movements", "Export CSV") + '"><i data-lucide="download" aria-hidden="true"></i></button></div>' +
-          '<div class="card-body" id="dashboardMovements"><div class="text-center py-lg"><div class="spinner"></div></div></div>' +
         '</div>' +
       '</div>';
 
