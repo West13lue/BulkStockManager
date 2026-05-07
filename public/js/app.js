@@ -1738,7 +1738,8 @@
         '<input type="text" class="form-input" id="saleName" placeholder="' + t("sale.namePlaceholder", "Ex: Marche du samedi, Tournee nord, Livraison Pierre...") + '"></div>' +
         '<div class="form-row-mobile">' +
         '<div class="form-group" style="flex:1"><label class="form-label">' + t("sale.sellingPrice", "Prix de vente global") + ' (' + currSymbol + ') *</label>' +
-        '<input type="number" class="form-input" id="salePriceTotal" value="" step="0.01" min="0" placeholder="45.00" onchange="app.updateSaleSummary()" style="font-size:16px;font-weight:600"></div>' +
+        '<input type="number" class="form-input" id="salePriceTotal" value="" step="0.01" min="0" placeholder="45.00" onchange="app.updateSaleSummary()" style="font-size:16px;font-weight:600">' +
+        '<p class="form-hint" style="font-size:11px;margin-top:4px">' + t("sale.priceHint", "Laisse vide ou remplis pour distribuer. Si tu mets un prix par ligne, ce total sera calcule automatiquement.") + '</p></div>' +
         '<div class="form-group" style="flex:1"><label class="form-label">' + t("sale.customer", "Client") + ' <small class="text-secondary">(' + t("labels.optional", "optionnel") + ')</small></label>' +
         '<input type="text" class="form-input" id="saleCustomer" placeholder="' + t("sale.customerPlaceholder", "Nom du client ou ref.") + '"></div>' +
         '</div>' +
@@ -1761,6 +1762,7 @@
     if (!container) return;
 
     var weightUnit = getWeightUnit();
+    var currSymbol = getCurrencySymbol();
     var productOptions = (state.products || []).map(function(p) {
       return '<option value="' + esc(p.productId) + '" data-stock="' + (p.totalGrams || 0) + '" data-cmp="' + (p.averageCostPerGram || 0) + '" data-name="' + esc(p.name) + '">' + esc(p.name) + ' (' + formatWeight(p.totalGrams || 0) + ')</option>';
     }).join("");
@@ -1773,6 +1775,8 @@
       '</select></div>' +
       '<div style="flex:1"><label class="form-label" style="font-size:12px">' + t("sale.quantity", "Qte") + ' (' + weightUnit + ')</label>' +
       '<input type="number" class="form-input sale-line-qty" placeholder="5" step="0.1" min="0.1" onchange="app.updateSaleSummary()" style="font-size:13px"></div>' +
+      '<div style="flex:1"><label class="form-label" style="font-size:12px">' + t("sale.linePrice", "Prix") + ' (' + currSymbol + ')</label>' +
+      '<input type="number" class="form-input sale-line-price" placeholder="' + t("sale.linePricePh", "auto") + '" step="0.01" min="0" onchange="app.updateSaleSummary()" style="font-size:13px"></div>' +
       '<button class="btn btn-ghost btn-xs text-danger" onclick="app.removeSaleLine(' + saleLineIdx + ')" style="margin-bottom:2px"><i data-lucide="x" style="width:14px;height:14px"></i></button>' +
       '</div>';
 
@@ -1792,11 +1796,15 @@
     document.querySelectorAll(".sale-line").forEach(function(lineEl) {
       var prodSelect = lineEl.querySelector(".sale-line-product");
       var qtyInput = lineEl.querySelector(".sale-line-qty");
+      var priceInput = lineEl.querySelector(".sale-line-price");
       if (!prodSelect || !prodSelect.value) return;
 
       var opt = prodSelect.selectedOptions ? prodSelect.selectedOptions[0] : null;
       var qty = parseFloat(qtyInput ? qtyInput.value : 0) || 0;
       if (qty <= 0) return;
+
+      var rawPrice = priceInput ? priceInput.value : "";
+      var linePrice = rawPrice === "" ? null : (parseFloat(rawPrice) || 0);
 
       lines.push({
         productId: prodSelect.value,
@@ -1805,6 +1813,7 @@
         qtyGrams: toGrams(qty),
         cmp: parseFloat(opt ? opt.dataset.cmp : 0) || 0,
         stock: parseFloat(opt ? opt.dataset.stock : 0) || 0,
+        linePrice: linePrice, // null = a distribuer depuis le total, sinon prix exact
       });
     });
     return lines;
@@ -1822,6 +1831,9 @@
 
     var totalCost = 0;
     var totalGrams = 0;
+    var sumLinePrices = 0;
+    var anyLinePrice = false;
+    var allLinePrices = lines.length > 0;
     var linesHtml = "";
     var currSymbol = getCurrencySymbol();
 
@@ -1829,28 +1841,70 @@
       var lineCost = l.qtyGrams * l.cmp;
       totalCost += lineCost;
       totalGrams += l.qtyGrams;
-      var stockWarn = l.qtyGrams > l.stock ? ' <span style="color:var(--danger)">(!)</span>' : '';
-      linesHtml += '<div style="display:flex;justify-content:space-between;padding:2px 0;font-size:12px">' +
-        '<span>' + escPlain(l.productName) + ' — ' + formatWeight(l.qtyGrams) + stockWarn + '</span>' +
-        '<span style="color:var(--text-secondary)">' + t("sale.costPrice", "Cout") + ': ' + lineCost.toFixed(2) + ' ' + currSymbol + '</span></div>';
+      if (l.linePrice !== null && l.linePrice > 0) {
+        anyLinePrice = true;
+        sumLinePrices += l.linePrice;
+      } else {
+        allLinePrices = false;
+      }
     });
 
-    var priceTotal = parseFloat((document.getElementById("salePriceTotal") || {}).value) || 0;
-    var margin = priceTotal - totalCost;
-    var marginPct = priceTotal > 0 ? Math.round((margin / priceTotal) * 100) : 0;
-    var marginColor = margin >= 0 ? "var(--success, #22c55e)" : "var(--danger, #ef4444)";
+    var priceTotalInput = document.getElementById("salePriceTotal");
+    var priceTotal = parseFloat((priceTotalInput || {}).value) || 0;
+
+    // Mode "prix par ligne" : si toutes les lignes ont un prix, le total est calcule
+    var perLineMode = anyLinePrice && allLinePrices;
+    var effectiveTotal = perLineMode ? sumLinePrices : priceTotal;
+
+    if (perLineMode && priceTotalInput) {
+      // Synchroniser le champ total avec la somme des lignes
+      priceTotalInput.value = effectiveTotal.toFixed(2);
+    }
+
+    lines.forEach(function(l) {
+      var lineCost = l.qtyGrams * l.cmp;
+      var linePrice;
+      if (perLineMode) {
+        linePrice = l.linePrice;
+      } else if (anyLinePrice && l.linePrice !== null && l.linePrice > 0) {
+        // Mode partiel : utiliser le prix saisi
+        linePrice = l.linePrice;
+      } else if (priceTotal > 0 && totalCost > 0) {
+        // Distribution proportionnelle au cout
+        linePrice = (lineCost / totalCost) * priceTotal;
+      } else if (priceTotal > 0) {
+        linePrice = priceTotal / lines.length;
+      } else {
+        linePrice = 0;
+      }
+      var lineMargin = linePrice - lineCost;
+      var lineMarginPct = linePrice > 0 ? Math.round((lineMargin / linePrice) * 100) : 0;
+      var lineMarginColor = lineMargin >= 0 ? "var(--success, #22c55e)" : "var(--danger, #ef4444)";
+      var stockWarn = l.qtyGrams > l.stock ? ' <span style="color:var(--danger)">(!)</span>' : '';
+      linesHtml += '<div style="display:flex;justify-content:space-between;padding:3px 0;font-size:12px;gap:8px;flex-wrap:wrap">' +
+        '<span style="flex:1;min-width:150px">' + escPlain(l.productName) + ' — ' + formatWeight(l.qtyGrams) + stockWarn + '</span>' +
+        '<span style="color:var(--text-secondary)">' + linePrice.toFixed(2) + ' ' + currSymbol +
+          ' <span style="opacity:0.6">/ ' + lineCost.toFixed(2) + ' ' + currSymbol + '</span> · ' +
+          '<span style="color:' + lineMarginColor + '">' + (lineMargin >= 0 ? "+" : "") + lineMargin.toFixed(2) + ' (' + lineMarginPct + '%)</span>' +
+        '</span></div>';
+    });
+
+    var totalMargin = effectiveTotal - totalCost;
+    var totalMarginPct = effectiveTotal > 0 ? Math.round((totalMargin / effectiveTotal) * 100) : 0;
+    var totalMarginColor = totalMargin >= 0 ? "var(--success, #22c55e)" : "var(--danger, #ef4444)";
 
     preview.style.display = "block";
     preview.innerHTML =
+      (perLineMode ? '<div style="font-size:11px;color:var(--accent-primary);margin-bottom:6px">' + t("sale.perLineMode", "Mode prix par ligne actif — total calcule automatiquement") + '</div>' : '') +
       linesHtml +
       '<div style="border-top:1px solid var(--border-color);margin-top:6px;padding-top:6px;display:flex;justify-content:space-between;font-weight:500">' +
       '<span>' + lines.length + ' produit(s) — ' + formatWeight(totalGrams) + '</span>' +
       '<span>' + t("sale.costPrice", "Cout total") + ': ' + totalCost.toFixed(2) + ' ' + currSymbol + '</span>' +
       '</div>' +
-      (priceTotal > 0 ?
+      (effectiveTotal > 0 ?
         '<div style="display:flex;justify-content:space-between;margin-top:4px;font-weight:600">' +
-        '<span>' + t("sale.margin", "Marge") + '</span>' +
-        '<span style="color:' + marginColor + '">' + (margin >= 0 ? "+" : "") + margin.toFixed(2) + ' ' + currSymbol + ' (' + marginPct + '%)</span></div>'
+        '<span>' + t("sale.margin", "Marge totale") + '</span>' +
+        '<span style="color:' + totalMarginColor + '">' + (totalMargin >= 0 ? "+" : "") + totalMargin.toFixed(2) + ' ' + currSymbol + ' (' + totalMarginPct + '%)</span></div>'
       : '');
   }
 
@@ -1861,7 +1915,15 @@
       return;
     }
 
-    var priceTotal = parseFloat((document.getElementById("salePriceTotal") || {}).value) || 0;
+    // Detecter si l'utilisateur saisit prix par ligne (au moins une ligne avec prix > 0)
+    var anyLinePrice = lines.some(function(l) { return l.linePrice !== null && l.linePrice > 0; });
+    var allLinePrices = lines.every(function(l) { return l.linePrice !== null && l.linePrice > 0; });
+    var sumLinePrices = lines.reduce(function(s, l) { return s + (l.linePrice || 0); }, 0);
+
+    var priceTotalInput = document.getElementById("salePriceTotal");
+    var priceTotal = parseFloat((priceTotalInput || {}).value) || 0;
+    if (allLinePrices) priceTotal = sumLinePrices; // Mode prix par ligne = total auto
+
     var customer = (document.getElementById("saleCustomer") || {}).value || "";
     var note = (document.getElementById("saleNote") || {}).value || "";
     var saleName = (document.getElementById("saleName") || {}).value || "";
@@ -1941,10 +2003,29 @@
     var errors = 0;
     var results = [];
 
+    // Calculer la part du total a distribuer aux lignes SANS prix saisi
+    // (mode mixte : certaines lignes ont leur prix, d'autres non).
+    var pricedSum = lines.reduce(function(s, l) {
+      return s + (l.linePrice !== null && l.linePrice > 0 ? l.linePrice : 0);
+    }, 0);
+    var unpricedCost = lines.reduce(function(s, l) {
+      return s + (l.linePrice !== null && l.linePrice > 0 ? 0 : l.qtyGrams * l.cmp);
+    }, 0);
+    var remainingTotal = Math.max(0, priceTotal - pricedSum);
+
     for (var i = 0; i < lines.length; i++) {
       var l = lines[i];
       var lineCost = l.qtyGrams * l.cmp;
-      var linePrice = totalCost > 0 ? (lineCost / totalCost) * priceTotal : priceTotal / lines.length;
+      var linePrice;
+      if (l.linePrice !== null && l.linePrice > 0) {
+        // Prix saisi par l'utilisateur : utilise tel quel
+        linePrice = l.linePrice;
+      } else if (unpricedCost > 0) {
+        // Distribuer le reste du total proportionnellement au cout
+        linePrice = (lineCost / unpricedCost) * remainingTotal;
+      } else {
+        linePrice = remainingTotal / Math.max(1, lines.filter(function(x) { return !(x.linePrice > 0); }).length);
+      }
 
       try {
         var res = await authFetch(apiUrl("/sales/manual"), {
