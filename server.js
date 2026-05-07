@@ -2064,6 +2064,21 @@ function inferProductFix(productName) {
   const name = String(productName || "").toLowerCase();
   if (!name) return null;
 
+  // Huiles / tinctures : flacons, vendus a l'unite
+  const oilPatterns = [
+    /\bhuile\b/, /\boil\b/, /tincture/, /teinture/,
+    /\bflacon\b/, /\bbottle\b/, /goutte/, /\bdrops?\b/
+  ];
+  for (const pat of oilPatterns) {
+    if (pat.test(name)) {
+      return {
+        type: "trackByUnit",
+        patch: { trackByUnit: true, gramsPerUnit: null },
+        reason: "Huile / flacon detecte (suivi a l'unite, pas au gramme)"
+      };
+    }
+  }
+
   // Accessoires (suivi a l'unite)
   const accessoryPatterns = [
     /briquet/, /lighter/, /grinder/, /plateau/, /tray/, /cendrier/, /ashtray/,
@@ -2130,17 +2145,10 @@ router.post("/api/shop-health/auto-fix", (req, res) => {
         continue;
       }
 
-      // Skip si le produit n'a pas de variantes en fallback 1000g (= deja correctement parse)
-      const variants = p.variants || {};
-      const hasFallback1000 = Object.entries(variants).some(([label, v]) => {
-        if (Number(v.gramsPerUnit) !== 1000) return false;
-        return !/1000|1\s*kg|kilo/i.test(String(label));
-      });
-      if (!hasFallback1000) {
-        // Parsing OK, rien a faire
-        continue;
-      }
-
+      // L'heuristique decide si une correction s'applique. On NE filtre PAS sur
+      // "fallback 1000g" parce que certains produits parsent vers une valeur
+      // basse mais incorrecte (ex: huile "10 %" -> 10 g/flacon, alors qu'il
+      // faudrait du suivi a l'unite).
       const fix = inferProductFix(p.name);
       if (!fix) {
         skipped.push({ productId: pid, productName: p.name, reason: "Aucun pattern reconnu" });
@@ -2480,6 +2488,7 @@ router.post("/api/sync/shopify", async (req, res) => {
         // IMPORTANT: normalizeVariants exige inventoryItemId ET gramsPerUnit > 0
         const variantsObj = {};
         let hasValidVariant = false;
+        let totalGramsFromShopify = 0; // Sum(inventoryQuantity x gramsPerUnit) per variant
 
         if (shopifyProduct.variants && shopifyProduct.variants.length > 0) {
           for (const v of shopifyProduct.variants) {
@@ -2539,21 +2548,37 @@ router.post("/api/sync/shopify", async (req, res) => {
                 price: parseFloat(v.price) || 0
               };
               hasValidVariant = true;
+
+              // Cumul du stock master = somme des variantes en stock x leur poids
+              // inventory_quantity est sommee sur toutes les locations Shopify ;
+              // pour Cloud Store CBD c'est equivalent a la location active.
+              const invQty = Number(v.inventory_quantity) || 0;
+              if (invQty > 0) {
+                totalGramsFromShopify += invQty * gramsPerUnit;
+              }
             }
           }
         }
-        
+
         // Si aucune variante valide, on skip ce produit
         if (!hasValidVariant) {
           skipped++;
           continue;
         }
-        
-        // Utiliser upsertImportedProductConfig qui existe dans stockManager
+
+        // Sync stock : par defaut on aligne sur Shopify (source de verite).
+        // Le client peut envoyer { preserveLocalStock: true } dans le body
+        // pour conserver totalGrams existant (utile si l'app a des ventes
+        // hors Shopify non encore poussees).
+        const preserveLocal = req.body?.preserveLocalStock === true;
+        const totalGramsValue = preserveLocal && existingProduct
+          ? existingProduct.totalGrams
+          : totalGramsFromShopify;
+
         const productData = {
           productId: productId,
           name: shopifyProduct.title,
-          totalGrams: existingProduct ? existingProduct.totalGrams : 0,
+          totalGrams: totalGramsValue,
           variants: variantsObj,
           categoryIds: existingProduct ? existingProduct.categoryIds : []
         };
