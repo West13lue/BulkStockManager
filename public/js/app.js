@@ -6137,7 +6137,11 @@
       var progress = s.totals.itemsTotal > 0 ? Math.round((s.totals.itemsCounted / s.totals.itemsTotal) * 100) : 0;
       var scopeLabel = s.scopeType === "all" ? t("inventory.scopeAll", "Tous") : (s.scopeType === "category" ? t("inventory.scopeCategory", "Categorie") : t("inventory.scopeSelection", "Selection"));
       
-      return '<tr onclick="app.openInventorySession(\'' + s.id + '\')">' +
+      // esc + JSON.stringify pour le nom : on passe le nom comme parametre JS
+      // litteral (on est dans un onclick) donc apostrophes/guillemets doivent
+      // etre echappes au niveau JS, pas au niveau HTML (esc seul ne suffit pas).
+      var nameLiteral = JSON.stringify(s.name || "").replace(/</g, "\\u003c");
+      return '<tr onclick="app.openInventorySession(\'' + esc(s.id) + '\')">' +
         '<td><strong>' + esc(s.name) + '</strong><br><span class="text-secondary text-sm">' + formatDate(s.createdAt) + '</span></td>' +
         '<td>' + statusBadge + '</td>' +
         '<td>' + scopeLabel + '</td>' +
@@ -6146,9 +6150,9 @@
         '<td>' + (s.totals.itemsWithDiff || 0) + '</td>' +
         '<td class="' + (s.totals.totalDeltaValue < 0 ? "text-danger" : "") + '">' + formatCurrency(s.totals.totalDeltaValue || 0) + '</td>' +
         '<td onclick="event.stopPropagation()">' +
-        '<button class="btn btn-ghost btn-sm" onclick="app.duplicateInventorySession(\'' + s.id + '\')" title="' + t("action.duplicate", "Dupliquer") + '"><i data-lucide="copy"></i></button>' +
-        '<button class="btn btn-ghost btn-sm" onclick="app.archiveInventorySession(\'' + s.id + '\')" title="' + t("action.archive", "Archiver") + '"><i data-lucide="archive"></i></button>' +
-        '<button class="btn btn-ghost btn-sm text-danger" onclick="app.deleteInventorySession(\'' + s.id + '\', \'' + esc(s.name).replace(/'/g, "\\'") + '\')" title="' + t("action.delete", "Supprimer") + '"><i data-lucide="trash-2"></i></button>' +
+        '<button class="btn btn-ghost btn-sm" onclick="app.duplicateInventorySession(\'' + esc(s.id) + '\')" title="' + t("action.duplicate", "Dupliquer") + '"><i data-lucide="copy"></i></button>' +
+        '<button class="btn btn-ghost btn-sm" onclick="app.archiveInventorySession(\'' + esc(s.id) + '\')" title="' + t("action.archive", "Archiver") + '"><i data-lucide="archive"></i></button>' +
+        '<button class="btn btn-ghost btn-sm text-danger" onclick=\'app.deleteInventorySession("' + esc(s.id) + '", ' + nameLiteral.replace(/'/g, "&#39;") + ')\' title="' + t("action.delete", "Supprimer") + '"><i data-lucide="trash-2"></i></button>' +
         '</td>' +
         '</tr>';
     }).join("");
@@ -6246,7 +6250,7 @@
 
   async function openInventorySession(sessionId) {
     try {
-      var res = await authFetch(apiUrl("/inventory/sessions/" + sessionId));
+      var res = await authFetch(apiUrl("/inventory/sessions/" + encodeURIComponent(sessionId)));
       if (!res.ok) throw new Error("Session non trouvee");
       var data = await res.json();
       currentInventorySession = data.session;
@@ -6264,9 +6268,9 @@
     var progress = s.totals.itemsTotal > 0 ? Math.round((s.totals.itemsCounted / s.totals.itemsTotal) * 100) : 0;
 
     var tabsHtml = '<div class="tabs-nav">' +
-      '<button class="tab-btn active" onclick="app.switchInventoryTab(\'counting\')">Comptage</button>' +
-      '<button class="tab-btn" onclick="app.switchInventoryTab(\'review\')">Validation</button>' +
-      '<button class="tab-btn" onclick="app.switchInventoryTab(\'history\')">Historique</button>' +
+      '<button class="tab-btn active" data-inv-tab="counting" onclick="app.switchInventoryTab(\'counting\')">' + t("inventory.tabCounting", "Comptage") + '</button>' +
+      '<button class="tab-btn" data-inv-tab="review" onclick="app.switchInventoryTab(\'review\')">' + t("inventory.tabReview", "Validation") + '</button>' +
+      '<button class="tab-btn" data-inv-tab="history" onclick="app.switchInventoryTab(\'history\')">' + t("inventory.tabHistory", "Historique") + '</button>' +
       '</div>';
 
     container.innerHTML =
@@ -6292,8 +6296,10 @@
   }
 
   function switchInventoryTab(tabName) {
-    document.querySelectorAll(".tabs-nav .tab-btn").forEach(function(btn, i) {
-      btn.classList.toggle("active", ["counting", "review", "history"][i] === tabName);
+    // data-inv-tab : matching fiable sur l'onglet meme apres ajout/reorder.
+    // Avant : matching par index dans un array, fragile a chaque modif.
+    document.querySelectorAll(".tabs-nav .tab-btn").forEach(function(btn) {
+      btn.classList.toggle("active", btn.dataset.invTab === tabName);
     });
 
     var container = document.getElementById("inventoryTabContent");
@@ -6326,9 +6332,9 @@
         '<td><strong>' + esc(item.productName) + '</strong>' + (item.variantLabel ? '<br><span class="text-secondary text-sm">' + esc(item.variantLabel) + '</span>' : '') + '</td>' +
         '<td>' + formatWeight(item.expectedQty) + '</td>' +
         '<td><input type="number" class="form-input form-input-sm" style="width:100px" value="' + (item.countedQty !== null ? item.countedQty : "") + '" ' +
-        'onchange="app.updateInventoryItem(\'' + item.id + '\', this.value)" placeholder="Compter"></td>' +
+        'onchange="app.updateInventoryItem(\'' + esc(item.id) + '\', this.value)" placeholder="' + t("inventory.count", "Compter") + '"></td>' +
         '<td class="' + deltaClass + '">' + deltaDisplay + '</td>' +
-        '<td><button class="btn btn-ghost btn-sm" onclick="app.toggleInventoryItemFlag(\'' + item.id + '\')" title="Signaler"><i data-lucide="flag"></i></button></td>' +
+        '<td><button class="btn btn-ghost btn-sm" onclick="app.toggleInventoryItemFlag(\'' + esc(item.id) + '\')" title="' + t("inventory.flag", "Signaler") + '"><i data-lucide="flag"></i></button></td>' +
         '</tr>';
     }).join("");
 
@@ -6362,7 +6368,7 @@
         '<td>' + formatWeight(item.countedQty) + '</td>' +
         '<td class="' + deltaClass + '">' + (item.delta > 0 ? "+" : "") + formatWeight(item.delta) + '</td>' +
         '<td class="' + deltaClass + '">' + formatCurrency(item.deltaValue || 0) + '</td>' +
-        '<td><select class="form-select form-select-sm" onchange="app.setInventoryItemReason(\'' + item.id + '\', this.value)">' +
+        '<td><select class="form-select form-select-sm" onchange="app.setInventoryItemReason(\'' + esc(item.id) + '\', this.value)">' +
         '<option value="">-- Raison --</option>' +
         '<option value="breakage"' + (item.reason === "breakage" ? " selected" : "") + '>Casse</option>' +
         '<option value="theft"' + (item.reason === "theft" ? " selected" : "") + '>Vol</option>' +
@@ -6387,41 +6393,51 @@
 
   async function loadInventoryEvents(sessionId, container) {
     try {
-      var res = await authFetch(apiUrl("/inventory/events?sessionId=" + sessionId));
+      var res = await authFetch(apiUrl("/inventory/events?sessionId=" + encodeURIComponent(sessionId)));
       var data = await res.json();
       var events = data.events || [];
 
       if (events.length === 0) {
-        container.innerHTML = '<div class="card"><p class="text-secondary text-center py-lg">Aucun evenement.</p></div>';
+        container.innerHTML = '<div class="card"><p class="text-secondary text-center py-lg">' + t("inventory.noEvents", "Aucun evenement.") + '</p></div>';
         return;
       }
 
       var rows = events.map(function(e) {
         return '<tr><td>' + formatDate(e.createdAt) + '</td><td>' + esc(e.productName) + '</td>' +
           '<td class="' + (e.deltaQty < 0 ? "text-danger" : "text-success") + '">' + (e.deltaQty > 0 ? "+" : "") + formatWeight(e.deltaQty) + '</td>' +
-          '<td>' + formatCurrency(e.deltaValue || 0) + '</td><td>' + (e.reason || "-") + '</td></tr>';
+          '<td>' + formatCurrency(e.deltaValue || 0) + '</td><td>' + esc(e.reason || "-") + '</td></tr>';
       }).join("");
 
       container.innerHTML = '<div class="card"><div class="table-container"><table class="data-table">' +
-        '<thead><tr><th>Date</th><th>Produit</th><th>Delta</th><th>Valeur</th><th>Raison</th></tr></thead>' +
+        '<thead><tr><th>' + t("inventory.date", "Date") + '</th><th>' + t("inventory.product", "Produit") + '</th><th>' + t("inventory.delta", "Delta") + '</th><th>' + t("inventory.value", "Valeur") + '</th><th>' + t("inventory.reason", "Raison") + '</th></tr></thead>' +
         '<tbody>' + rows + '</tbody></table></div></div>';
     } catch (e) {
-      container.innerHTML = '<div class="card"><p class="text-danger text-center py-lg">" + t("msg.error", "Erreur") + ": ' + e.message + '</p></div>';
+      // Avant : la chaine ouvrait avec '<div...>"' (guillemet double) alors
+      // que la chaine etait simple-quote, ce qui generait un HTML casse.
+      container.innerHTML = '<div class="card"><p class="text-danger text-center py-lg">' + t("msg.error", "Erreur") + ': ' + esc(e.message) + '</p></div>';
     }
   }
 
   async function startInventorySession() {
     try {
-      var res = await authFetch(apiUrl("/inventory/sessions/" + currentInventorySession.id + "/start"), { method: "POST" });
+      var res = await authFetch(apiUrl("/inventory/sessions/" + encodeURIComponent(currentInventorySession.id) + "/start"), { method: "POST" });
       if (!res.ok) throw new Error((await res.json()).message || "Erreur");
       showToast(t("inventory.sessionStarted", "Session demarree"), "success");
       openInventorySession(currentInventorySession.id);
     } catch (e) { showToast(t("msg.error", "Erreur") + ": " + e.message, "error"); }
   }
 
+  // Helper local : URL d'une session (toujours encodee).
+  function _invSessionUrl(sessionId, suffix) {
+    return "/inventory/sessions/" + encodeURIComponent(sessionId) + (suffix || "");
+  }
+  function _invItemUrl(sessionId, itemId) {
+    return "/inventory/sessions/" + encodeURIComponent(sessionId) + "/items/" + encodeURIComponent(itemId);
+  }
+
   async function reviewInventorySession() {
     try {
-      var res = await authFetch(apiUrl("/inventory/sessions/" + currentInventorySession.id + "/review"), { method: "POST" });
+      var res = await authFetch(apiUrl(_invSessionUrl(currentInventorySession.id, "/review")), { method: "POST" });
       if (!res.ok) throw new Error((await res.json()).message || "Erreur");
       showToast(t("inventory.sessionValidated", "Session validee"), "success");
       openInventorySession(currentInventorySession.id);
@@ -6429,12 +6445,12 @@
   }
 
   async function applyInventorySession() {
-    var _ok = await showConfirmDialog("Appliquer les ajustements ? Cette action est irreversible.", {danger: true}); if (!_ok) return;
+    var _ok = await showConfirmDialog(t("inventory.confirmApply", "Appliquer les ajustements ? Cette action est irreversible."), {danger: true}); if (!_ok) return;
     try {
-      var res = await authFetch(apiUrl("/inventory/sessions/" + currentInventorySession.id + "/apply"), { method: "POST", body: JSON.stringify({}) });
+      var res = await authFetch(apiUrl(_invSessionUrl(currentInventorySession.id, "/apply")), { method: "POST", body: JSON.stringify({}) });
       var data = await res.json();
       if (!data.success) throw new Error(data.message || "Erreur");
-      showToast(data.applied + " ajustement(s) applique(s)", "success");
+      showToast(data.applied + " " + t("inventory.adjustmentsApplied", "ajustement(s) applique(s)"), "success");
       openInventorySession(currentInventorySession.id);
     } catch (e) { showToast(t("msg.error", "Erreur") + ": " + e.message, "error"); }
   }
@@ -6442,7 +6458,7 @@
   async function updateInventoryItem(itemId, value) {
     var countedQty = value === "" ? null : parseFloat(value);
     try {
-      await authFetch(apiUrl("/inventory/sessions/" + currentInventorySession.id + "/items/" + itemId), {
+      await authFetch(apiUrl(_invItemUrl(currentInventorySession.id, itemId)), {
         method: "PUT", body: JSON.stringify({ countedQty: countedQty })
       });
       openInventorySession(currentInventorySession.id);
@@ -6453,7 +6469,7 @@
     var item = inventoryItems.find(function(i) { return i.id === itemId; });
     if (!item) return;
     try {
-      await authFetch(apiUrl("/inventory/sessions/" + currentInventorySession.id + "/items/" + itemId), {
+      await authFetch(apiUrl(_invItemUrl(currentInventorySession.id, itemId)), {
         method: "PUT", body: JSON.stringify({ flagged: !item.flagged })
       });
       openInventorySession(currentInventorySession.id);
@@ -6462,7 +6478,7 @@
 
   async function setInventoryItemReason(itemId, reason) {
     try {
-      await authFetch(apiUrl("/inventory/sessions/" + currentInventorySession.id + "/items/" + itemId), {
+      await authFetch(apiUrl(_invItemUrl(currentInventorySession.id, itemId)), {
         method: "PUT", body: JSON.stringify({ reason: reason || null })
       });
     } catch (e) { showToast(t("msg.error", "Erreur"), "error"); }
@@ -6484,7 +6500,7 @@
 
   async function duplicateInventorySession(sessionId) {
     try {
-      var res = await authFetch(apiUrl("/inventory/sessions/" + sessionId + "/duplicate"), { method: "POST" });
+      var res = await authFetch(apiUrl(_invSessionUrl(sessionId, "/duplicate")), { method: "POST" });
       if (!res.ok) throw new Error("Erreur");
       showToast(t("inventory.sessionDuplicated", "Session dupliquee"), "success");
       loadInventorySessions();
@@ -6494,7 +6510,7 @@
   async function archiveInventorySession(sessionId) {
     var _ok = await showConfirmDialog(t("inventory.confirmArchive", "Archiver cette session ?"), {danger: true}); if (!_ok) return;
     try {
-      var res = await authFetch(apiUrl("/inventory/sessions/" + sessionId), { method: "DELETE" });
+      var res = await authFetch(apiUrl(_invSessionUrl(sessionId)), { method: "DELETE" });
       if (!res.ok) throw new Error("Erreur");
       showToast(t("inventory.sessionArchived", "Session archivee"), "success");
       loadInventorySessions();
@@ -6504,7 +6520,7 @@
   async function deleteInventorySession(sessionId, sessionName) {
     var _ok = await showConfirmDialog(t("inventory.confirmDelete", "Supprimer definitivement cette session ?") + "\n\n" + sessionName, {danger: true}); if (!_ok) return;
     try {
-      var res = await authFetch(apiUrl("/inventory/sessions/" + sessionId + "?permanent=true"), { method: "DELETE" });
+      var res = await authFetch(apiUrl(_invSessionUrl(sessionId, "?permanent=true")), { method: "DELETE" });
       if (!res.ok) throw new Error("Erreur");
       showToast(t("inventory.sessionDeleted", "Session supprimee"), "success");
       
