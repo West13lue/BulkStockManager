@@ -2737,8 +2737,8 @@
 
   function renderProducts(c) {
     // Options categories pour le select
-    var catOptions = '<option value="">Toutes les categories</option>';
-    catOptions += '<option value="uncategorized"' + (state.filters.category === "uncategorized" ? " selected" : "") + '>Sans categorie</option>';
+    var catOptions = '<option value="">' + t("filter.allCategories", "Toutes les categories") + '</option>';
+    catOptions += '<option value="uncategorized"' + (state.filters.category === "uncategorized" ? " selected" : "") + '>' + t("filter.uncategorized", "Sans categorie") + '</option>';
     state.categories.forEach(function(cat) {
       var count = cat.productCount || 0;
       catOptions += '<option value="' + esc(cat.id) + '"' + (state.filters.category === cat.id ? " selected" : "") + '>' + esc(cat.name) + ' (' + count + ')</option>';
@@ -5377,11 +5377,11 @@
           "<td>" + formatCurrency(s * cost) + "</td>" +
           '<td><span class="stock-badge ' + st.c + '">' + st.i + " " + st.l + "</span></td>" +
           '<td class="cell-actions" onclick="event.stopPropagation()">' +
-          '<button class="btn btn-ghost btn-xs" onclick="app.showRestockModal(\'' + p.productId + '\')">+</button>' +
-          '<button class="btn btn-ghost btn-xs" onclick="app.showAdjustModal(\'' + p.productId + '\')">' + t("action.edit", "Edit") + '</button>' +
-          '<button class="btn btn-ghost btn-xs" onclick="app.openProductDetails(\'' + p.productId + '\')">' + t("action.details", "Details") + '</button>' +
-          '<button class="btn btn-ghost btn-xs" onclick="app.archiveProduct(\'' + p.productId + '\')" title="' + t("products.archive", "Mettre hors catalogue") + '"><i data-lucide="archive" style="width:12px;height:12px"></i></button>' +
-          '<button class="btn btn-ghost btn-xs text-danger" onclick="app.deleteProduct(\'' + p.productId + '\')" title="' + t("action.delete", "Supprimer") + '"><i data-lucide="trash-2" style="width:12px;height:12px"></i></button></td></tr>'
+          '<button class="btn btn-ghost btn-xs" onclick="app.showRestockModal(\'' + esc(p.productId) + '\')">+</button>' +
+          '<button class="btn btn-ghost btn-xs" onclick="app.showAdjustModal(\'' + esc(p.productId) + '\')">' + t("action.edit", "Edit") + '</button>' +
+          '<button class="btn btn-ghost btn-xs" onclick="app.openProductDetails(\'' + esc(p.productId) + '\')">' + t("action.details", "Details") + '</button>' +
+          '<button class="btn btn-ghost btn-xs" onclick="app.archiveProduct(\'' + esc(p.productId) + '\')" title="' + t("products.archive", "Mettre hors catalogue") + '"><i data-lucide="archive" style="width:12px;height:12px"></i></button>' +
+          '<button class="btn btn-ghost btn-xs text-danger" onclick="app.deleteProduct(\'' + esc(p.productId) + '\')" title="' + t("action.delete", "Supprimer") + '"><i data-lucide="trash-2" style="width:12px;height:12px"></i></button></td></tr>'
         );
       })
       .join("");
@@ -7749,13 +7749,20 @@
   async function loadProducts(useFilters) {
     try {
       var url = "/stock";
+      // Le tri user (state.filters.sort) doit etre applique a CHAQUE chargement,
+      // pas seulement quand applyFilters() le demande explicitement. Sinon les
+      // boots et les rechargements post-action (saveRestock, saveAdjust, etc.)
+      // remettent le tri par defaut backend ("alpha"), ce qui ecrase la
+      // preference utilisateur. La recherche/categorie restent volontairement
+      // gates derriere useFilters pour que loadProducts() simple ne refasse
+      // pas le filtre courant lors d'une action de modification.
+      var params = [];
+      if (state.filters.sort) params.push("sort=" + encodeURIComponent(state.filters.sort));
       if (useFilters) {
-        var params = [];
         if (state.filters.search) params.push("q=" + encodeURIComponent(state.filters.search));
         if (state.filters.category) params.push("category=" + encodeURIComponent(state.filters.category));
-        if (state.filters.sort) params.push("sort=" + encodeURIComponent(state.filters.sort));
-        if (params.length) url += "?" + params.join("&");
       }
+      if (params.length) url += "?" + params.join("&");
       var res = await authFetch(apiUrl(url));
       if (!res.ok) {
         state.products = [];
