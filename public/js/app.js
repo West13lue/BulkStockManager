@@ -72,7 +72,7 @@
     'openSODetails', 'showReceivePOModal', 'receivePO',
     'showFullActivityLog',
     'exportStockCSV', 'exportMovementsCSV', 'exportAnalyticsCSV',
-    'cancelPlan', 'changeAnalyticsPeriod', 'switchAnalyticsTab', 'loadManualSalesTab', 'loadOrdersDebugTab', 'toggleOrderDebugRow', 'analyzeDuplicates',
+    'cancelPlan', 'changeAnalyticsPeriod', 'switchAnalyticsTab', 'loadManualSalesTab', 'loadOrdersDebugTab', 'toggleOrderDebugRow', 'analyzeDuplicates', 'toggleAllDedupOrders', 'executeDedup',
     'switchOrdersTab', 'onOrderStatusChange', 'onOrderPeriodChange', 'onOrderSourceChange',
     'importShopifyOrders',
     'showCreatePOModal', 'savePO', 'openPODetails', 'confirmPO', 'sendPO',
@@ -8669,28 +8669,97 @@
       if (!res.ok) throw new Error("Erreur detection");
       var data = await res.json();
 
-      if (data.duplicatesFound === 0) {
+      if (data.duplicatesFound === 0 && (!data.uniqueOrders || data.uniqueOrders.length === 0)) {
         showToast(t("ordersDebug.noDups", "Aucun doublon trouve"), "success");
         return;
       }
 
-      var msg = data.duplicatesFound + " doublon(s) detecte(s) sur " + data.totalSales + " enregistrements.\n\n" +
-        "Apres nettoyage: " + data.wouldKeep + " vente(s) unique(s) conservee(s).\n\n" +
-        "Voulez-vous supprimer les doublons maintenant ?";
-      var _ok = await showConfirmDialog(msg, { danger: true, confirmText: "Supprimer les doublons" });
-      if (!_ok) return;
+      // Build detailed modal showing kept orders
+      var currSymbol = getCurrencySymbol();
+      var ordersListHtml = '';
+      if (data.uniqueOrders && data.uniqueOrders.length > 0) {
+        ordersListHtml = '<div style="margin-top:12px;max-height:300px;overflow:auto;border:1px solid var(--border-color);border-radius:8px">' +
+          '<table style="width:100%;font-size:12px;border-collapse:collapse">' +
+          '<thead style="position:sticky;top:0;background:var(--bg-secondary)"><tr style="border-bottom:1px solid var(--border-color)">' +
+          '<th style="text-align:left;padding:8px"><input type="checkbox" id="selectAllOrders" onchange="app.toggleAllDedupOrders(this)" style="cursor:pointer"></th>' +
+          '<th style="text-align:left;padding:8px">Commande</th>' +
+          '<th style="text-align:left;padding:8px">Source</th>' +
+          '<th style="text-align:left;padding:8px">Date</th>' +
+          '<th style="text-align:right;padding:8px">Lignes</th>' +
+          '<th style="text-align:right;padding:8px">Grammes</th>' +
+          '<th style="text-align:right;padding:8px">CA</th>' +
+          '</tr></thead><tbody>' +
+          data.uniqueOrders.map(function(o, idx) {
+            var dateStr = new Date(o.orderDate).toLocaleString();
+            return '<tr style="border-bottom:1px solid rgba(255,255,255,0.05)">' +
+              '<td style="padding:8px"><input type="checkbox" class="dedup-order-cb" data-orderid="' + esc(o.orderId || "") + '" style="cursor:pointer"></td>' +
+              '<td style="padding:8px"><strong>' + esc(o.orderNumber || o.orderId || "-") + '</strong></td>' +
+              '<td style="padding:8px"><span class="badge badge-' + (o.source === "manual" ? "info" : "success") + '" style="font-size:11px">' + esc(o.source === "manual" ? "Manuelle" : "Shopify") + '</span></td>' +
+              '<td style="padding:8px;color:var(--text-secondary)">' + esc(dateStr) + '</td>' +
+              '<td style="text-align:right;padding:8px">' + o.lineCount + '</td>' +
+              '<td style="text-align:right;padding:8px">' + formatWeight(o.totalGrams) + '</td>' +
+              '<td style="text-align:right;padding:8px">' + formatCurrency(o.totalRevenue) + '</td>' +
+              '</tr>';
+          }).join("") +
+          '</tbody></table></div>';
+      }
 
-      showToast(t("ordersDebug.cleaning", "Nettoyage en cours..."), "info");
-
-      // Execute cleanup
-      var res2 = await authFetch(apiUrl("/analytics/deduplicate"), {
-        method: "POST",
-        body: JSON.stringify({ dryRun: false })
+      showModal({
+        title: '<i data-lucide="alert-triangle"></i> ' + t("ordersDebug.cleanupTitle", "Nettoyage des analytics"),
+        size: "lg",
+        content:
+          '<div class="alert" style="background:var(--warning-bg,rgba(251,191,36,0.1));border:1px solid var(--warning,#fbbf24);padding:12px;border-radius:8px;margin-bottom:12px;color:#fde68a;font-size:13px">' +
+          '<strong>Etat actuel:</strong><br>' +
+          '• ' + data.totalSales + ' enregistrement(s) total dans analytics<br>' +
+          '• ' + data.duplicatesFound + ' doublon(s) detecte(s) (meme orderId + productId)<br>' +
+          '• ' + data.wouldKeep + ' ligne(s) unique(s) regroupees en ' + (data.uniqueOrders || []).length + ' commande(s)<br>' +
+          '</div>' +
+          '<p style="font-size:13px;color:var(--text-secondary);margin-bottom:8px">Apres nettoyage des doublons, voici les commandes qui resteront. Cochez celles a SUPPRIMER ENTIEREMENT (par ex. des tests) :</p>' +
+          ordersListHtml,
+        footer:
+          '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.cancel", "Annuler") + '</button>' +
+          '<button class="btn btn-secondary" onclick="app.executeDedup(false)">' + t("ordersDebug.onlyDups", "Supprimer doublons seulement") + '</button>' +
+          '<button class="btn btn-danger" onclick="app.executeDedup(true)">' + t("ordersDebug.dupsAndSelected", "Supprimer doublons + selection") + '</button>'
       });
-      if (!res2.ok) throw new Error("Erreur nettoyage");
-      var result = await res2.json();
+      if (typeof lucide !== "undefined") lucide.createIcons();
 
-      showToast(result.duplicatesRemoved + " doublon(s) supprime(s). " + result.kept + " vente(s) conservee(s).", "success");
+    } catch (e) {
+      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
+    }
+  }
+
+  function toggleAllDedupOrders(cb) {
+    document.querySelectorAll(".dedup-order-cb").forEach(function(c) { c.checked = cb.checked; });
+  }
+
+  async function executeDedup(includeSelected) {
+    var orderIdsToDelete = [];
+    if (includeSelected) {
+      document.querySelectorAll(".dedup-order-cb:checked").forEach(function(cb) {
+        var oid = cb.dataset.orderid;
+        if (oid) orderIdsToDelete.push(oid);
+      });
+    }
+
+    closeModal();
+    showToast(t("ordersDebug.cleaning", "Nettoyage en cours..."), "info");
+
+    try {
+      var res = await authFetch(apiUrl("/analytics/deduplicate"), {
+        method: "POST",
+        body: JSON.stringify({
+          dryRun: false,
+          deleteOrderIds: orderIdsToDelete
+        })
+      });
+      if (!res.ok) throw new Error("Erreur nettoyage");
+      var result = await res.json();
+      showToast(
+        result.duplicatesRemoved + " doublon(s) supprime(s)" +
+        (result.ordersDeleted ? " + " + result.ordersDeleted + " commande(s) entiere(s)" : "") +
+        ". " + result.kept + " vente(s) conservee(s).",
+        "success"
+      );
       loadOrdersDebugTab();
     } catch (e) {
       showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
@@ -9315,6 +9384,8 @@
     loadOrdersDebugTab: loadOrdersDebugTab,
     toggleOrderDebugRow: toggleOrderDebugRow,
     analyzeDuplicates: analyzeDuplicates,
+    toggleAllDedupOrders: toggleAllDedupOrders,
+    executeDedup: executeDedup,
     // Batches / Lots
     onBatchProductChange: onBatchProductChange,
     onBatchStatusChange: onBatchStatusChange,
