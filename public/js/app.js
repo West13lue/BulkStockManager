@@ -10456,113 +10456,411 @@
     }
   }
 
+  // ============================================
+  //  Analytics Ventes (refonte v2)
+  // ============================================
+
+  // État local de la page
+  var analyticsChartInstance = null;     // instance Chart.js courante
+  var analyticsChartMetric   = "revenue"; // revenue | margin | grams
+  var analyticsProductSort   = { col: "revenue", dir: "desc" };
+  var analyticsProductSearch = "";
+  var analyticsProductPage   = 1;
+  var ANALYTICS_PAGE_SIZE    = 20;
+
+  function _marginTier(pct) {
+    if (pct >= 30) return "success";
+    if (pct >= 15) return "warning";
+    return "danger";
+  }
+
+  function _renderTopList(opts) {
+    // opts: { titleKey, titleFallback, icon, items, valueFn, emptyKey, emptyFallback, valueClassFn, rankClassFn }
+    var html = '<div class="top-list" role="list" aria-label="' + esc(opts.titleFallback) + '">' +
+               '<h4><i data-lucide="' + opts.icon + '"></i> ' + t(opts.titleKey, opts.titleFallback) + '</h4>';
+    var items = opts.items || [];
+    if (!items.length) {
+      html += '<p class="text-secondary text-sm">' + t(opts.emptyKey || "analytics.noSales", opts.emptyFallback || "Aucune vente") + '</p>';
+    } else {
+      items.forEach(function(p, i) {
+        var rankClass = opts.rankClassFn ? opts.rankClassFn(p, i) : "";
+        var valClass  = opts.valueClassFn ? opts.valueClassFn(p, i) : "";
+        var pid = esc(p.productId || "");
+        var pname = esc(p.name || "");
+        var safeName = pname.replace(/'/g, "&#39;");
+        html += '<button type="button" class="top-item" role="listitem" ' +
+                'onclick="app.viewProductInCatalog(\'' + pid + '\', \'' + safeName + '\')" ' +
+                'title="' + pname + ' — ' + t("analytics.viewInCatalog", "Voir dans le catalogue") + '">' +
+                '<span class="top-rank ' + rankClass + '">' + (i + 1) + '</span>' +
+                '<span class="top-name">' + pname + '</span>' +
+                '<span class="top-value ' + valClass + '">' + opts.valueFn(p) + '</span>' +
+                '</button>';
+      });
+    }
+    html += '</div>';
+    return html;
+  }
+
   function renderSalesAnalytics() {
     if (!analyticsSalesData) return;
     var d = analyticsSalesData;
     var k = d.kpis || {};
+    var pct = k.marginPercent || 0;
+    var pctTier = _marginTier(pct);
 
-    // KPI Cards - Ventes & Marges
-    var marginClass = k.marginPercent >= 30 ? "success" : k.marginPercent >= 15 ? "warning" : "danger";
-    
-    var kpiCards = 
-      '<div class="analytics-kpis analytics-kpis-sales">' +
-      '<div class="kpi-card kpi-large"><div class="kpi-icon"><i data-lucide="trending-up"></i></div><div class="kpi-value">' + formatCurrency(k.totalRevenue || 0) + '</div><div class="kpi-label">' + t("analytics.revenue", "Chiffre d\'affaires") + '</div><div class="kpi-sub">' + (k.totalOrders || 0) + ' ' + t("analytics.orders", "commandes") + '</div></div>' +
-      '<div class="kpi-card kpi-large"><div class="kpi-icon"><i data-lucide="piggy-bank"></i></div><div class="kpi-value">' + formatCurrency(k.totalMargin || 0) + '</div><div class="kpi-label">' + t("analytics.grossMargin", "Marge brute") + '</div><div class="kpi-sub ' + marginClass + '">' + (k.marginPercent || 0) + '% ' + t("analytics.margin", "de marge") + '</div></div>' +
-      '<div class="kpi-card"><div class="kpi-value">' + formatCurrency(k.totalCost || 0) + '</div><div class="kpi-label">' + t("analytics.costOfSales", "Cout des ventes") + '</div></div>' +
-      '<div class="kpi-card"><div class="kpi-value">' + formatWeight(k.totalGramsSold || 0) + '</div><div class="kpi-label">' + t("analytics.quantitySold", "Quantite vendue") + '</div></div>' +
-      '<div class="kpi-card"><div class="kpi-value">' + formatCurrency(k.avgOrderValue || 0) + '</div><div class="kpi-label">' + t("analytics.avgBasket", "Panier moyen") + '</div></div>' +
-      '<div class="kpi-card"><div class="kpi-value">' + formatPricePerUnit(k.avgSellingPrice || 0) + '</div><div class="kpi-label">' + t("analytics.avgSellingPrice", "Prix vente moy.") + '</div></div>' +
-      '<div class="kpi-card"><div class="kpi-value">' + formatPricePerUnit(k.avgCMP || 0) + '</div><div class="kpi-label">' + t("analytics.avgCMP", "CMP moyen") + '</div></div>' +
+    // ---- 1. KPI Hero (CA / Marge brute / Marge %) ----
+    var heroHtml =
+      '<div class="kpi-hero-row">' +
+        '<div class="kpi-hero">' +
+          '<div class="kpi-hero__label"><i data-lucide="trending-up"></i> ' + t("analytics.revenue", "Chiffre d\'affaires") + '</div>' +
+          '<div class="kpi-hero__value">' + formatCurrency(k.totalRevenue || 0) + '</div>' +
+          '<div class="kpi-hero__sub">' + (k.totalOrders || 0) + ' ' + t("analytics.orders", "commandes") + '</div>' +
+        '</div>' +
+        '<div class="kpi-hero">' +
+          '<div class="kpi-hero__label"><i data-lucide="piggy-bank"></i> ' + t("analytics.grossMargin", "Marge brute") + '</div>' +
+          '<div class="kpi-hero__value">' + formatCurrency(k.totalMargin || 0) + '</div>' +
+          '<div class="kpi-hero__sub ' + pctTier + '">' + pct + '% ' + t("analytics.margin", "de marge") + '</div>' +
+        '</div>' +
+        '<div class="kpi-hero kpi-margin-pct pct-' + pctTier + '" aria-label="' + t("analytics.marginPct", "Marge %") + '">' +
+          '<div class="kpi-hero__label">' + t("analytics.marginPct", "Marge %") + '</div>' +
+          '<div class="kpi-hero__value">' + pct + '%</div>' +
+          '<div class="kpi-hero__sub">' + t("analytics.onPeriod", "sur la periode") + '</div>' +
+        '</div>' +
       '</div>';
 
-    // Top produits par CA
+    // ---- 2. KPI Strip (5 secondaires) ----
+    var stripHtml =
+      '<div class="kpi-strip">' +
+        '<div class="kpi-mini"><div class="kpi-mini__value">' + formatCurrency(k.totalCost || 0)         + '</div><div class="kpi-mini__label">' + t("analytics.costOfSales",     "Cout des ventes")  + '</div></div>' +
+        '<div class="kpi-mini"><div class="kpi-mini__value">' + formatWeight(k.totalGramsSold || 0)      + '</div><div class="kpi-mini__label">' + t("analytics.quantitySold",    "Quantite vendue")  + '</div></div>' +
+        '<div class="kpi-mini"><div class="kpi-mini__value">' + formatCurrency(k.avgOrderValue || 0)     + '</div><div class="kpi-mini__label">' + t("analytics.avgBasket",       "Panier moyen")     + '</div></div>' +
+        '<div class="kpi-mini"><div class="kpi-mini__value">' + formatPricePerUnit(k.avgSellingPrice || 0) + '</div><div class="kpi-mini__label">' + t("analytics.avgSellingPrice", "Prix vente moy.")  + '</div></div>' +
+        '<div class="kpi-mini"><div class="kpi-mini__value">' + formatPricePerUnit(k.avgCMP || 0)        + '</div><div class="kpi-mini__label">' + t("analytics.avgCMP",          "CMP moyen")        + '</div></div>' +
+      '</div>';
+
+    // ---- 3. Chart d'évolution ----
+    var hasTimeline = d.timeline && d.timeline.length > 0;
+    var chartHtml =
+      '<div class="analytics-chart-section">' +
+        '<div class="analytics-chart-header">' +
+          '<h3><i data-lucide="line-chart"></i> ' + t("analytics.evolution", "Evolution sur la periode") + '</h3>' +
+          '<div class="chart-metric-switch" role="group" aria-label="' + t("analytics.metric", "Metrique") + '">' +
+            '<button type="button" data-metric="revenue" class="' + (analyticsChartMetric === "revenue" ? "active" : "") + '" onclick="app.switchSalesChartMetric(\'revenue\')">' + t("analytics.revenueShort", "CA")     + '</button>' +
+            '<button type="button" data-metric="margin"  class="' + (analyticsChartMetric === "margin"  ? "active" : "") + '" onclick="app.switchSalesChartMetric(\'margin\')">'  + t("analytics.marginShort",  "Marge")  + '</button>' +
+            '<button type="button" data-metric="grams"   class="' + (analyticsChartMetric === "grams"   ? "active" : "") + '" onclick="app.switchSalesChartMetric(\'grams\')">'   + t("analytics.volume",       "Volume") + '</button>' +
+          '</div>' +
+        '</div>' +
+        (hasTimeline
+          ? '<div class="analytics-chart-canvas"><canvas id="salesChartCanvas"></canvas></div>'
+          : '<div class="analytics-chart-empty">' + t("analytics.noChartData", "Pas assez de donnees pour tracer une courbe.") + '</div>'
+        ) +
+      '</div>';
+
+    // ---- 4. Tops (auto-fit, plus de débordement) ----
     var tops = d.topProducts || {};
-    var topRevenueHtml = '<div class="top-list"><h4><i data-lucide="trophy"></i> ' + t("analytics.topRevenue", "Top CA") + '</h4>';
-    (tops.byRevenue || []).forEach(function(p, i) {
-      topRevenueHtml += '<div class="top-item"><span class="top-rank">' + (i + 1) + '</span><span class="top-name">' + esc(p.name) + '</span><span class="top-value">' + formatCurrency(p.revenue) + '</span></div>';
-    });
-    if (!(tops.byRevenue || []).length) topRevenueHtml += '<p class="text-secondary text-sm">' + t("analytics.noSales", "Aucune vente") + '</p>';
-    topRevenueHtml += '</div>';
+    var topsInnerHtml =
+      _renderTopList({ titleKey: "analytics.topRevenue",   titleFallback: "Top CA",        icon: "trophy",         items: tops.byRevenue,       valueFn: function(p) { return formatCurrency(p.revenue); } }) +
+      _renderTopList({ titleKey: "analytics.topMarginEur", titleFallback: "Top Marge EUR", icon: "piggy-bank",     items: tops.byMargin,        valueFn: function(p) { return formatCurrency(p.margin); }, valueClassFn: function() { return "success"; }, rankClassFn: function() { return "success"; } }) +
+      _renderTopList({ titleKey: "analytics.topMarginPct", titleFallback: "Top Marge %",   icon: "percent",        items: tops.byMarginPercent, valueFn: function(p) { return p.marginPercent + "%"; }, valueClassFn: function() { return "success"; }, rankClassFn: function() { return "success"; }, emptyKey: "analytics.notEnoughData", emptyFallback: "Pas assez de donnees" }) +
+      _renderTopList({ titleKey: "analytics.topVolume",    titleFallback: "Top Volume",    icon: "scale",          items: tops.byVolume,        valueFn: function(p) { return formatWeight(p.gramsSold); } }) +
+      _renderTopList({ titleKey: "analytics.toOptimize",   titleFallback: "A optimiser",   icon: "alert-triangle", items: tops.worstMargin,     valueFn: function(p) { return p.marginPercent + "%"; },
+        valueClassFn: function(p) { return p.marginPercent < 10 ? "danger" : "warning"; },
+        rankClassFn:  function(p) { return p.marginPercent < 10 ? "danger" : "warning"; },
+        emptyKey: "analytics.allGoodMargins", emptyFallback: "Tous vos produits ont une bonne marge!" });
 
-    // Top produits par marge
-    var topMarginHtml = '<div class="top-list"><h4><i data-lucide="piggy-bank"></i> ' + t("analytics.topMarginEur", "Top Marge EUR") + '</h4>';
-    (tops.byMargin || []).forEach(function(p, i) {
-      topMarginHtml += '<div class="top-item"><span class="top-rank success">' + (i + 1) + '</span><span class="top-name">' + esc(p.name) + '</span><span class="top-value success">' + formatCurrency(p.margin) + '</span></div>';
-    });
-    if (!(tops.byMargin || []).length) topMarginHtml += '<p class="text-secondary text-sm">' + t("analytics.noSales", "Aucune vente") + '</p>';
-    topMarginHtml += '</div>';
-
-    // Top produits par marge %
-    var topMarginPctHtml = '<div class="top-list"><h4><i data-lucide="percent"></i> ' + t("analytics.topMarginPct", "Top Marge %") + '</h4>';
-    (tops.byMarginPercent || []).forEach(function(p, i) {
-      topMarginPctHtml += '<div class="top-item"><span class="top-rank success">' + (i + 1) + '</span><span class="top-name">' + esc(p.name) + '</span><span class="top-value success">' + p.marginPercent + '%</span></div>';
-    });
-    if (!(tops.byMarginPercent || []).length) topMarginPctHtml += '<p class="text-secondary text-sm">' + t("analytics.notEnoughData", "Pas assez de donnees") + '</p>';
-    topMarginPctHtml += '</div>';
-
-    // Top produits par volume
-    var topVolumeHtml = '<div class="top-list"><h4><i data-lucide="scale"></i> ' + t("analytics.topVolume", "Top Volume") + '</h4>';
-    (tops.byVolume || []).forEach(function(p, i) {
-      topVolumeHtml += '<div class="top-item"><span class="top-rank">' + (i + 1) + '</span><span class="top-name">' + esc(p.name) + '</span><span class="top-value">' + formatWeight(p.gramsSold) + '</span></div>';
-    });
-    if (!(tops.byVolume || []).length) topVolumeHtml += '<p class="text-secondary text-sm">' + t("analytics.noSales", "Aucune vente") + '</p>';
-    topVolumeHtml += '</div>';
-
-    // Pires marges
-    var worstMarginHtml = '<div class="top-list"><h4><i data-lucide="alert-triangle"></i> ' + t("analytics.toOptimize", "A optimiser (marge faible)") + '</h4>';
-    (tops.worstMargin || []).forEach(function(p, i) {
-      var badgeClass = p.marginPercent < 10 ? "danger" : "warning";
-      worstMarginHtml += '<div class="top-item"><span class="top-rank ' + badgeClass + '">' + (i + 1) + '</span><span class="top-name">' + esc(p.name) + '</span><span class="top-value ' + badgeClass + '">' + p.marginPercent + '%</span></div>';
-    });
-    if (!(tops.worstMargin || []).length) worstMarginHtml += '<p class="text-secondary text-sm">' + t("analytics.allGoodMargins", "Tous vos produits ont une bonne marge!") + '</p>';
-    worstMarginHtml += '</div>';
-
-    var topsSection = 
+    var topsSection =
       '<div class="analytics-section">' +
-      '<div class="section-header" onclick="app.toggleSection(\'topsales\')">' +
-      '<h3>' + t("analytics.productPerformance", "Performance produits") + '</h3><span class="section-toggle" id="toggle-topsales">-</span></div>' +
-      '<div class="section-content" id="section-topsales">' +
-      '<div class="tops-grid tops-grid-5">' + topRevenueHtml + topMarginHtml + topMarginPctHtml + topVolumeHtml + worstMarginHtml + '</div>' +
-      '</div></div>';
+        '<div class="section-header" role="button" tabindex="0" aria-expanded="true" aria-controls="section-topsales" onclick="app.toggleSection(\'topsales\')" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();app.toggleSection(\'topsales\');}">' +
+          '<h3><i data-lucide="trophy"></i> ' + t("analytics.productPerformance", "Performance produits") + '</h3>' +
+          '<span class="section-toggle" id="toggle-topsales" aria-hidden="true">-</span>' +
+        '</div>' +
+        '<div class="section-content" id="section-topsales">' +
+          '<div class="tops-grid-auto">' + topsInnerHtml + '</div>' +
+        '</div>' +
+      '</div>';
 
-    // Tableau des produits vendus
-    var productsHtml = '';
-    var products = d.products || [];
-    if (products.length > 0) {
-      productsHtml = '<table class="data-table"><thead><tr>' +
-        '<th>' + t("analytics.product", "Produit") + '</th><th>' + t("analytics.qtySold", "Qte vendue") + '</th><th>' + t("analytics.revenueShort", "CA") + '</th><th>' + t("analytics.cost", "Cout") + '</th><th>' + t("analytics.marginShort", "Marge") + '</th><th>' + t("analytics.marginPct", "Marge %") + '</th><th>' + t("analytics.action", "Action") + '</th>' +
-        '</tr></thead><tbody>';
-      products.slice(0, 20).forEach(function(p) {
-        var marginClass = p.marginPercent >= 30 ? "success" : p.marginPercent >= 15 ? "" : "danger";
-        productsHtml += '<tr>' +
-          '<td>' + esc(p.name) + '</td>' +
-          '<td>' + formatWeight(p.gramsSold) + '</td>' +
-          '<td>' + formatCurrency(p.revenue) + '</td>' +
-          '<td>' + formatCurrency(p.cost) + '</td>' +
-          '<td class="' + marginClass + '">' + formatCurrency(p.margin) + '</td>' +
-          '<td class="' + marginClass + '">' + p.marginPercent + '%</td>' +
-          '<td>' + (p.marginPercent < 15 ? '<button class="btn btn-ghost btn-xs" onclick="app.showToast(\'' + t("analytics.optimizeTip", "Augmentez le prix ou reduisez le CMP") + '\',\'info\')">' + t("analytics.optimize", "Optimiser") + '</button>' : '') + '</td>' +
-          '</tr>';
+    // ---- 5. Tableau produits avec tri + recherche + pagination ----
+    var products = (d.products || []).slice();
+    var totalProducts = products.length;
+    var tableSection =
+      '<div class="analytics-section">' +
+        '<div class="section-header" role="button" tabindex="0" aria-expanded="true" aria-controls="section-soldproducts" onclick="app.toggleSection(\'soldproducts\')" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();app.toggleSection(\'soldproducts\');}">' +
+          '<h3><i data-lucide="table"></i> ' + t("analytics.salesDetail", "Detail des ventes par produit") + '</h3>' +
+          '<span class="section-toggle" id="toggle-soldproducts" aria-hidden="true">-</span>' +
+        '</div>' +
+        '<div class="section-content" id="section-soldproducts">' +
+          '<div class="analytics-table-toolbar">' +
+            '<input type="search" class="form-input table-search" id="analyticsProductSearch" placeholder="' + t("analytics.searchProduct", "Rechercher un produit...") + '" value="' + esc(analyticsProductSearch) + '" oninput="app.searchAnalyticsProducts(this.value)" aria-label="' + t("analytics.searchProduct", "Rechercher un produit") + '">' +
+            '<span class="table-meta" id="analyticsTableMeta">' + totalProducts + ' ' + t("analytics.productsTotal", "produit(s) au total") + '</span>' +
+          '</div>' +
+          '<div id="analyticsTableContainer">' + _renderProductsTable(products) + '</div>' +
+        '</div>' +
+      '</div>';
+
+    // ---- Assemblage final ----
+    document.getElementById("analyticsContent").innerHTML =
+      heroHtml + stripHtml + chartHtml + topsSection + tableSection;
+
+    if (typeof lucide !== "undefined") lucide.createIcons();
+
+    // Render le chart après injection du canvas. Lazy : si Chart.js encore en chargement, on patiente.
+    if (hasTimeline) {
+      var tries = 0;
+      var paint = function() {
+        if (typeof Chart !== "undefined") {
+          renderSalesChart(d.timeline, analyticsChartMetric);
+        } else if (tries++ < 30) {
+          setTimeout(paint, 100);
+        }
+      };
+      paint();
+    }
+  }
+
+  // ----- Rendu du <table> seul (réutilisé pour search/pagination/tri) -----
+  function _renderProductsTable(allProducts) {
+    var search = (analyticsProductSearch || "").trim().toLowerCase();
+    var products = (allProducts || []).slice();
+    if (search) {
+      products = products.filter(function(p) {
+        return String(p.name || "").toLowerCase().indexOf(search) !== -1;
       });
-      productsHtml += '</tbody></table>';
-      if (products.length > 20) {
-        productsHtml += '<p class="text-secondary text-sm mt-sm">' + (products.length - 20) + ' ' + t("analytics.moreProducts", "autres produits...") + '</p>';
-      }
-    } else {
-      productsHtml = '<div class="empty-state-small"><p class="text-secondary">' + t("analytics.noSalesThisPeriod", "Aucune vente sur cette periode") + '</p></div>';
+    }
+    var col = analyticsProductSort.col || "revenue";
+    var dir = analyticsProductSort.dir === "asc" ? 1 : -1;
+    var keyFn = ({
+      name:          function(p) { return String(p.name || "").toLowerCase(); },
+      gramsSold:     function(p) { return Number(p.gramsSold) || 0; },
+      revenue:       function(p) { return Number(p.revenue) || 0; },
+      cost:          function(p) { return Number(p.cost) || 0; },
+      margin:        function(p) { return Number(p.margin) || 0; },
+      marginPercent: function(p) { return Number(p.marginPercent) || 0; }
+    })[col] || function(p) { return Number(p.revenue) || 0; };
+    products.sort(function(a, b) {
+      var va = keyFn(a), vb = keyFn(b);
+      if (va < vb) return -1 * dir;
+      if (va > vb) return  1 * dir;
+      return 0;
+    });
+
+    var totalFiltered = products.length;
+    var pageSize = ANALYTICS_PAGE_SIZE;
+    var totalPages = Math.max(1, Math.ceil(totalFiltered / pageSize));
+    if (analyticsProductPage > totalPages) analyticsProductPage = totalPages;
+    if (analyticsProductPage < 1) analyticsProductPage = 1;
+    var start = (analyticsProductPage - 1) * pageSize;
+    var pageRows = products.slice(start, start + pageSize);
+
+    if (totalFiltered === 0) {
+      return '<div class="empty-state-small" style="padding:32px;text-align:center"><p class="text-secondary">' +
+        (search
+          ? t("analytics.noMatchingProduct", "Aucun produit ne correspond a votre recherche")
+          : t("analytics.noSalesThisPeriod", "Aucune vente sur cette periode")) +
+        '</p></div>';
     }
 
-    var productsSection = 
-      '<div class="analytics-section">' +
-      '<div class="section-header" onclick="app.toggleSection(\'soldproducts\')">' +
-      '<h3>' + t("analytics.salesDetail", "Detail des ventes par produit") + '</h3><span class="section-toggle" id="toggle-soldproducts">-</span></div>' +
-      '<div class="section-content" id="section-soldproducts">' + productsHtml + '</div></div>';
+    function arrow(c) {
+      if (analyticsProductSort.col !== c) return '<span class="sort-arrow">↕</span>';
+      return '<span class="sort-arrow">' + (analyticsProductSort.dir === "asc" ? "↑" : "↓") + '</span>';
+    }
+    function thAttrs(c) {
+      var sorted = analyticsProductSort.col === c;
+      var ariaSort = sorted ? (analyticsProductSort.dir === "asc" ? "ascending" : "descending") : "none";
+      return ' class="' + (sorted ? "sorted" : "") + '" data-sort="' + c + '" onclick="app.sortAnalyticsProducts(\'' + c + '\')" tabindex="0" role="columnheader" aria-sort="' + ariaSort + '"';
+    }
 
-    // Assembler
-    document.getElementById("analyticsContent").innerHTML = kpiCards + topsSection + productsSection;
-    
-    // Refresh Lucide icons
+    var html = '<table class="data-table analytics-table"><thead><tr>' +
+      '<th' + thAttrs("name") + '>'          + t("analytics.product",     "Produit")    + arrow("name")          + '</th>' +
+      '<th' + thAttrs("gramsSold") + '>'     + t("analytics.qtySold",     "Qte vendue") + arrow("gramsSold")     + '</th>' +
+      '<th' + thAttrs("revenue") + '>'       + t("analytics.revenueShort","CA")         + arrow("revenue")       + '</th>' +
+      '<th' + thAttrs("cost") + '>'          + t("analytics.cost",        "Cout")       + arrow("cost")          + '</th>' +
+      '<th' + thAttrs("margin") + '>'        + t("analytics.marginShort", "Marge")      + arrow("margin")        + '</th>' +
+      '<th' + thAttrs("marginPercent") + '>' + t("analytics.marginPct",   "Marge %")    + arrow("marginPercent") + '</th>' +
+      '<th>' + t("analytics.action", "Action") + '</th>' +
+      '</tr></thead><tbody>';
+
+    pageRows.forEach(function(p) {
+      var mClass = _marginTier(Number(p.marginPercent) || 0);
+      var pid = esc(p.productId || "");
+      var pname = esc(p.name || "");
+      var safeName = pname.replace(/'/g, "&#39;");
+      var numClass = mClass === "success" ? "success" : (mClass === "danger" ? "danger" : "");
+      html += '<tr>' +
+        '<td>' + pname + '</td>' +
+        '<td class="col-num">' + formatWeight(p.gramsSold) + '</td>' +
+        '<td class="col-num">' + formatCurrency(p.revenue) + '</td>' +
+        '<td class="col-num">' + formatCurrency(p.cost) + '</td>' +
+        '<td class="col-num ' + numClass + '">' + formatCurrency(p.margin) + '</td>' +
+        '<td class="col-num ' + numClass + '">' + (Number(p.marginPercent) || 0) + '%</td>' +
+        '<td><button class="btn btn-ghost btn-xs" onclick="app.viewProductInCatalog(\'' + pid + '\', \'' + safeName + '\')" title="' + t("analytics.viewInCatalog", "Voir dans le catalogue") + '"><i data-lucide="external-link" style="width:14px;height:14px"></i> ' + t("analytics.view", "Voir") + '</button></td>' +
+        '</tr>';
+    });
+    html += '</tbody></table>';
+
+    // Pagination (max 7 boutons numériques + prev/next)
+    var pagerBtns = '';
+    var maxBtns = 7;
+    var startBtn = Math.max(1, analyticsProductPage - 3);
+    var endBtn   = Math.min(totalPages, startBtn + maxBtns - 1);
+    if (endBtn - startBtn + 1 < maxBtns) startBtn = Math.max(1, endBtn - maxBtns + 1);
+    pagerBtns += '<button type="button" onclick="app.goAnalyticsProductsPage(' + (analyticsProductPage - 1) + ')"' + (analyticsProductPage === 1 ? ' disabled' : '') + ' aria-label="' + t("pagination.prev", "Precedent") + '">‹</button>';
+    for (var i = startBtn; i <= endBtn; i++) {
+      pagerBtns += '<button type="button" class="' + (i === analyticsProductPage ? "active" : "") + '" onclick="app.goAnalyticsProductsPage(' + i + ')">' + i + '</button>';
+    }
+    pagerBtns += '<button type="button" onclick="app.goAnalyticsProductsPage(' + (analyticsProductPage + 1) + ')"' + (analyticsProductPage === totalPages ? ' disabled' : '') + ' aria-label="' + t("pagination.next", "Suivant") + '">›</button>';
+
+    var rangeFrom = start + 1;
+    var rangeTo = Math.min(start + pageSize, totalFiltered);
+    html += '<div class="analytics-pagination">' +
+      '<span>' + t("pagination.showing", "Affichage") + ' ' + rangeFrom + '-' + rangeTo + ' / ' + totalFiltered + (search ? ' (' + t("pagination.filtered", "filtre") + ')' : '') + '</span>' +
+      '<div class="pager">' + pagerBtns + '</div>' +
+      '</div>';
+
+    return html;
+  }
+
+  // ----- Chart.js : courbe d'évolution -----
+  function renderSalesChart(timeline, metric) {
+    var canvas = document.getElementById("salesChartCanvas");
+    if (!canvas || typeof Chart === "undefined") return;
+
+    if (analyticsChartInstance) {
+      try { analyticsChartInstance.destroy(); } catch(e) {}
+      analyticsChartInstance = null;
+    }
+
+    var labels = timeline.map(function(d) {
+      var dt = new Date(d.date);
+      return isNaN(dt.getTime()) ? d.date : (dt.getDate() + "/" + (dt.getMonth() + 1));
+    });
+
+    var values, label, isCurrency = true;
+    if (metric === "margin") {
+      values = timeline.map(function(d) { return Number(d.margin) || 0; });
+      label  = t("analytics.marginShort", "Marge");
+    } else if (metric === "grams") {
+      // Le backend ne fournit pas grams/jour aujourd'hui ; fallback sur orders/jour pour rester utile.
+      values = timeline.map(function(d) { return Number(d.grams || d.gramsSold || 0); });
+      var allZero = values.every(function(v) { return v === 0; });
+      if (allZero) {
+        values = timeline.map(function(d) { return Number(d.orders) || 0; });
+        label  = t("analytics.orders", "Commandes");
+      } else {
+        label = t("analytics.volume", "Volume (g)");
+      }
+      isCurrency = false;
+    } else {
+      values = timeline.map(function(d) { return Number(d.revenue) || 0; });
+      label  = t("analytics.revenueShort", "CA");
+    }
+
+    var styles = getComputedStyle(document.documentElement);
+    var accent = (styles.getPropertyValue("--accent-primary") || "#22c55e").trim() || "#22c55e";
+    var accentRgba = accent.indexOf("#") === 0 ? hexToRgba(accent, 0.18) : "rgba(34,197,94,0.18)";
+    var tickColor = (styles.getPropertyValue("--text-tertiary") || "#888").trim();
+
+    analyticsChartInstance = new Chart(canvas, {
+      type: "line",
+      data: {
+        labels: labels,
+        datasets: [{
+          label: label,
+          data: values,
+          borderColor: accent,
+          backgroundColor: accentRgba,
+          borderWidth: 2,
+          tension: 0.3,
+          fill: true,
+          pointRadius: 3,
+          pointHoverRadius: 5,
+          pointBackgroundColor: accent
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: "index", intersect: false },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: function(ctx) {
+                var v = ctx.parsed.y;
+                if (isCurrency) return ctx.dataset.label + ": " + formatCurrency(v);
+                return ctx.dataset.label + ": " + (v || 0).toLocaleString();
+              }
+            }
+          }
+        },
+        scales: {
+          x: { ticks: { color: tickColor }, grid: { color: "rgba(255,255,255,0.04)" } },
+          y: {
+            beginAtZero: true,
+            ticks: {
+              color: tickColor,
+              callback: function(v) { return isCurrency ? formatCurrency(v) : v; }
+            },
+            grid: { color: "rgba(255,255,255,0.06)" }
+          }
+        }
+      }
+    });
+  }
+
+  function hexToRgba(hex, alpha) {
+    var h = hex.replace("#", "");
+    if (h.length === 3) h = h.split("").map(function(c) { return c + c; }).join("");
+    var r = parseInt(h.substring(0, 2), 16);
+    var g = parseInt(h.substring(2, 4), 16);
+    var b = parseInt(h.substring(4, 6), 16);
+    return "rgba(" + r + "," + g + "," + b + "," + alpha + ")";
+  }
+
+  // ----- API publiques pour boutons -----
+  function switchSalesChartMetric(metric) {
+    if (!analyticsSalesData) return;
+    analyticsChartMetric = metric;
+    document.querySelectorAll(".chart-metric-switch button").forEach(function(b) {
+      b.classList.toggle("active", b.getAttribute("data-metric") === metric);
+    });
+    renderSalesChart(analyticsSalesData.timeline || [], metric);
+  }
+
+  function sortAnalyticsProducts(col) {
+    if (analyticsProductSort.col === col) {
+      analyticsProductSort.dir = analyticsProductSort.dir === "asc" ? "desc" : "asc";
+    } else {
+      analyticsProductSort.col = col;
+      analyticsProductSort.dir = (col === "name") ? "asc" : "desc";
+    }
+    analyticsProductPage = 1;
+    _refreshProductsTable();
+  }
+
+  function searchAnalyticsProducts(value) {
+    analyticsProductSearch = value || "";
+    analyticsProductPage = 1;
+    _refreshProductsTable();
+  }
+
+  function goAnalyticsProductsPage(page) {
+    analyticsProductPage = Math.max(1, Number(page) || 1);
+    _refreshProductsTable();
+  }
+
+  function _refreshProductsTable() {
+    if (!analyticsSalesData) return;
+    var container = document.getElementById("analyticsTableContainer");
+    if (!container) return;
+    container.innerHTML = _renderProductsTable(analyticsSalesData.products || []);
     if (typeof lucide !== "undefined") lucide.createIcons();
+  }
+
+  function viewProductInCatalog(productId, productName) {
+    if (state && state.filters) {
+      state.filters.search = productName || "";
+    }
+    navigateTo("products");
   }
 
   async function loadAnalytics() {
@@ -11238,6 +11536,12 @@
     linkProduct: linkProduct,
     // Activity log
     showFullActivityLog: showFullActivityLog,
+    // Analytics ventes refonte
+    switchSalesChartMetric: switchSalesChartMetric,
+    sortAnalyticsProducts:  sortAnalyticsProducts,
+    searchAnalyticsProducts: searchAnalyticsProducts,
+    goAnalyticsProductsPage: goAnalyticsProductsPage,
+    viewProductInCatalog:    viewProductInCatalog,
   };
   
   // Stocker les vraies fonctions

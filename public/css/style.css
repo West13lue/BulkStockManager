@@ -6089,3 +6089,333 @@ button.stat-card:hover {
     width: 100%;
   }
 }
+
+/* ============================================
+   ANALYTICS PRO — Refonte Ventes (v2)
+   ============================================ */
+
+/* Header : titre + plage de dates affichée */
+.analytics-meta {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-xs);
+  flex-wrap: wrap;
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+.analytics-meta .meta-range {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+}
+
+/* Tabs analytics sur leur propre ligne, full width, style underline */
+.analytics-tabs-row {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: var(--space-lg);
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+}
+.analytics-tabs-row .tab-btn {
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: 10px 16px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  border-radius: 0;
+  transition: color var(--transition-fast), border-color var(--transition-fast);
+}
+.analytics-tabs-row .tab-btn:hover {
+  color: var(--text-primary);
+}
+.analytics-tabs-row .tab-btn[aria-selected="true"],
+.analytics-tabs-row .tab-btn.active {
+  color: var(--accent-primary);
+  border-bottom-color: var(--accent-primary);
+  background: transparent;
+}
+
+/* KPI hero : CA + Marge brute + Marge % */
+.kpi-hero-row {
+  display: grid;
+  grid-template-columns: 2fr 2fr 1.2fr;
+  gap: var(--space-md);
+  margin-bottom: var(--space-md);
+}
+@media (max-width: 1100px) {
+  .kpi-hero-row { grid-template-columns: 1fr 1fr; }
+  .kpi-hero-row .kpi-margin-pct { grid-column: span 2; }
+}
+@media (max-width: 700px) {
+  .kpi-hero-row { grid-template-columns: 1fr; }
+  .kpi-hero-row .kpi-margin-pct { grid-column: auto; }
+}
+.kpi-hero {
+  background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-tertiary) 100%);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-lg);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.kpi-hero__label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.kpi-hero__label svg { width: 14px; height: 14px; }
+.kpi-hero__value {
+  font-size: 32px;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+.kpi-hero__sub {
+  font-size: 13px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.kpi-hero__sub.success { color: var(--success); }
+.kpi-hero__sub.warning { color: var(--warning); }
+.kpi-hero__sub.danger { color: var(--danger); }
+
+.kpi-margin-pct {
+  align-items: center;
+  text-align: center;
+  justify-content: center;
+}
+.kpi-margin-pct .kpi-hero__value {
+  font-size: 56px;
+  letter-spacing: -1px;
+}
+.kpi-margin-pct.pct-success { border-color: rgba(34,197,94,0.35); box-shadow: inset 0 0 0 1px rgba(34,197,94,0.15); }
+.kpi-margin-pct.pct-warning { border-color: rgba(251,191,36,0.35); box-shadow: inset 0 0 0 1px rgba(251,191,36,0.15); }
+.kpi-margin-pct.pct-danger  { border-color: rgba(239,68,68,0.35); box-shadow: inset 0 0 0 1px rgba(239,68,68,0.15); }
+.kpi-margin-pct.pct-success .kpi-hero__value { color: var(--success); }
+.kpi-margin-pct.pct-warning .kpi-hero__value { color: var(--warning); }
+.kpi-margin-pct.pct-danger  .kpi-hero__value { color: var(--danger); }
+
+/* KPI strip : 5 secondaires */
+.kpi-strip {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: var(--space-sm);
+  margin-bottom: var(--space-xl);
+}
+@media (max-width: 1100px) {
+  .kpi-strip { grid-template-columns: repeat(3, 1fr); }
+}
+@media (max-width: 700px) {
+  .kpi-strip { grid-template-columns: repeat(2, 1fr); }
+}
+.kpi-mini {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 12px var(--space-md);
+}
+.kpi-mini__value {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
+.kpi-mini__label {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  margin-top: 2px;
+}
+
+/* Chart d'évolution */
+.analytics-chart-section {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  margin-bottom: var(--space-lg);
+  padding: var(--space-lg);
+}
+.analytics-chart-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-md);
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+.analytics-chart-header h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-primary);
+}
+.analytics-chart-header h3 svg { width: 16px; height: 16px; }
+.chart-metric-switch {
+  display: flex;
+  gap: 2px;
+  background: var(--bg-tertiary);
+  padding: 3px;
+  border-radius: var(--radius-md);
+}
+.chart-metric-switch button {
+  background: transparent;
+  border: none;
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: all var(--transition-fast);
+}
+.chart-metric-switch button:hover { color: var(--text-primary); }
+.chart-metric-switch button.active {
+  background: var(--accent-primary);
+  color: white;
+}
+.analytics-chart-canvas {
+  position: relative;
+  height: 280px;
+  width: 100%;
+}
+.analytics-chart-empty {
+  height: 200px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-tertiary);
+  font-size: 13px;
+}
+
+/* Tops responsive : auto-fit pour ne plus déborder */
+.tops-grid-auto {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--space-md);
+}
+.tops-grid-auto .top-list {
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-md);
+  padding: var(--space-md);
+  min-width: 0;
+}
+.tops-grid-auto .top-item {
+  cursor: pointer;
+  transition: background var(--transition-fast);
+  border-radius: var(--radius-sm);
+  padding: 6px 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid var(--border);
+}
+.tops-grid-auto .top-item:last-child { border-bottom: none; }
+.tops-grid-auto .top-item:hover { background: var(--surface-hover); }
+.tops-grid-auto .top-item .top-name {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 13px;
+}
+.tops-grid-auto .top-item .top-value {
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+/* Tableau analytics avec tri + recherche + pagination */
+.analytics-table-toolbar {
+  display: flex;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-md);
+  flex-wrap: wrap;
+  align-items: center;
+}
+.analytics-table-toolbar .table-search {
+  min-width: 240px;
+  flex: 0 1 320px;
+}
+.analytics-table-toolbar .table-meta {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+table.analytics-table th[data-sort] {
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+table.analytics-table th[data-sort]:hover {
+  color: var(--accent-primary);
+}
+table.analytics-table th[data-sort] .sort-arrow {
+  display: inline-block;
+  margin-left: 4px;
+  opacity: 0.35;
+  font-size: 10px;
+}
+table.analytics-table th[data-sort].sorted .sort-arrow { opacity: 1; }
+table.analytics-table td.col-num {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+table.analytics-table td.col-num.success { color: var(--success); }
+table.analytics-table td.col-num.danger  { color: var(--danger); }
+
+.analytics-pagination {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: var(--space-md);
+  font-size: 13px;
+  color: var(--text-secondary);
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+.analytics-pagination .pager {
+  display: flex;
+  gap: 4px;
+}
+.analytics-pagination .pager button {
+  min-width: 32px;
+  height: 32px;
+  padding: 0 10px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.analytics-pagination .pager button:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
+.analytics-pagination .pager button.active {
+  background: var(--accent-primary);
+  color: white;
+  border-color: var(--accent-primary);
+}
+.analytics-pagination .pager button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
