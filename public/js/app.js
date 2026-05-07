@@ -86,7 +86,10 @@
     'showCreatePOModal', 'savePO', 'openPODetails', 'confirmPO', 'sendPO',
     'addPOLine', 'removePOLine', 'updatePOTotal', 'onPOSupplierChange', 'onPOFileSelected',
     'updateQuickRestockCMP', 'updateQuickRestockTotal',
-    'selectSearchResultByIndex', 'toggleSection'
+    'selectSearchResultByIndex', 'toggleSection',
+    // Analytics ventes refonte
+    'switchSalesChartMetric', 'sortAnalyticsProducts', 'searchAnalyticsProducts',
+    'goAnalyticsProductsPage', 'viewProductInCatalog'
   ];
   
   // Créer window.app avec des proxies pour toutes les fonctions
@@ -5507,7 +5510,9 @@
       renderForecastFilters();
       renderForecastContent();
     } catch (e) {
-      document.getElementById("forecastContent").innerHTML = '<div class="card"><p class="text-danger text-center py-lg">" + t("msg.error", "Erreur") + ": ' + e.message + '</p></div>';
+      // Avant : ouverture '<div...>"' (double quote dans une chaine simple) ->
+      // HTML casse rendu en literal a l'ecran. Meme bug que dans Inventory.
+      document.getElementById("forecastContent").innerHTML = '<div class="card"><p class="text-danger text-center py-lg">' + t("msg.error", "Erreur") + ': ' + esc(e.message) + '</p></div>';
     }
   }
 
@@ -5572,11 +5577,20 @@
 
     var rows = filtered.map(function(f) {
       var statusBadge = getForecastStatusBadge(f.status);
-      var daysDisplay = f.daysOfStock === Infinity ? "∞" : (f.daysOfStock !== null ? f.daysOfStock.toFixed(0) + "j" : "-");
+      // daysOfStock peut etre Infinity (cote front), null (JSON), undefined ou
+      // un nombre fini. Ne pas appeler toFixed sur null.
+      var daysDisplay;
+      if (f.daysOfStock === Infinity || f.daysOfStock === null || f.daysOfStock === undefined) {
+        daysDisplay = f.daysOfStock === Infinity ? "∞" : "-";
+      } else if (typeof f.daysOfStock === "number" && Number.isFinite(f.daysOfStock)) {
+        daysDisplay = f.daysOfStock.toFixed(0) + "j";
+      } else {
+        daysDisplay = "-";
+      }
       var stockoutDisplay = f.stockoutDate || "-";
       var reorderDisplay = f.reorderQty > 0 ? formatWeight(f.reorderQty) : "-";
 
-      return '<tr onclick="app.openForecastDetails(\'' + f.productId + '\')">' +
+      return '<tr onclick="app.openForecastDetails(\'' + esc(f.productId) + '\')">' +
         '<td><strong>' + esc(f.productName) + '</strong></td>' +
         '<td>' + formatWeight(f.currentStock) + '</td>' +
         '<td>' + (f.dailyRate > 0 ? f.dailyRate.toFixed(1) + '/j' : '-') + '</td>' +
@@ -5624,12 +5638,17 @@
 
   async function openForecastDetails(productId) {
     try {
-      var res = await authFetch(apiUrl("/forecast/" + productId + "?windowDays=" + (forecastSettings.windowDays || 30)));
+      var res = await authFetch(apiUrl("/forecast/" + encodeURIComponent(productId) + "?windowDays=" + encodeURIComponent(forecastSettings.windowDays || 30)));
       if (!res.ok) throw new Error("Erreur");
       var data = await res.json();
 
+      // daysOfStock peut arriver en Infinity (cote frontend pur), null (JSON ne
+      // serialise pas Infinity), undefined ou un nombre. On unifie l'affichage.
       var statusBadge = getForecastStatusBadge(data.status);
-      var daysDisplay = data.daysOfStock === Infinity ? "Illimitee" : (data.daysOfStock?.toFixed(0) || 0) + " jours";
+      var dosNum = (typeof data.daysOfStock === "number" && Number.isFinite(data.daysOfStock)) ? data.daysOfStock : null;
+      var daysDisplay = data.daysOfStock === Infinity || data.daysOfStock === null
+        ? t("forecast.unlimited", "Illimitee")
+        : (dosNum !== null ? dosNum.toFixed(0) + " " + t("forecast.days", "jours") : "-");
 
       // Sparkline simple
       var sparklineHtml = '';
@@ -5642,16 +5661,22 @@
         sparklineHtml = '<div class="sparkline-container">' + bars + '</div>';
       }
 
-      // Scénarios
+      // Scenarios. daysOfStock peut etre Infinity (front), null (JSON) ou un
+      // nombre fini. Helper local pour formatter sans crasher sur null.
+      function _scenarioDays(d) {
+        if (d === Infinity) return "∞";
+        if (d === null || d === undefined) return "-";
+        return (typeof d === "number" && Number.isFinite(d)) ? d.toFixed(0) + "j" : "-";
+      }
       var scenariosHtml = '';
       if (data.scenarios) {
         scenariosHtml = '<div class="scenarios-grid">' +
-          '<div class="scenario pessimistic"><div class="scenario-label">Pessimiste</div><div class="scenario-value">' + 
-          (data.scenarios.pessimistic.daysOfStock === Infinity ? "∞" : data.scenarios.pessimistic.daysOfStock.toFixed(0) + "j") + '</div></div>' +
-          '<div class="scenario normal"><div class="scenario-label">Normal</div><div class="scenario-value">' + 
-          (data.scenarios.normal.daysOfStock === Infinity ? "∞" : data.scenarios.normal.daysOfStock.toFixed(0) + "j") + '</div></div>' +
-          '<div class="scenario optimistic"><div class="scenario-label">Optimiste</div><div class="scenario-value">' + 
-          (data.scenarios.optimistic.daysOfStock === Infinity ? "∞" : data.scenarios.optimistic.daysOfStock.toFixed(0) + "j") + '</div></div>' +
+          '<div class="scenario pessimistic"><div class="scenario-label">' + t("forecast.pessimistic", "Pessimiste") + '</div><div class="scenario-value">' +
+          _scenarioDays(data.scenarios.pessimistic && data.scenarios.pessimistic.daysOfStock) + '</div></div>' +
+          '<div class="scenario normal"><div class="scenario-label">' + t("forecast.normal", "Normal") + '</div><div class="scenario-value">' +
+          _scenarioDays(data.scenarios.normal && data.scenarios.normal.daysOfStock) + '</div></div>' +
+          '<div class="scenario optimistic"><div class="scenario-label">' + t("forecast.optimistic", "Optimiste") + '</div><div class="scenario-value">' +
+          _scenarioDays(data.scenarios.optimistic && data.scenarios.optimistic.daysOfStock) + '</div></div>' +
           '</div>';
       }
 
