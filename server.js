@@ -2710,11 +2710,26 @@ router.post("/api/sync/shopify", async (req, res) => {
         const ovrGrams = Number(ovr.gramsPerUnit) > 0 ? Number(ovr.gramsPerUnit) : null;
         const ovrTrackByUnit = ovr.trackByUnit === true;
 
+        // Skip total des produits archives (hors catalogue) : on ne touche ni
+        // au stock ni aux variantes ni aux metadata. Ils restent invisibles
+        // partout sauf modal Archives, et la sync ne doit pas les ressusciter.
+        if (ovr.archived === true) {
+          skipped++;
+          continue;
+        }
+
         // Préparer les variantes au format attendu par stockManager
         // IMPORTANT: normalizeVariants exige inventoryItemId ET gramsPerUnit > 0
         const variantsObj = {};
         let hasValidVariant = false;
-        let totalGramsFromShopify = 0; // Sum(inventoryQuantity x gramsPerUnit) per variant
+        // Pour produits "vrac" (split) : toutes les variantes representent le
+        // MEME stock master. invQty x gramsPerUnit doit donner la meme valeur
+        // pour chaque variante (modulo arrondi du floor cote push). On prend
+        // le MAX = stock potentiel le plus a jour.
+        // Pour trackByUnit : chaque variante a son stock physique separe,
+        // on additionne (1g/unite, donc somme = nombre total d'unites).
+        let totalGramsMaxFromShopify = 0;
+        let totalGramsSumFromShopify = 0;
 
         if (shopifyProduct.variants && shopifyProduct.variants.length > 0) {
           for (const v of shopifyProduct.variants) {
@@ -2775,16 +2790,26 @@ router.post("/api/sync/shopify", async (req, res) => {
               };
               hasValidVariant = true;
 
-              // Cumul du stock master = somme des variantes en stock x leur poids
-              // inventory_quantity est sommee sur toutes les locations Shopify ;
-              // pour Cloud Store CBD c'est equivalent a la location active.
+              // Stock master :
+              // - mode vrac (split) : MAX(invQty x gramsPerUnit) - chaque variante
+              //   represente le meme pot. inventory_quantity[var] = floor(vrac/grams[var])
+              //   pour la sync inverse, le max donne le vrac le plus a jour.
+              // - mode trackByUnit : somme (chaque variante = stock physique distinct).
               const invQty = Number(v.inventory_quantity) || 0;
               if (invQty > 0) {
-                totalGramsFromShopify += invQty * gramsPerUnit;
+                const variantGrams = invQty * gramsPerUnit;
+                if (variantGrams > totalGramsMaxFromShopify) {
+                  totalGramsMaxFromShopify = variantGrams;
+                }
+                totalGramsSumFromShopify += variantGrams;
               }
             }
           }
         }
+
+        const totalGramsFromShopify = ovrTrackByUnit
+          ? totalGramsSumFromShopify
+          : totalGramsMaxFromShopify;
 
         // Si aucune variante valide, on skip ce produit
         if (!hasValidVariant) {
