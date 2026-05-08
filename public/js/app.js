@@ -10669,64 +10669,83 @@
     var netClass = cf.net >= 0 ? "text-success" : "text-danger";
     var rrClass = rr.dailyAvgNet >= 0 ? "text-success" : "text-danger";
 
-    // Header solde + valeur stock + patrimoine total
+    // Header : equation Solde + Stock = Patrimoine + barre meta period/CTA
+    // Layout grid stable : 5 colonnes [val] [op] [val] [op] [val] qui wrappent
+    // proprement en colonne sur mobile (les operateurs disparaissent visuellement
+    // mais l'ordre est preserve).
+    var opStyle = 'font-size:18px;font-weight:300;color:var(--text-tertiary);opacity:0.5;align-self:center;padding:0 4px';
+    var labelStyle = 'font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-tertiary);display:flex;align-items:center;gap:6px';
+    var iconStyle = 'width:12px;height:12px';
+
+    var soldeBlock =
+      '<div>' +
+        '<div style="' + labelStyle + '"><i data-lucide="wallet" style="' + iconStyle + '"></i>' + t("analytics.treasury.currentBalance", "Solde Qonto") + (bal.accountName ? ' · ' + esc(bal.accountName) : '') + '</div>' +
+        '<div style="font-size:22px;font-weight:600;margin-top:6px;color:var(--text-primary)">' + formatCurrency(bal.current || 0) + '</div>' +
+        (balUpdated ? '<div style="font-size:11px;margin-top:2px;color:var(--text-tertiary)">' + t("analytics.treasury.updatedAt", "Maj") + ' ' + esc(balUpdated) + '</div>' : '') +
+      '</div>';
+
     var stockBlock = '';
-    var patrimoineBlock = '';
+    var opPlus = '';
     if (data.stock && typeof data.stock.totalValue === "number") {
       var pc = Number(data.stock.productCount || 0);
+      opPlus = '<div style="' + opStyle + '">+</div>';
       stockBlock =
-        '<div style="display:flex;align-items:center;gap:12px"><div style="font-size:24px;font-weight:300;color:var(--text-tertiary)">+</div><div>' +
-          '<div class="text-tertiary" style="font-size:12px;text-transform:uppercase;letter-spacing:0.5px"><i data-lucide="package" style="width:12px;height:12px;vertical-align:-1px"></i> ' + t("analytics.treasury.stockValue", "Valeur stock (CMP)") + '</div>' +
-          '<div style="font-size:24px;font-weight:600;margin-top:4px">' + formatCurrency(data.stock.totalValue) + '</div>' +
-          (pc > 0 ? '<div class="text-tertiary" style="font-size:11px;margin-top:2px">' + pc + ' ' + (pc > 1 ? t("analytics.treasury.products", "produits") : t("analytics.treasury.product", "produit")) + '</div>' : '') +
-        '</div></div>';
+        '<div>' +
+          '<div style="' + labelStyle + '"><i data-lucide="package" style="' + iconStyle + '"></i>' + t("analytics.treasury.stockValue", "Valeur stock (CMP)") + '</div>' +
+          '<div style="font-size:22px;font-weight:600;margin-top:6px;color:var(--text-primary)">' + formatCurrency(data.stock.totalValue) + '</div>' +
+          (pc > 0 ? '<div style="font-size:11px;margin-top:2px;color:var(--text-tertiary)">' + pc + ' ' + (pc > 1 ? t("analytics.treasury.products", "produits") : t("analytics.treasury.product", "produit")) + '</div>' : '') +
+        '</div>';
     }
+
+    var patrimoineBlock = '';
+    var opEqual = '';
     if (data.patrimoine != null) {
+      opEqual = '<div style="' + opStyle + '">=</div>';
       patrimoineBlock =
-        '<div style="display:flex;align-items:center;gap:12px"><div style="font-size:24px;font-weight:300;color:var(--text-tertiary)">=</div><div>' +
-          '<div class="text-tertiary" style="font-size:12px;text-transform:uppercase;letter-spacing:0.5px;color:var(--accent-primary,#22c55e)"><i data-lucide="diamond" style="width:12px;height:12px;vertical-align:-1px"></i> ' + t("analytics.treasury.totalAssets", "Patrimoine total") + '</div>' +
-          '<div style="font-size:28px;font-weight:700;margin-top:4px;color:var(--accent-primary,#22c55e)">' + formatCurrency(data.patrimoine) + '</div>' +
-          '<div class="text-tertiary" style="font-size:11px;margin-top:2px">' + t("analytics.treasury.cashPlusStock", "cash + stock") + '</div>' +
-        '</div></div>';
+        '<div style="background:color-mix(in srgb, var(--accent-primary, #22c55e) 8%, transparent);padding:10px 14px;border-radius:8px;border:1px solid color-mix(in srgb, var(--accent-primary, #22c55e) 20%, transparent)">' +
+          '<div style="' + labelStyle + ';color:var(--accent-primary, #22c55e)"><i data-lucide="landmark" style="' + iconStyle + '"></i>' + t("analytics.treasury.totalAssets", "Patrimoine total") + '</div>' +
+          '<div style="font-size:36px;font-weight:700;margin-top:4px;color:var(--accent-primary, #22c55e);line-height:1.1">' + formatCurrency(data.patrimoine) + '</div>' +
+          '<div style="font-size:11px;margin-top:2px;color:var(--text-tertiary)">' + t("analytics.treasury.cashPlusStock", "cash + stock") + '</div>' +
+        '</div>';
     }
 
     var heroHtml =
       '<div class="card" style="margin-bottom:16px">' +
-        '<div class="card-body" style="display:flex;flex-wrap:wrap;gap:20px;align-items:center;justify-content:space-between">' +
-          '<div style="display:flex;align-items:center;gap:12px"><div>' +
-            '<div class="text-tertiary" style="font-size:12px;text-transform:uppercase;letter-spacing:0.5px"><i data-lucide="wallet" style="width:12px;height:12px;vertical-align:-1px"></i> ' + t("analytics.treasury.currentBalance", "Solde Qonto") + (bal.accountName ? ' · ' + esc(bal.accountName) : '') + '</div>' +
-            '<div style="font-size:24px;font-weight:600;margin-top:4px">' + formatCurrency(bal.current || 0) + '</div>' +
-            (balUpdated ? '<div class="text-tertiary" style="font-size:11px;margin-top:2px">' + t("analytics.treasury.updatedAt", "Maj") + ' ' + esc(balUpdated) + '</div>' : '') +
-          '</div></div>' +
-          stockBlock +
-          patrimoineBlock +
-          '<div style="text-align:right;margin-left:auto">' +
-            '<div class="text-tertiary" style="font-size:12px">' + t("analytics.treasury.period", "Periode") + '</div>' +
-            '<div style="font-weight:600">' + esc(periodLbl) + '</div>' +
-            '<a class="btn btn-ghost btn-sm mt-sm" href="https://app.qonto.com" target="_blank" rel="noopener noreferrer"><i data-lucide="external-link"></i> ' + t("analytics.treasury.openQonto", "Ouvrir Qonto") + '</a>' +
-          '</div>' +
+        // Ligne meta : periode + CTA Qonto, au-dessus de l'equation
+        '<div style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid var(--border-color);flex-wrap:wrap;gap:8px">' +
+          '<div style="font-size:12px;color:var(--text-tertiary)"><strong style="color:var(--text-secondary)">' + t("analytics.treasury.period", "Periode") + ':</strong> ' + esc(periodLbl) + '</div>' +
+          '<a class="btn btn-primary btn-sm" href="https://app.qonto.com" target="_blank" rel="noopener noreferrer"><i data-lucide="external-link"></i> ' + t("analytics.treasury.openQonto", "Ouvrir Qonto") + '</a>' +
+        '</div>' +
+        // Equation : flex inline qui wrap en colonne sur mobile (operateurs s'effacent visuellement)
+        '<div class="treasury-equation" style="display:flex;flex-wrap:wrap;gap:16px;align-items:stretch;padding:20px 16px">' +
+          soldeBlock + opPlus + stockBlock + opEqual + patrimoineBlock +
         '</div>' +
       '</div>';
+
+    // Icones : convention bancaire = trending-up vert pour entrant, trending-down rouge pour sortant.
+    // Variation nette : icone dynamique selon signe (cohere avec la couleur).
+    var netIcon = cf.net >= 0 ? "trending-up" : "trending-down";
+    var rrIcon = rr.monthlyProjectionNet >= 0 ? "trending-up" : "trending-down";
 
     var kpisHtml =
       '<div class="kpi-hero-row" style="margin-bottom:16px">' +
         '<div class="kpi-hero">' +
-          '<div class="kpi-hero__label"><i data-lucide="arrow-down-circle" style="color:#22c55e"></i> ' + t("analytics.treasury.credits", "Encaissements") + '</div>' +
+          '<div class="kpi-hero__label"><i data-lucide="trending-up" style="color:var(--text-success, #22c55e)"></i> ' + t("analytics.treasury.credits", "Encaissements") + '</div>' +
           '<div class="kpi-hero__value text-success">+' + formatCurrency(cf.credits || 0) + '</div>' +
           '<div class="kpi-hero__sub">' + (cf.creditCount || 0) + ' ' + t("analytics.treasury.movements", "mouvements") + '</div>' +
         '</div>' +
         '<div class="kpi-hero">' +
-          '<div class="kpi-hero__label"><i data-lucide="arrow-up-circle" style="color:#ef4444"></i> ' + t("analytics.treasury.debits", "Decaissements") + '</div>' +
+          '<div class="kpi-hero__label"><i data-lucide="trending-down" style="color:var(--text-danger, #ef4444)"></i> ' + t("analytics.treasury.debits", "Decaissements") + '</div>' +
           '<div class="kpi-hero__value text-danger">-' + formatCurrency(cf.debits || 0) + '</div>' +
           '<div class="kpi-hero__sub">' + (cf.debitCount || 0) + ' ' + t("analytics.treasury.movements", "mouvements") + '</div>' +
         '</div>' +
         '<div class="kpi-hero">' +
-          '<div class="kpi-hero__label"><i data-lucide="trending-up"></i> ' + t("analytics.treasury.netVariation", "Variation nette") + '</div>' +
+          '<div class="kpi-hero__label"><i data-lucide="' + netIcon + '"></i> ' + t("analytics.treasury.netVariation", "Variation nette") + '</div>' +
           '<div class="kpi-hero__value ' + netClass + '">' + (cf.net >= 0 ? '+' : '') + formatCurrency(cf.net || 0) + '</div>' +
           '<div class="kpi-hero__sub">' + t("analytics.treasury.onPeriod", "sur la periode") + '</div>' +
         '</div>' +
         '<div class="kpi-hero">' +
-          '<div class="kpi-hero__label"><i data-lucide="calendar"></i> ' + t("analytics.treasury.runRate", "Run-rate mensuel") + '</div>' +
+          '<div class="kpi-hero__label"><i data-lucide="' + rrIcon + '"></i> ' + t("analytics.treasury.runRate", "Run-rate mensuel") + '</div>' +
           '<div class="kpi-hero__value ' + rrClass + '">' + (rr.monthlyProjectionNet >= 0 ? '+' : '') + formatCurrency(rr.monthlyProjectionNet || 0) + '</div>' +
           '<div class="kpi-hero__sub">' + (rr.dailyAvgNet >= 0 ? '+' : '') + formatCurrency(rr.dailyAvgNet || 0) + ' / ' + t("analytics.treasury.perDay", "jour") + '</div>' +
         '</div>' +
@@ -10750,16 +10769,35 @@
         '</div>';
     }
 
-    // Top contreparties
+    // Top contreparties avec barres de progression relatives au max de la liste
+    // (donne immediatement le poids de chaque ligne par rapport au top 1).
     var renderCpRow = function(items, sign) {
       if (!items.length) {
-        return '<p class="text-secondary text-sm" style="padding:12px 0">' + t("analytics.treasury.noMovements", "Aucun mouvement sur la periode") + '</p>';
+        return '<p class="text-secondary text-sm" style="padding:12px 0;text-align:center">' + t("analytics.treasury.noMovements", "Aucun mouvement sur la periode") + '</p>';
       }
-      return items.map(function(c) {
-        return '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-top:1px solid var(--border-color)">' +
-          '<div style="min-width:0;flex:1"><div style="font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(c.name) + '</div>' +
-          '<div class="text-tertiary" style="font-size:11px">' + c.count + ' ' + (c.count > 1 ? t("analytics.treasury.transactions", "transactions") : t("analytics.treasury.transaction", "transaction")) + '</div></div>' +
-          '<div style="font-weight:600;white-space:nowrap;margin-left:12px" class="' + (sign === '+' ? 'text-success' : 'text-danger') + '">' + sign + formatCurrency(c.amount) + '</div>' +
+      var maxAmount = items.reduce(function(m, c) { return Math.max(m, c.amount || 0); }, 0) || 1;
+      var barColor = sign === '+'
+        ? 'var(--text-success, #22c55e)'
+        : 'var(--text-danger, #ef4444)';
+      var barBg = sign === '+'
+        ? 'color-mix(in srgb, var(--text-success, #22c55e) 12%, transparent)'
+        : 'color-mix(in srgb, var(--text-danger, #ef4444) 12%, transparent)';
+      var amountClass = sign === '+' ? 'text-success' : 'text-danger';
+
+      return items.map(function(c, i) {
+        var pct = Math.max(2, Math.min(100, (c.amount / maxAmount) * 100));
+        var topBorder = i > 0 ? 'border-top:1px solid var(--border-color);' : '';
+        return '<div style="position:relative;padding:10px 0;' + topBorder + '">' +
+          '<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:6px">' +
+            '<div style="min-width:0;flex:1">' +
+              '<div style="font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(c.name) + '</div>' +
+              '<div style="font-size:11px;color:var(--text-tertiary)">' + c.count + ' ' + (c.count > 1 ? t("analytics.treasury.transactions", "transactions") : t("analytics.treasury.transaction", "transaction")) + '</div>' +
+            '</div>' +
+            '<div class="' + amountClass + '" style="font-weight:600;white-space:nowrap;font-variant-numeric:tabular-nums">' + sign + formatCurrency(c.amount) + '</div>' +
+          '</div>' +
+          '<div style="height:4px;background:' + barBg + ';border-radius:2px;overflow:hidden">' +
+            '<div style="height:100%;width:' + pct.toFixed(1) + '%;background:' + barColor + ';border-radius:2px;transition:width 0.3s ease"></div>' +
+          '</div>' +
           '</div>';
       }).join("");
     };
@@ -10783,7 +10821,8 @@
       (data.cached ? ' · ' + t("analytics.treasury.cached", "cache 15min") : '') +
       ' · <a href="#" onclick="event.preventDefault(); app.loadAnalyticsTreasury()">' + t("action.refresh", "Actualiser") + '</a></div>';
 
-    container.innerHTML = heroHtml + kpisHtml + gapHtml + topHtml + chartHtml + metaHtml;
+    // Ordre revu : hero / KPIs / chart (info la plus visuelle) / gap (contextuelle) / top / meta
+    container.innerHTML = heroHtml + kpisHtml + chartHtml + gapHtml + topHtml + metaHtml;
 
     if (typeof lucide !== "undefined") lucide.createIcons();
     _renderTreasuryChart(timeline);
@@ -10803,14 +10842,18 @@
 
     var styles = getComputedStyle(document.documentElement);
     var tickColor = (styles.getPropertyValue("--text-tertiary") || "#888").trim();
+    var successColor = (styles.getPropertyValue("--text-success") || "#22c55e").trim() || "#22c55e";
+    var dangerColor = (styles.getPropertyValue("--text-danger") || "#ef4444").trim() || "#ef4444";
+    var successFill = successColor.indexOf("#") === 0 ? hexToRgba(successColor, 0.7) : "rgba(34,197,94,0.7)";
+    var dangerFill = dangerColor.indexOf("#") === 0 ? hexToRgba(dangerColor, 0.7) : "rgba(239,68,68,0.7)";
 
     _treasuryChartInstance = new Chart(canvas, {
       type: "bar",
       data: {
         labels: labels,
         datasets: [
-          { label: t("analytics.treasury.credits", "Encaissements"), data: credits, backgroundColor: "rgba(34,197,94,0.7)", borderColor: "#22c55e", borderWidth: 1 },
-          { label: t("analytics.treasury.debits", "Decaissements"), data: debits, backgroundColor: "rgba(239,68,68,0.7)", borderColor: "#ef4444", borderWidth: 1 }
+          { label: t("analytics.treasury.credits", "Encaissements"), data: credits, backgroundColor: successFill, borderColor: successColor, borderWidth: 1 },
+          { label: t("analytics.treasury.debits", "Decaissements"), data: debits, backgroundColor: dangerFill, borderColor: dangerColor, borderWidth: 1 }
         ]
       },
       options: {
