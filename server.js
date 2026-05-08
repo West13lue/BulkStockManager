@@ -5004,6 +5004,125 @@ function aggregateQontoTransactions(transactions, fromDate, toDate) {
   return { cashflow, payouts, topCreditors, topDebtors, timeline };
 }
 
+// Reconstitue la timeline du patrimoine (Qonto + stock) sur la periode.
+// Strategie : on connait les valeurs ACTUELLES (balance Qonto, stock value),
+// et on walk-back jour par jour en soustrayant les deltas observes.
+//
+// Deltas par jour :
+// - delta_qonto(d)   = credits(d) - debits(d)  [depuis agg.timeline Qonto]
+// - delta_stock(d)   = sum(restocks_value(d)) - sum(sales_cost(d))
+//   - sales : analyticsStore expose totalCost (CMP * qty au moment de la vente)
+//   - restocks : movementStore expose gramsDelta + purchasePricePerGram (peut
+//     etre absent quand le CMP n'a pas ete mis a jour) -> fallback sur le CMP
+//     actuel du produit (perte de precision acceptable pour des CMP stables)
+//
+// Limites assumees :
+// - Approximation lossy si les CMP ont beaucoup bouge (rare en CBD/cannabis)
+// - On reconstruit a partir de l'etat ACTUEL : si une transaction Qonto plus
+//   ancienne que la fenetre n'est pas dans le cashflow, c'est OK car la balance
+//   actuelle l'integre deja
+function buildPatrimoineTimeline({
+  days,
+  qontoTimeline,
+  shop,
+  fromDate,
+  toDate,
+  currentQontoBalance,
+  currentStockValue,
+  stockProducts, // [{ productId, averageCostPerGram }, ...] pour fallback CMP
+}) {
+  // Map productId -> CMP courant pour fallback restock sans purchasePricePerGram
+  const cmpByProduct = new Map();
+  for (const p of stockProducts || []) {
+    if (p && p.productId) cmpByProduct.set(String(p.productId), Number(p.averageCostPerGram) || 0);
+  }
+
+  // Delta cash Qonto par jour
+  const qontoDeltaByDay = new Map();
+  for (const t of qontoTimeline || []) {
+    qontoDeltaByDay.set(t.date, Number(t.net) || 0);
+  }
+
+  // Delta stock par jour : restocks (entrees valorisees) - cost of goods sold
+  const stockDeltaByDay = new Map();
+
+  // 1. Sales -> coup en stock
+  if (analyticsStore && typeof analyticsStore.listSales === "function") {
+    try {
+      const sales = analyticsStore.listSales({
+        shop,
+        from: fromDate.toISOString().slice(0, 10),
+        to: toDate.toISOString().slice(0, 10),
+        limit: 50000,
+      });
+      for (const s of sales || []) {
+        const day = String(s.orderDate || s.ts || "").slice(0, 10);
+        if (!day) continue;
+        let cost = Number(s.totalCost) || 0;
+        if (cost === 0) {
+          // Fallback : qty * CMP courant du produit
+          const qty = Number(s.quantity) || 0;
+          const grams = Number(s.totalGrams) || qty * Number(s.gramsPerUnit || 0);
+          const cmp = cmpByProduct.get(String(s.productId || "")) || 0;
+          cost = grams * cmp;
+        }
+        stockDeltaByDay.set(day, (stockDeltaByDay.get(day) || 0) - cost);
+      }
+    } catch (_) {}
+  }
+
+  // 2. Restocks -> entree de valeur en stock
+  if (movementStore && typeof movementStore.listMovements === "function") {
+    try {
+      // listMovements prend "days" en parametre, on couvre la periode + 1 jour de marge
+      const movs = movementStore.listMovements({ shop, days: days + 1, limit: 10000 });
+      for (const m of movs || []) {
+        if (!m || m.source !== "restock") continue;
+        const day = String(m.ts || "").slice(0, 10);
+        if (!day) continue;
+        const grams = Math.abs(Number(m.gramsDelta) || 0);
+        if (grams <= 0) continue;
+        let pricePerGram = Number(m.purchasePricePerGram) || 0;
+        if (pricePerGram === 0) {
+          // Fallback : CMP courant du produit
+          pricePerGram = cmpByProduct.get(String(m.productId || "")) || 0;
+        }
+        const value = grams * pricePerGram;
+        if (value > 0) {
+          stockDeltaByDay.set(day, (stockDeltaByDay.get(day) || 0) + value);
+        }
+      }
+    } catch (_) {}
+  }
+
+  // Walk back : on a les valeurs ACTUELLES (end-of-today), on retire les deltas
+  // pour reconstruire l'historique.
+  let runningQonto = currentQontoBalance;
+  let runningStock = currentStockValue;
+
+  const series = [];
+  const cursor = new Date(toDate);
+  cursor.setHours(23, 59, 59, 999);
+  const start = new Date(fromDate);
+  start.setHours(0, 0, 0, 0);
+
+  while (cursor >= start) {
+    const dayKey = cursor.toISOString().slice(0, 10);
+    series.unshift({
+      date: dayKey,
+      qonto: Math.round(runningQonto * 100) / 100,
+      stock: Math.round(runningStock * 100) / 100,
+      patrimoine: Math.round((runningQonto + runningStock) * 100) / 100,
+    });
+    // Soustraction du delta du jour pour obtenir end-of-yesterday
+    runningQonto -= qontoDeltaByDay.get(dayKey) || 0;
+    runningStock -= stockDeltaByDay.get(dayKey) || 0;
+    cursor.setDate(cursor.getDate() - 1);
+  }
+
+  return series;
+}
+
 function computeShopifyGrossForPeriod(shop, fromIso, toIso) {
   if (!analyticsStore || !analyticsStore.listSales) return null;
   try {
@@ -5041,30 +5160,64 @@ router.get("/api/finance/qonto-treasury", (req, res) => {
 
     // Valeur stock recalculee a chaque hit (rapide, in-memory) pour eviter
     // d'afficher un stock perime apres une vente/restock dans la fenetre cache.
+    // Retourne aussi le detail produits (CMP par produit) pour la timeline patrimoine.
     const computeStockValue = () => {
       try {
         if (stock && typeof stock.calculateTotalStockValue === "function") {
           const sv = stock.calculateTotalStockValue(shop);
+          const products = Array.isArray(sv.products) ? sv.products : [];
           return {
             totalValue: Number(sv.totalValue || 0),
             currency: sv.currency || "EUR",
-            productCount: Array.isArray(sv.products) ? sv.products.length : 0,
+            productCount: products.length,
+            _products: products, // interne, utilise pour fallback CMP timeline
           };
         }
       } catch (_) {}
       return null;
     };
 
+    // Strip le champ interne avant exposition
+    const stripStockInternals = (s) => {
+      if (!s) return null;
+      const { _products, ...rest } = s;
+      return rest;
+    };
+
     if (!force && _qontoTreasuryCache.has(cacheKey)) {
       const entry = _qontoTreasuryCache.get(cacheKey);
       if (now - entry.ts < QONTO_TREASURY_TTL_MS) {
         const freshStock = computeStockValue();
+        // Recalcule la timeline patrimoine avec le stock value frais
+        let freshPatrimoineTimeline = entry.data.patrimoineTimeline || null;
+        if (
+          freshStock &&
+          entry.data.qonto &&
+          entry.data.qonto.balance &&
+          Array.isArray(entry.data.qonto.timeline)
+        ) {
+          try {
+            const periodFrom = new Date(entry.data.period.from);
+            const periodTo = new Date(entry.data.period.to);
+            freshPatrimoineTimeline = buildPatrimoineTimeline({
+              days: entry.data.period.days,
+              qontoTimeline: entry.data.qonto.timeline,
+              shop,
+              fromDate: periodFrom,
+              toDate: periodTo,
+              currentQontoBalance: entry.data.qonto.balance.current,
+              currentStockValue: freshStock.totalValue,
+              stockProducts: freshStock._products,
+            });
+          } catch (_) {}
+        }
         return res.json({
           ...entry.data,
-          stock: freshStock,
+          stock: stripStockInternals(freshStock),
           patrimoine: freshStock && entry.data.qonto && entry.data.qonto.balance
             ? Math.round((entry.data.qonto.balance.current + freshStock.totalValue) * 100) / 100
             : null,
+          patrimoineTimeline: freshPatrimoineTimeline,
           cached: true,
         });
       }
@@ -5156,10 +5309,31 @@ router.get("/api/finance/qonto-treasury", (req, res) => {
     };
 
     const freshStock = computeStockValue();
-    payload.stock = freshStock;
+    payload.stock = stripStockInternals(freshStock);
     payload.patrimoine = freshStock
       ? Math.round((payload.qonto.balance.current + freshStock.totalValue) * 100) / 100
       : null;
+
+    // Timeline patrimoine (Qonto + stock par jour) pour le chart d'evolution
+    if (freshStock) {
+      try {
+        payload.patrimoineTimeline = buildPatrimoineTimeline({
+          days,
+          qontoTimeline: payload.qonto.timeline,
+          shop,
+          fromDate,
+          toDate,
+          currentQontoBalance: payload.qonto.balance.current,
+          currentStockValue: freshStock.totalValue,
+          stockProducts: freshStock._products,
+        });
+      } catch (e) {
+        logEvent("patrimoine_timeline_error", { shop, message: e.message }, "warn");
+        payload.patrimoineTimeline = null;
+      }
+    } else {
+      payload.patrimoineTimeline = null;
+    }
 
     _qontoTreasuryCache.set(cacheKey, { ts: now, data: payload });
     return res.json(payload);

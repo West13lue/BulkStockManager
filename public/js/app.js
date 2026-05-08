@@ -10599,8 +10599,10 @@
   // - Solde actuel + KPIs cashflow + run-rate
   // - Card "frais payment processor" si Shopify Payments detecte
   // - Top contreparties credit/debit
+  // - Chart evolution patrimoine (Qonto + stock par jour, line/area)
   // - Timeline cashflow journaliere (Chart.js bar)
   var _treasuryChartInstance = null;
+  var _patrimoineChartInstance = null;
 
   async function loadAnalyticsTreasury() {
     var container = document.getElementById("analyticsContent");
@@ -10808,6 +10810,19 @@
         '<div class="card"><div class="card-header"><h3 class="card-title"><i data-lucide="arrow-up-from-line"></i> ' + t("analytics.treasury.topDebits", "Top decaissements") + '</h3></div><div class="card-body" style="padding:0 16px 16px">' + renderCpRow(top.debits || [], '-') + '</div></div>' +
       '</div>';
 
+    // Chart evolution patrimoine (Qonto + stock cumulatif sur la periode)
+    var patrimoineChartHtml = '';
+    if (Array.isArray(data.patrimoineTimeline) && data.patrimoineTimeline.length > 1) {
+      patrimoineChartHtml =
+        '<div class="card" style="margin-bottom:16px">' +
+          '<div class="card-header">' +
+            '<h3 class="card-title"><i data-lucide="line-chart"></i> ' + t("analytics.treasury.patrimoineEvolution", "Evolution du patrimoine") + '</h3>' +
+            '<div style="font-size:11px;color:var(--text-tertiary)">' + t("analytics.treasury.patrimoineEvolutionHint", "Reconstitue depuis l'etat actuel + cashflow + mouvements stock") + '</div>' +
+          '</div>' +
+          '<div class="card-body" style="height:300px;position:relative"><canvas id="patrimoineChart"></canvas></div>' +
+        '</div>';
+    }
+
     // Chart cashflow journalier
     var chartHtml =
       '<div class="card" style="margin-bottom:16px">' +
@@ -10821,11 +10836,12 @@
       (data.cached ? ' · ' + t("analytics.treasury.cached", "cache 15min") : '') +
       ' · <a href="#" onclick="event.preventDefault(); app.loadAnalyticsTreasury()">' + t("action.refresh", "Actualiser") + '</a></div>';
 
-    // Ordre revu : hero / KPIs / chart (info la plus visuelle) / gap (contextuelle) / top / meta
-    container.innerHTML = heroHtml + kpisHtml + chartHtml + gapHtml + topHtml + metaHtml;
+    // Ordre : hero / KPIs / patrimoine (vue strategique) / cashflow / gap / top / meta
+    container.innerHTML = heroHtml + kpisHtml + patrimoineChartHtml + chartHtml + gapHtml + topHtml + metaHtml;
 
     if (typeof lucide !== "undefined") lucide.createIcons();
     _renderTreasuryChart(timeline);
+    _renderPatrimoineChart(data.patrimoineTimeline || []);
   }
 
   function _renderTreasuryChart(timeline) {
@@ -10871,6 +10887,97 @@
         scales: {
           x: { stacked: true, ticks: { color: tickColor, maxRotation: 0, autoSkip: true, maxTicksLimit: 12 }, grid: { display: false } },
           y: { stacked: true, ticks: { color: tickColor, callback: function(v) { return formatCurrency(v); } }, grid: { color: "rgba(127,127,127,0.1)" } }
+        }
+      }
+    });
+  }
+
+  // Chart evolution patrimoine : 3 lignes (Qonto / Stock / Patrimoine total).
+  // La ligne Patrimoine est l'aire remplie en accent, les 2 autres sont des
+  // lignes fines en couleur secondaire pour montrer la composition.
+  function _renderPatrimoineChart(timeline) {
+    var canvas = document.getElementById("patrimoineChart");
+    if (!canvas || typeof Chart === "undefined" || !timeline || timeline.length === 0) return;
+    if (_patrimoineChartInstance) { try { _patrimoineChartInstance.destroy(); } catch (_) {} _patrimoineChartInstance = null; }
+
+    var labels = timeline.map(function(d) {
+      var dt = new Date(d.date);
+      return dt.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+    });
+    var qontoSeries = timeline.map(function(d) { return Number(d.qonto) || 0; });
+    var stockSeries = timeline.map(function(d) { return Number(d.stock) || 0; });
+    var totalSeries = timeline.map(function(d) { return Number(d.patrimoine) || 0; });
+
+    var styles = getComputedStyle(document.documentElement);
+    var tickColor = (styles.getPropertyValue("--text-tertiary") || "#888").trim();
+    var accentColor = (styles.getPropertyValue("--accent-primary") || "#22c55e").trim() || "#22c55e";
+    var accentFill = accentColor.indexOf("#") === 0 ? hexToRgba(accentColor, 0.15) : "rgba(34,197,94,0.15)";
+    var qontoColor = "#3b82f6"; // bleu pour cash
+    var stockColor = "#f59e0b"; // ambre pour stock
+
+    _patrimoineChartInstance = new Chart(canvas, {
+      type: "line",
+      data: {
+        labels: labels,
+        datasets: [
+          {
+            label: t("analytics.treasury.totalAssets", "Patrimoine total"),
+            data: totalSeries,
+            borderColor: accentColor,
+            backgroundColor: accentFill,
+            borderWidth: 2.5,
+            fill: true,
+            tension: 0.3,
+            pointRadius: 0,
+            pointHoverRadius: 5,
+            pointBackgroundColor: accentColor,
+            order: 1
+          },
+          {
+            label: t("analytics.treasury.currentBalance", "Solde Qonto"),
+            data: qontoSeries,
+            borderColor: qontoColor,
+            backgroundColor: "transparent",
+            borderWidth: 1.5,
+            borderDash: [4, 3],
+            fill: false,
+            tension: 0.3,
+            pointRadius: 0,
+            pointHoverRadius: 4,
+            pointBackgroundColor: qontoColor,
+            order: 2
+          },
+          {
+            label: t("analytics.treasury.stockValue", "Valeur stock"),
+            data: stockSeries,
+            borderColor: stockColor,
+            backgroundColor: "transparent",
+            borderWidth: 1.5,
+            borderDash: [4, 3],
+            fill: false,
+            tension: 0.3,
+            pointRadius: 0,
+            pointHoverRadius: 4,
+            pointBackgroundColor: stockColor,
+            order: 3
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: "index", intersect: false },
+        plugins: {
+          legend: { position: "bottom", labels: { color: tickColor, usePointStyle: true, boxWidth: 8 } },
+          tooltip: {
+            callbacks: {
+              label: function(ctx) { return ctx.dataset.label + ": " + formatCurrency(ctx.parsed.y || 0); }
+            }
+          }
+        },
+        scales: {
+          x: { ticks: { color: tickColor, maxRotation: 0, autoSkip: true, maxTicksLimit: 12 }, grid: { display: false } },
+          y: { ticks: { color: tickColor, callback: function(v) { return formatCurrency(v); } }, grid: { color: "rgba(127,127,127,0.1)" } }
         }
       }
     });
