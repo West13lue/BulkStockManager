@@ -4727,6 +4727,416 @@ router.get("/api/labels/latest-order", (req, res) => {
 });
 
 // =====================================================
+// FINANCE — Solde compte Qonto (compte principal)
+// =====================================================
+// Lit les credentials depuis l'env (QONTO_LOGIN + QONTO_SECRET_KEY) et
+// interroge https://thirdparty.qonto.com/v2/organization. Retourne le solde
+// du compte marque `main: true` (fallback : premier compte de la liste).
+// Cache memoire 60s pour ne pas spammer l'API Qonto (limite 2 req/s).
+const _qontoCache = { ts: 0, data: null, error: null };
+const QONTO_CACHE_TTL_MS = 60 * 1000;
+
+async function fetchQontoOrganization() {
+  const login = String(process.env.QONTO_LOGIN || "").trim();
+  const secret = String(process.env.QONTO_SECRET_KEY || "").trim();
+  if (!login || !secret) {
+    const err = new Error("qonto_not_configured");
+    err.code = "qonto_not_configured";
+    throw err;
+  }
+  const r = await fetch("https://thirdparty.qonto.com/v2/organization", {
+    method: "GET",
+    headers: {
+      Authorization: `${login}:${secret}`,
+      "Content-Type": "application/json",
+    },
+  });
+  if (!r.ok) {
+    const txt = await r.text().catch(() => "");
+    const err = new Error(`qonto_api_${r.status}`);
+    err.code = `qonto_api_${r.status}`;
+    err.body = txt.slice(0, 500);
+    throw err;
+  }
+  return r.json();
+}
+
+router.get("/api/finance/qonto-balance", (req, res) => {
+  safeJson(req, res, async () => {
+    const now = Date.now();
+    const force = String(req.query?.force || "") === "1";
+
+    if (!force && _qontoCache.data && now - _qontoCache.ts < QONTO_CACHE_TTL_MS) {
+      return res.json({ ...(_qontoCache.data), cached: true });
+    }
+    if (!force && _qontoCache.error && now - _qontoCache.ts < QONTO_CACHE_TTL_MS) {
+      return res.status(_qontoCache.error.status || 502).json({
+        ...(_qontoCache.error.body),
+        cached: true,
+      });
+    }
+
+    try {
+      const data = await fetchQontoOrganization();
+      const accounts = (data && data.organization && data.organization.bank_accounts) || [];
+      if (!accounts.length) {
+        const payload = { configured: true, available: false, reason: "no_account" };
+        _qontoCache.ts = now;
+        _qontoCache.data = payload;
+        _qontoCache.error = null;
+        return res.json(payload);
+      }
+      const main = accounts.find((a) => a && a.main === true) || accounts[0];
+      const balance = Number(main.balance != null ? main.balance : (main.balance_cents || 0) / 100);
+      const authorizedBalance = main.authorized_balance != null
+        ? Number(main.authorized_balance)
+        : (main.authorized_balance_cents != null ? Number(main.authorized_balance_cents) / 100 : null);
+      const payload = {
+        configured: true,
+        available: true,
+        account: {
+          slug: main.slug || null,
+          name: main.name || null,
+          iban: main.iban || null,
+          currency: main.currency || "EUR",
+          balance: Math.round(balance * 100) / 100,
+          authorizedBalance: authorizedBalance != null ? Math.round(authorizedBalance * 100) / 100 : null,
+          updatedAt: main.updated_at || null,
+        },
+        accountCount: accounts.length,
+        organizationSlug: (data && data.organization && data.organization.slug) || null,
+        fetchedAt: new Date().toISOString(),
+      };
+      _qontoCache.ts = now;
+      _qontoCache.data = payload;
+      _qontoCache.error = null;
+      return res.json(payload);
+    } catch (e) {
+      if (e.code === "qonto_not_configured") {
+        const payload = { configured: false, available: false, reason: "missing_env" };
+        _qontoCache.ts = now;
+        _qontoCache.data = payload;
+        _qontoCache.error = null;
+        return res.json(payload);
+      }
+      logEvent(
+        "qonto_balance_error",
+        { code: e.code || null, message: e.message || String(e), body: e.body || null },
+        "warn"
+      );
+      const status = /qonto_api_(\d+)/.test(e.code || "") ? Number(RegExp.$1) : 502;
+      const errBody = {
+        configured: true,
+        available: false,
+        reason: e.code || "fetch_failed",
+        message: e.message || "Qonto API error",
+      };
+      _qontoCache.ts = now;
+      _qontoCache.data = null;
+      _qontoCache.error = { status, body: errBody };
+      return res.status(status).json(errBody);
+    }
+  });
+});
+
+// =====================================================
+// FINANCE — Tresorerie / Cashflow Qonto sur N jours
+// =====================================================
+// Pull pagine /v2/transactions sur la periode, agrege en cashflow + top
+// counterparties + timeline jour-par-jour. Croise avec le CA brut Shopify
+// (analyticsStore) pour faire ressortir le gap "frais payment processor".
+//
+// Cache memoire 15min par valeur de "days" (1 entree par periode demandee).
+// Pas de cache disque : le data set reste petit (50-300 transactions par mois)
+// et un restart Render (~30min mini) re-pull naturellement.
+const _qontoTreasuryCache = new Map(); // key = days -> { ts, data }
+const QONTO_TREASURY_TTL_MS = 15 * 60 * 1000;
+const QONTO_TX_PAGE_SIZE = 100;
+const QONTO_TX_MAX_PAGES = 20; // garde-fou : 2000 tx max
+
+async function fetchQontoTransactionsPage({ slug, fromIso, toIso, page }) {
+  const login = String(process.env.QONTO_LOGIN || "").trim();
+  const secret = String(process.env.QONTO_SECRET_KEY || "").trim();
+  if (!login || !secret) {
+    const err = new Error("qonto_not_configured");
+    err.code = "qonto_not_configured";
+    throw err;
+  }
+  const url = new URL("https://thirdparty.qonto.com/v2/transactions");
+  url.searchParams.set("slug", slug);
+  url.searchParams.set("settled_at_from", fromIso);
+  url.searchParams.set("settled_at_to", toIso);
+  url.searchParams.set("status", "completed");
+  url.searchParams.set("per_page", String(QONTO_TX_PAGE_SIZE));
+  url.searchParams.set("current_page", String(page));
+  url.searchParams.set("sort_by", "settled_at:desc");
+  const r = await fetch(url.toString(), {
+    headers: {
+      Authorization: `${login}:${secret}`,
+      "Content-Type": "application/json",
+    },
+  });
+  if (!r.ok) {
+    const txt = await r.text().catch(() => "");
+    const err = new Error(`qonto_api_${r.status}`);
+    err.code = `qonto_api_${r.status}`;
+    err.body = txt.slice(0, 500);
+    throw err;
+  }
+  return r.json();
+}
+
+async function fetchQontoTransactions({ slug, fromIso, toIso }) {
+  const all = [];
+  let page = 1;
+  let totalPages = 1;
+  while (page <= QONTO_TX_MAX_PAGES) {
+    const data = await fetchQontoTransactionsPage({ slug, fromIso, toIso, page });
+    const items = Array.isArray(data?.transactions) ? data.transactions : [];
+    all.push(...items);
+    totalPages = Number(data?.meta?.total_pages || 1);
+    if (page >= totalPages) break;
+    page += 1;
+  }
+  return { transactions: all, totalPages };
+}
+
+function classifyCounterparty(name) {
+  const n = String(name || "").toLowerCase();
+  if (!n) return "other";
+  if (n.includes("shopify")) return "shopify";
+  if (n.includes("stripe")) return "stripe";
+  if (n.includes("paypal")) return "paypal";
+  return "other";
+}
+
+function aggregateQontoTransactions(transactions, fromDate, toDate) {
+  const cashflow = {
+    credits: 0,
+    debits: 0,
+    net: 0,
+    transactionCount: transactions.length,
+    creditCount: 0,
+    debitCount: 0,
+  };
+  const payouts = {
+    shopify: { amount: 0, count: 0 },
+    stripe: { amount: 0, count: 0 },
+    paypal: { amount: 0, count: 0 },
+    other: { amount: 0, count: 0 },
+  };
+  const byCounterpartyCredit = new Map();
+  const byCounterpartyDebit = new Map();
+  const byDay = new Map(); // date YYYY-MM-DD -> { credit, debit }
+
+  for (const tx of transactions) {
+    if (!tx) continue;
+    const side = String(tx.side || "").toLowerCase(); // "credit" | "debit"
+    const amount = Number(tx.amount != null ? tx.amount : (tx.amount_cents || 0) / 100);
+    if (!Number.isFinite(amount) || amount === 0) continue;
+    const counterparty = String(tx.counterparty_name || tx.label || "Inconnu").trim() || "Inconnu";
+    const day = String(tx.settled_at || tx.emitted_at || "").slice(0, 10);
+
+    if (side === "credit") {
+      cashflow.credits += amount;
+      cashflow.creditCount += 1;
+      const bucket = classifyCounterparty(counterparty);
+      payouts[bucket].amount += amount;
+      payouts[bucket].count += 1;
+      const cur = byCounterpartyCredit.get(counterparty) || { name: counterparty, amount: 0, count: 0 };
+      cur.amount += amount;
+      cur.count += 1;
+      byCounterpartyCredit.set(counterparty, cur);
+      if (day) {
+        const d = byDay.get(day) || { date: day, credit: 0, debit: 0 };
+        d.credit += amount;
+        byDay.set(day, d);
+      }
+    } else if (side === "debit") {
+      cashflow.debits += amount;
+      cashflow.debitCount += 1;
+      const cur = byCounterpartyDebit.get(counterparty) || { name: counterparty, amount: 0, count: 0 };
+      cur.amount += amount;
+      cur.count += 1;
+      byCounterpartyDebit.set(counterparty, cur);
+      if (day) {
+        const d = byDay.get(day) || { date: day, credit: 0, debit: 0 };
+        d.debit += amount;
+        byDay.set(day, d);
+      }
+    }
+  }
+
+  cashflow.credits = Math.round(cashflow.credits * 100) / 100;
+  cashflow.debits = Math.round(cashflow.debits * 100) / 100;
+  cashflow.net = Math.round((cashflow.credits - cashflow.debits) * 100) / 100;
+  Object.keys(payouts).forEach((k) => {
+    payouts[k].amount = Math.round(payouts[k].amount * 100) / 100;
+  });
+
+  const topCreditors = Array.from(byCounterpartyCredit.values())
+    .sort((a, b) => b.amount - a.amount)
+    .slice(0, 8)
+    .map((x) => ({ name: x.name, amount: Math.round(x.amount * 100) / 100, count: x.count }));
+  const topDebtors = Array.from(byCounterpartyDebit.values())
+    .sort((a, b) => b.amount - a.amount)
+    .slice(0, 8)
+    .map((x) => ({ name: x.name, amount: Math.round(x.amount * 100) / 100, count: x.count }));
+
+  // Timeline complete (jours sans tx -> 0/0)
+  const timeline = [];
+  const cursor = new Date(fromDate);
+  cursor.setHours(0, 0, 0, 0);
+  const end = new Date(toDate);
+  end.setHours(0, 0, 0, 0);
+  while (cursor <= end) {
+    const key = cursor.toISOString().slice(0, 10);
+    const v = byDay.get(key) || { date: key, credit: 0, debit: 0 };
+    timeline.push({
+      date: key,
+      credit: Math.round(v.credit * 100) / 100,
+      debit: Math.round(v.debit * 100) / 100,
+      net: Math.round((v.credit - v.debit) * 100) / 100,
+    });
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  return { cashflow, payouts, topCreditors, topDebtors, timeline };
+}
+
+function computeShopifyGrossForPeriod(shop, fromIso, toIso) {
+  if (!analyticsStore || !analyticsStore.listSales) return null;
+  try {
+    const sales = analyticsStore.listSales({ shop, from: fromIso, to: toIso, limit: 50000 });
+    let grossRevenue = 0;
+    let netRevenue = 0;
+    const orderIds = new Set();
+    for (const s of sales || []) {
+      const net = Number(s.netRevenue) || Number(s.sellingPriceTotal) || 0;
+      const gross = Number(s.grossPrice) || net;
+      grossRevenue += gross;
+      netRevenue += net;
+      if (s.orderId) orderIds.add(s.orderId);
+    }
+    return {
+      grossRevenue: Math.round(grossRevenue * 100) / 100,
+      netRevenue: Math.round(netRevenue * 100) / 100,
+      orderCount: orderIds.size,
+      lineCount: sales.length,
+    };
+  } catch (_) {
+    return null;
+  }
+}
+
+router.get("/api/finance/qonto-treasury", (req, res) => {
+  safeJson(req, res, async () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+
+    const days = Math.min(Math.max(parseInt(req.query?.days, 10) || 30, 1), 366);
+    const force = String(req.query?.force || "") === "1";
+    const cacheKey = `${shop}:${days}`;
+    const now = Date.now();
+
+    if (!force && _qontoTreasuryCache.has(cacheKey)) {
+      const entry = _qontoTreasuryCache.get(cacheKey);
+      if (now - entry.ts < QONTO_TREASURY_TTL_MS) {
+        return res.json({ ...entry.data, cached: true });
+      }
+    }
+
+    let org;
+    try {
+      org = await fetchQontoOrganization();
+    } catch (e) {
+      if (e.code === "qonto_not_configured") {
+        return res.json({ configured: false, available: false, reason: "missing_env" });
+      }
+      logEvent("qonto_treasury_error", { stage: "organization", code: e.code, message: e.message }, "warn");
+      return res.status(502).json({ configured: true, available: false, reason: e.code || "fetch_failed" });
+    }
+
+    const accounts = (org && org.organization && org.organization.bank_accounts) || [];
+    if (!accounts.length) {
+      return res.json({ configured: true, available: false, reason: "no_account" });
+    }
+    const main = accounts.find((a) => a && a.main === true) || accounts[0];
+    const slug = main.slug;
+    const currency = main.currency || "EUR";
+    const currentBalance = Number(main.balance != null ? main.balance : (main.balance_cents || 0) / 100);
+
+    const toDate = new Date();
+    const fromDate = new Date(toDate.getTime() - days * 86400000);
+    const fromIso = fromDate.toISOString();
+    const toIso = toDate.toISOString();
+
+    let txData;
+    try {
+      txData = await fetchQontoTransactions({ slug, fromIso, toIso });
+    } catch (e) {
+      logEvent("qonto_treasury_error", { stage: "transactions", code: e.code, message: e.message }, "warn");
+      return res.status(502).json({ configured: true, available: false, reason: e.code || "fetch_failed" });
+    }
+
+    const agg = aggregateQontoTransactions(txData.transactions, fromDate, toDate);
+    const dailyAvgNet = days > 0 ? agg.cashflow.net / days : 0;
+    const monthlyProjection = dailyAvgNet * 30;
+
+    const shopifyGross = computeShopifyGrossForPeriod(shop, fromIso.slice(0, 10), toIso.slice(0, 10));
+
+    // Gap "Shopify gross vs encaisse Qonto" : indicateur grossier des frais
+    // payment processor. Pertinent SEULEMENT si on a au moins quelques payouts
+    // Shopify dans la periode (sinon le lag 2-3j fausse tout).
+    let processorGap = null;
+    if (shopifyGross && agg.payouts.shopify.count > 0) {
+      const grossDelta = shopifyGross.grossRevenue - agg.payouts.shopify.amount;
+      const pct = shopifyGross.grossRevenue > 0 ? (grossDelta / shopifyGross.grossRevenue) * 100 : null;
+      processorGap = {
+        shopifyGrossRevenue: shopifyGross.grossRevenue,
+        shopifyPayoutsReceived: agg.payouts.shopify.amount,
+        gap: Math.round(grossDelta * 100) / 100,
+        gapPercent: pct != null ? Math.round(pct * 100) / 100 : null,
+        note: "Approximation: les payouts Shopify Payments arrivent avec 2-3j de delai et incluent refunds. A interpreter avec prudence sur des periodes courtes.",
+      };
+    }
+
+    const payload = {
+      configured: true,
+      available: true,
+      period: { days, from: fromIso, to: toIso },
+      qonto: {
+        balance: {
+          current: Math.round(currentBalance * 100) / 100,
+          currency,
+          updatedAt: main.updated_at || null,
+          accountName: main.name || null,
+        },
+        cashflow: agg.cashflow,
+        payouts: agg.payouts,
+        topCounterparties: { credits: agg.topCreditors, debits: agg.topDebtors },
+        timeline: agg.timeline,
+        runRate: {
+          dailyAvgNet: Math.round(dailyAvgNet * 100) / 100,
+          monthlyProjectionNet: Math.round(monthlyProjection * 100) / 100,
+        },
+        meta: {
+          transactionsFetched: txData.transactions.length,
+          pagesFetched: txData.totalPages,
+          truncated: txData.totalPages > QONTO_TX_MAX_PAGES,
+        },
+      },
+      shopify: shopifyGross,
+      processorGap,
+      fetchedAt: new Date().toISOString(),
+    };
+
+    _qontoTreasuryCache.set(cacheKey, { ts: now, data: payload });
+    return res.json(payload);
+  });
+});
+
+// =====================================================
 // DEBUG: Récap détaillé des commandes avec lignes brutes
 // =====================================================
 router.get("/api/analytics/orders-debug", (req, res) => {

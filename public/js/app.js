@@ -93,7 +93,11 @@
     // Dashboard refonte
     'switchDashboardActivity',
     // Etiquettes derniere commande Shopify
-    'loadLatestOrderLabels', 'printLatestOrderLabels'
+    'loadLatestOrderLabels', 'printLatestOrderLabels',
+    // Solde Qonto
+    'loadDashboardQontoBalance',
+    // Analytics Tresorerie
+    'loadAnalyticsTreasury'
   ];
   
   // Créer window.app avec des proxies pour toutes les fonctions
@@ -1467,6 +1471,14 @@
           '<span class="kpi-strip__label">' + t("dashboard.value", "Valeur") + '</span>' +
           '<span class="kpi-strip__value">' + formatCurrency(totalValue) + '</span>' +
         '</div>' +
+        // Solde Qonto (compte principal) - rendu async, masque si non configure
+        '<a class="kpi-strip__item is-link" id="kpiQonto" href="https://app.qonto.com" target="_blank" rel="noopener noreferrer" ' +
+          'data-tooltip="' + t("tooltip.kpiQonto", "Solde du compte courant Qonto - cliquer pour ouvrir Qonto") + '" data-tooltip-pos="bottom" ' +
+          'style="display:none;text-decoration:none">' +
+          '<span class="kpi-strip__label"><i data-lucide="wallet" aria-hidden="true"></i> ' + t("dashboard.qontoBalance", "Solde Qonto") + '</span>' +
+          '<span class="kpi-strip__value" id="kpiQontoValue">—</span>' +
+          '<span class="kpi-strip__sub" id="kpiQontoSub" style="display:block;font-size:11px;color:var(--text-tertiary);margin-top:2px"></span>' +
+        '</a>' +
         // Slots ventes 7j et commandes 7j (rendus async si plan PRO+)
         (hasFeature("hasAnalytics")
           ? '<div class="kpi-strip__item is-link" id="kpiSales7" role="button" tabindex="0" onclick="app.navigateTo(\'analytics\')" data-tooltip="' + t("tooltip.kpiSales7", "Chiffre d\'affaires net des 7 derniers jours - cliquer pour ouvrir Analytics") + '" data-tooltip-pos="bottom" aria-label="' + t("dashboard.sales7d", "Ventes 7j") + '">' +
@@ -1598,6 +1610,7 @@
     if (hasFeature("hasAnalytics")) loadDashboardSalesKpis();
     if (hasFeature("hasBatchTracking")) loadDashboardExpiringBatches();
     loadLatestOrderLabels();
+    loadDashboardQontoBalance();
     if (typeof lucide !== "undefined") lucide.createIcons();
   }
 
@@ -1684,6 +1697,43 @@
         timeline.map(function(d) { return Number(d.orders) || 0; }), { color: "accent" });
     } catch (e) {
       // ignore : KPI ventes laissés à "—"
+    }
+  }
+
+  // ----- KPI Solde Qonto (compte principal) -----
+  // Tile masquee par defaut, affichee uniquement si l'API renvoie un solde.
+  // Cache server-side 60s donc spam-safe meme si on rafraichit le dashboard.
+  async function loadDashboardQontoBalance() {
+    var tile = document.getElementById("kpiQonto");
+    var v = document.getElementById("kpiQontoValue");
+    var sub = document.getElementById("kpiQontoSub");
+    if (!tile || !v) return;
+    try {
+      var res = await authFetch(apiUrl("/finance/qonto-balance"));
+      var data = await res.json().catch(function() { return null; });
+      if (!data || !data.configured || !data.available || !data.account) {
+        tile.style.display = "none";
+        return;
+      }
+      var acc = data.account;
+      tile.style.display = "";
+      v.textContent = formatCurrency(acc.balance, acc.currency || "EUR");
+      if (sub) {
+        var parts = [];
+        if (acc.name) parts.push(acc.name);
+        if (acc.updatedAt) {
+          var lang = (typeof I18N !== "undefined" && I18N.getLanguage) ? I18N.getLanguage() : "fr";
+          var locale = lang === "fr" ? "fr-FR" : "en-US";
+          try {
+            parts.push(new Date(acc.updatedAt).toLocaleString(locale, { dateStyle: "short", timeStyle: "short" }));
+          } catch (_) {}
+        }
+        sub.textContent = parts.join(" · ");
+      }
+      if (typeof lucide !== "undefined") lucide.createIcons();
+    } catch (e) {
+      // silencieux : on masque la tile, l'utilisateur verra juste les autres KPIs
+      tile.style.display = "none";
     }
   }
 
@@ -10326,6 +10376,7 @@
         '<button class="tab-btn"        role="tab" aria-selected="false" data-tab="stock"   onclick="app.switchAnalyticsTab(\'stock\')">'   + t("analytics.stock",        "Stock")            + '</button>' +
         '<button class="tab-btn"        role="tab" aria-selected="false" data-tab="manual"  onclick="app.switchAnalyticsTab(\'manual\')">'  + t("analytics.manualSales",  "Ventes manuelles") + '</button>' +
         '<button class="tab-btn"        role="tab" aria-selected="false" data-tab="orders"  onclick="app.switchAnalyticsTab(\'orders\')">'  + t("analytics.ordersRecap",  "Recap commandes")  + '</button>' +
+        '<button class="tab-btn"        role="tab" aria-selected="false" data-tab="treasury" onclick="app.switchAnalyticsTab(\'treasury\')"><i data-lucide="wallet" aria-hidden="true" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px"></i>' + t("analytics.treasury",     "Tresorerie")       + '</button>' +
       '</div>' +
       '<div id="analyticsContent" role="tabpanel"><div class="text-center" style="padding:60px"><div class="spinner"></div><p class="text-secondary mt-md">' + t("analytics.loading", "Loading analytics...") + '</p></div></div>';
 
@@ -10355,6 +10406,8 @@
       loadManualSalesTab();
     } else if (tab === "orders") {
       loadOrdersDebugTab();
+    } else if (tab === "treasury") {
+      loadAnalyticsTreasury();
     } else {
       if (analyticsData) {
         renderAnalyticsContent();
@@ -10538,6 +10591,226 @@
       container.innerHTML = '<div class="card"><div class="card-body"><p class="text-danger">Erreur: ' + esc(e.message) + '</p></div></div>';
     }
   }
+
+  // ============================================
+  //  Analytics Tresorerie (Qonto cashflow)
+  // ============================================
+  // Pull /api/finance/qonto-treasury (cache server 15min) et rend :
+  // - Solde actuel + KPIs cashflow + run-rate
+  // - Card "frais payment processor" si Shopify Payments detecte
+  // - Top contreparties credit/debit
+  // - Timeline cashflow journaliere (Chart.js bar)
+  var _treasuryChartInstance = null;
+
+  async function loadAnalyticsTreasury() {
+    var container = document.getElementById("analyticsContent");
+    if (!container) return;
+    container.innerHTML = '<div class="text-center" style="padding:60px"><div class="spinner"></div><p class="text-secondary mt-md">' + t("analytics.treasury.loading", "Chargement Qonto...") + '</p></div>';
+
+    try {
+      var days = parseInt(analyticsPeriod) || 30;
+      var res = await authFetch(apiUrl("/finance/qonto-treasury?days=" + days));
+      var data = await res.json().catch(function() { return null; });
+
+      if (!data || !data.configured) {
+        container.innerHTML =
+          '<div class="card"><div class="card-body text-center" style="padding:40px">' +
+            '<i data-lucide="wallet-off" style="width:36px;height:36px;opacity:0.4"></i>' +
+            '<h3 style="margin:12px 0 4px">' + t("analytics.treasury.notConfiguredTitle", "Qonto non configure") + '</h3>' +
+            '<p class="text-secondary">' + t("analytics.treasury.notConfiguredHint", "Ajoutez QONTO_LOGIN et QONTO_SECRET_KEY dans les variables d\'environnement Render pour activer cette vue.") + '</p>' +
+          '</div></div>';
+        if (typeof lucide !== "undefined") lucide.createIcons();
+        return;
+      }
+      if (!data.available) {
+        container.innerHTML =
+          '<div class="card"><div class="card-body text-center" style="padding:40px">' +
+            '<i data-lucide="alert-triangle" style="width:36px;height:36px;color:var(--text-warning,#f59e0b)"></i>' +
+            '<h3 style="margin:12px 0 4px">' + t("analytics.treasury.unavailableTitle", "API Qonto indisponible") + '</h3>' +
+            '<p class="text-secondary">' + esc(data.reason || "fetch_failed") + '</p>' +
+            '<button class="btn btn-ghost btn-sm mt-md" onclick="app.loadAnalyticsTreasury()"><i data-lucide="refresh-cw"></i> ' + t("action.retry", "Reessayer") + '</button>' +
+          '</div></div>';
+        if (typeof lucide !== "undefined") lucide.createIcons();
+        return;
+      }
+
+      renderAnalyticsTreasury(data);
+    } catch (e) {
+      container.innerHTML = '<div class="card"><div class="card-body"><p class="text-danger">Erreur: ' + esc(e.message) + '</p></div></div>';
+    }
+  }
+
+  function renderAnalyticsTreasury(data) {
+    var container = document.getElementById("analyticsContent");
+    if (!container) return;
+    var q = data.qonto || {};
+    var bal = q.balance || {};
+    var cf = q.cashflow || {};
+    var rr = q.runRate || {};
+    var pay = q.payouts || {};
+    var top = q.topCounterparties || { credits: [], debits: [] };
+    var timeline = q.timeline || [];
+    var period = data.period || {};
+    var gap = data.processorGap;
+
+    var lang = (typeof I18N !== "undefined" && I18N.getLanguage) ? I18N.getLanguage() : "fr";
+    var locale = lang === "fr" ? "fr-FR" : "en-US";
+    var balUpdated = "";
+    if (bal.updatedAt) {
+      try { balUpdated = new Date(bal.updatedAt).toLocaleString(locale, { dateStyle: "short", timeStyle: "short" }); } catch (_) {}
+    }
+    var periodLbl = "";
+    try {
+      var pf = new Date(period.from).toLocaleDateString(locale);
+      var pt = new Date(period.to).toLocaleDateString(locale);
+      periodLbl = pf + " → " + pt;
+    } catch (_) {}
+
+    var netClass = cf.net >= 0 ? "text-success" : "text-danger";
+    var rrClass = rr.dailyAvgNet >= 0 ? "text-success" : "text-danger";
+
+    // Header solde + KPIs
+    var heroHtml =
+      '<div class="card" style="margin-bottom:16px">' +
+        '<div class="card-body" style="display:flex;flex-wrap:wrap;gap:24px;align-items:center;justify-content:space-between">' +
+          '<div>' +
+            '<div class="text-tertiary" style="font-size:12px;text-transform:uppercase;letter-spacing:0.5px">' + t("analytics.treasury.currentBalance", "Solde actuel") + (bal.accountName ? ' · ' + esc(bal.accountName) : '') + '</div>' +
+            '<div style="font-size:32px;font-weight:700;margin-top:4px">' + formatCurrency(bal.current || 0) + '</div>' +
+            (balUpdated ? '<div class="text-tertiary" style="font-size:11px;margin-top:2px">' + t("analytics.treasury.updatedAt", "Maj") + ' ' + esc(balUpdated) + '</div>' : '') +
+          '</div>' +
+          '<div style="text-align:right">' +
+            '<div class="text-tertiary" style="font-size:12px">' + t("analytics.treasury.period", "Periode") + '</div>' +
+            '<div style="font-weight:600">' + esc(periodLbl) + '</div>' +
+            '<a class="btn btn-ghost btn-sm mt-sm" href="https://app.qonto.com" target="_blank" rel="noopener noreferrer"><i data-lucide="external-link"></i> ' + t("analytics.treasury.openQonto", "Ouvrir Qonto") + '</a>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+
+    var kpisHtml =
+      '<div class="kpi-hero-row" style="margin-bottom:16px">' +
+        '<div class="kpi-hero">' +
+          '<div class="kpi-hero__label"><i data-lucide="arrow-down-circle" style="color:#22c55e"></i> ' + t("analytics.treasury.credits", "Encaissements") + '</div>' +
+          '<div class="kpi-hero__value text-success">+' + formatCurrency(cf.credits || 0) + '</div>' +
+          '<div class="kpi-hero__sub">' + (cf.creditCount || 0) + ' ' + t("analytics.treasury.movements", "mouvements") + '</div>' +
+        '</div>' +
+        '<div class="kpi-hero">' +
+          '<div class="kpi-hero__label"><i data-lucide="arrow-up-circle" style="color:#ef4444"></i> ' + t("analytics.treasury.debits", "Decaissements") + '</div>' +
+          '<div class="kpi-hero__value text-danger">-' + formatCurrency(cf.debits || 0) + '</div>' +
+          '<div class="kpi-hero__sub">' + (cf.debitCount || 0) + ' ' + t("analytics.treasury.movements", "mouvements") + '</div>' +
+        '</div>' +
+        '<div class="kpi-hero">' +
+          '<div class="kpi-hero__label"><i data-lucide="trending-up"></i> ' + t("analytics.treasury.netVariation", "Variation nette") + '</div>' +
+          '<div class="kpi-hero__value ' + netClass + '">' + (cf.net >= 0 ? '+' : '') + formatCurrency(cf.net || 0) + '</div>' +
+          '<div class="kpi-hero__sub">' + t("analytics.treasury.onPeriod", "sur la periode") + '</div>' +
+        '</div>' +
+        '<div class="kpi-hero">' +
+          '<div class="kpi-hero__label"><i data-lucide="calendar"></i> ' + t("analytics.treasury.runRate", "Run-rate mensuel") + '</div>' +
+          '<div class="kpi-hero__value ' + rrClass + '">' + (rr.monthlyProjectionNet >= 0 ? '+' : '') + formatCurrency(rr.monthlyProjectionNet || 0) + '</div>' +
+          '<div class="kpi-hero__sub">' + (rr.dailyAvgNet >= 0 ? '+' : '') + formatCurrency(rr.dailyAvgNet || 0) + ' / ' + t("analytics.treasury.perDay", "jour") + '</div>' +
+        '</div>' +
+      '</div>';
+
+    // Card "frais payment processor" — affichee uniquement si on a des payouts Shopify
+    var gapHtml = '';
+    if (gap) {
+      var gapClass = gap.gap > 0 ? "text-warning" : "text-success";
+      gapHtml =
+        '<div class="card" style="margin-bottom:16px;border-left:3px solid var(--accent-primary,#22c55e)">' +
+          '<div class="card-header"><h3 class="card-title"><i data-lucide="credit-card"></i> ' + t("analytics.treasury.processorGapTitle", "Frais payment processor (Shopify Payments)") + '</h3></div>' +
+          '<div class="card-body">' +
+            '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px">' +
+              '<div><div class="text-tertiary" style="font-size:12px">' + t("analytics.treasury.shopifyGross", "CA brut Shopify") + '</div><div style="font-size:20px;font-weight:600">' + formatCurrency(gap.shopifyGrossRevenue) + '</div></div>' +
+              '<div><div class="text-tertiary" style="font-size:12px">' + t("analytics.treasury.shopifyPayouts", "Encaisse Qonto (Shopify)") + '</div><div style="font-size:20px;font-weight:600">' + formatCurrency(gap.shopifyPayoutsReceived) + '</div></div>' +
+              '<div><div class="text-tertiary" style="font-size:12px">' + t("analytics.treasury.gap", "Gap (frais + lag)") + '</div><div style="font-size:20px;font-weight:700" class="' + gapClass + '">' + formatCurrency(gap.gap) + (gap.gapPercent != null ? ' (' + gap.gapPercent.toFixed(1) + '%)' : '') + '</div></div>' +
+            '</div>' +
+            '<p class="text-tertiary" style="font-size:11px;margin:10px 0 0">' + t("analytics.treasury.processorGapNote", "Approximation : payouts Shopify Payments arrivent avec 2-3j de delai et incluent les refunds. Plus la periode est courte, moins le chiffre est fiable.") + '</p>' +
+          '</div>' +
+        '</div>';
+    }
+
+    // Top contreparties
+    var renderCpRow = function(items, sign) {
+      if (!items.length) {
+        return '<p class="text-secondary text-sm" style="padding:12px 0">' + t("analytics.treasury.noMovements", "Aucun mouvement sur la periode") + '</p>';
+      }
+      return items.map(function(c) {
+        return '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-top:1px solid var(--border-color)">' +
+          '<div style="min-width:0;flex:1"><div style="font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(c.name) + '</div>' +
+          '<div class="text-tertiary" style="font-size:11px">' + c.count + ' ' + (c.count > 1 ? t("analytics.treasury.transactions", "transactions") : t("analytics.treasury.transaction", "transaction")) + '</div></div>' +
+          '<div style="font-weight:600;white-space:nowrap;margin-left:12px" class="' + (sign === '+' ? 'text-success' : 'text-danger') + '">' + sign + formatCurrency(c.amount) + '</div>' +
+          '</div>';
+      }).join("");
+    };
+
+    var topHtml =
+      '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;margin-bottom:16px">' +
+        '<div class="card"><div class="card-header"><h3 class="card-title"><i data-lucide="arrow-down-to-line"></i> ' + t("analytics.treasury.topCredits", "Top encaissements") + '</h3></div><div class="card-body" style="padding:0 16px 16px">' + renderCpRow(top.credits || [], '+') + '</div></div>' +
+        '<div class="card"><div class="card-header"><h3 class="card-title"><i data-lucide="arrow-up-from-line"></i> ' + t("analytics.treasury.topDebits", "Top decaissements") + '</h3></div><div class="card-body" style="padding:0 16px 16px">' + renderCpRow(top.debits || [], '-') + '</div></div>' +
+      '</div>';
+
+    // Chart cashflow journalier
+    var chartHtml =
+      '<div class="card" style="margin-bottom:16px">' +
+        '<div class="card-header"><h3 class="card-title"><i data-lucide="bar-chart-3"></i> ' + t("analytics.treasury.dailyCashflow", "Cashflow journalier") + '</h3></div>' +
+        '<div class="card-body" style="height:280px;position:relative"><canvas id="treasuryChart"></canvas></div>' +
+      '</div>';
+
+    // Footer meta
+    var metaHtml = '<div class="text-tertiary" style="font-size:11px;text-align:right;margin-bottom:8px">' +
+      (q.meta && q.meta.transactionsFetched != null ? q.meta.transactionsFetched + ' ' + t("analytics.treasury.transactionsFetched", "transactions chargees") : '') +
+      (data.cached ? ' · ' + t("analytics.treasury.cached", "cache 15min") : '') +
+      ' · <a href="#" onclick="event.preventDefault(); app.loadAnalyticsTreasury()">' + t("action.refresh", "Actualiser") + '</a></div>';
+
+    container.innerHTML = heroHtml + kpisHtml + gapHtml + topHtml + chartHtml + metaHtml;
+
+    if (typeof lucide !== "undefined") lucide.createIcons();
+    _renderTreasuryChart(timeline);
+  }
+
+  function _renderTreasuryChart(timeline) {
+    var canvas = document.getElementById("treasuryChart");
+    if (!canvas || typeof Chart === "undefined") return;
+    if (_treasuryChartInstance) { try { _treasuryChartInstance.destroy(); } catch (_) {} _treasuryChartInstance = null; }
+
+    var labels = timeline.map(function(d) {
+      var dt = new Date(d.date);
+      return dt.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+    });
+    var credits = timeline.map(function(d) { return Number(d.credit) || 0; });
+    var debits = timeline.map(function(d) { return -(Number(d.debit) || 0); });
+
+    var styles = getComputedStyle(document.documentElement);
+    var tickColor = (styles.getPropertyValue("--text-tertiary") || "#888").trim();
+
+    _treasuryChartInstance = new Chart(canvas, {
+      type: "bar",
+      data: {
+        labels: labels,
+        datasets: [
+          { label: t("analytics.treasury.credits", "Encaissements"), data: credits, backgroundColor: "rgba(34,197,94,0.7)", borderColor: "#22c55e", borderWidth: 1 },
+          { label: t("analytics.treasury.debits", "Decaissements"), data: debits, backgroundColor: "rgba(239,68,68,0.7)", borderColor: "#ef4444", borderWidth: 1 }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: "index", intersect: false },
+        plugins: {
+          legend: { position: "bottom", labels: { color: tickColor } },
+          tooltip: {
+            callbacks: {
+              label: function(ctx) { return ctx.dataset.label + ": " + formatCurrency(Math.abs(ctx.parsed.y)); }
+            }
+          }
+        },
+        scales: {
+          x: { stacked: true, ticks: { color: tickColor, maxRotation: 0, autoSkip: true, maxTicksLimit: 12 }, grid: { display: false } },
+          y: { stacked: true, ticks: { color: tickColor, callback: function(v) { return formatCurrency(v); } }, grid: { color: "rgba(127,127,127,0.1)" } }
+        }
+      }
+    });
+  }
+
 
   function updateMergeBtn() {
     var checked = document.querySelectorAll(".order-merge-cb:checked");
@@ -11918,6 +12191,10 @@
     // Etiquettes derniere commande Shopify
     loadLatestOrderLabels: loadLatestOrderLabels,
     printLatestOrderLabels: printLatestOrderLabels,
+    // Solde Qonto
+    loadDashboardQontoBalance: loadDashboardQontoBalance,
+    // Analytics Tresorerie
+    loadAnalyticsTreasury: loadAnalyticsTreasury,
   };
   
   // Stocker les vraies fonctions
