@@ -1568,8 +1568,10 @@
           '<div class="card-body" id="dashboardActivity"><div class="text-center py-lg"><div class="spinner"></div></div></div>' +
         '</div>' +
 
-        // Card Watchlist : produits sous seuil bas/critique (filtré, pas "les 5 plus bas" aveugles)
-        '<div class="card">' +
+        batchesCardHtml +
+
+        // Card Watchlist en full-row (sous Activite + Lots qui expirent)
+        '<div class="card card-full-row">' +
           '<div class="card-header">' +
             '<h3 class="card-title"><i data-lucide="boxes" aria-hidden="true"></i> ' + t("dashboard.watchlistTitle", "Stocks à surveiller") +
               (watchlistProducts.length ? ' <span class="badge-count" style="margin-left:6px">' + watchlistProducts.length + '</span>' : '') +
@@ -1578,8 +1580,6 @@
           '</div>' +
           '<div class="card-body" style="padding:0">' + watchlistHtml + '</div>' +
         '</div>' +
-
-        batchesCardHtml +
       '</div>';
 
     // Async loaders
