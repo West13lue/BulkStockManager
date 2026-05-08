@@ -5039,10 +5039,34 @@ router.get("/api/finance/qonto-treasury", (req, res) => {
     const cacheKey = `${shop}:${days}`;
     const now = Date.now();
 
+    // Valeur stock recalculee a chaque hit (rapide, in-memory) pour eviter
+    // d'afficher un stock perime apres une vente/restock dans la fenetre cache.
+    const computeStockValue = () => {
+      try {
+        if (stock && typeof stock.calculateTotalStockValue === "function") {
+          const sv = stock.calculateTotalStockValue(shop);
+          return {
+            totalValue: Number(sv.totalValue || 0),
+            currency: sv.currency || "EUR",
+            productCount: Array.isArray(sv.products) ? sv.products.length : 0,
+          };
+        }
+      } catch (_) {}
+      return null;
+    };
+
     if (!force && _qontoTreasuryCache.has(cacheKey)) {
       const entry = _qontoTreasuryCache.get(cacheKey);
       if (now - entry.ts < QONTO_TREASURY_TTL_MS) {
-        return res.json({ ...entry.data, cached: true });
+        const freshStock = computeStockValue();
+        return res.json({
+          ...entry.data,
+          stock: freshStock,
+          patrimoine: freshStock && entry.data.qonto && entry.data.qonto.balance
+            ? Math.round((entry.data.qonto.balance.current + freshStock.totalValue) * 100) / 100
+            : null,
+          cached: true,
+        });
       }
     }
 
@@ -5130,6 +5154,12 @@ router.get("/api/finance/qonto-treasury", (req, res) => {
       processorGap,
       fetchedAt: new Date().toISOString(),
     };
+
+    const freshStock = computeStockValue();
+    payload.stock = freshStock;
+    payload.patrimoine = freshStock
+      ? Math.round((payload.qonto.balance.current + freshStock.totalValue) * 100) / 100
+      : null;
 
     _qontoTreasuryCache.set(cacheKey, { ts: now, data: payload });
     return res.json(payload);

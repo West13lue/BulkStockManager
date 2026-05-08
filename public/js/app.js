@@ -10669,16 +10669,38 @@
     var netClass = cf.net >= 0 ? "text-success" : "text-danger";
     var rrClass = rr.dailyAvgNet >= 0 ? "text-success" : "text-danger";
 
-    // Header solde + KPIs
+    // Header solde + valeur stock + patrimoine total
+    var stockBlock = '';
+    var patrimoineBlock = '';
+    if (data.stock && typeof data.stock.totalValue === "number") {
+      var pc = Number(data.stock.productCount || 0);
+      stockBlock =
+        '<div style="display:flex;align-items:center;gap:12px"><div style="font-size:24px;font-weight:300;color:var(--text-tertiary)">+</div><div>' +
+          '<div class="text-tertiary" style="font-size:12px;text-transform:uppercase;letter-spacing:0.5px"><i data-lucide="package" style="width:12px;height:12px;vertical-align:-1px"></i> ' + t("analytics.treasury.stockValue", "Valeur stock (CMP)") + '</div>' +
+          '<div style="font-size:24px;font-weight:600;margin-top:4px">' + formatCurrency(data.stock.totalValue) + '</div>' +
+          (pc > 0 ? '<div class="text-tertiary" style="font-size:11px;margin-top:2px">' + pc + ' ' + (pc > 1 ? t("analytics.treasury.products", "produits") : t("analytics.treasury.product", "produit")) + '</div>' : '') +
+        '</div></div>';
+    }
+    if (data.patrimoine != null) {
+      patrimoineBlock =
+        '<div style="display:flex;align-items:center;gap:12px"><div style="font-size:24px;font-weight:300;color:var(--text-tertiary)">=</div><div>' +
+          '<div class="text-tertiary" style="font-size:12px;text-transform:uppercase;letter-spacing:0.5px;color:var(--accent-primary,#22c55e)"><i data-lucide="diamond" style="width:12px;height:12px;vertical-align:-1px"></i> ' + t("analytics.treasury.totalAssets", "Patrimoine total") + '</div>' +
+          '<div style="font-size:28px;font-weight:700;margin-top:4px;color:var(--accent-primary,#22c55e)">' + formatCurrency(data.patrimoine) + '</div>' +
+          '<div class="text-tertiary" style="font-size:11px;margin-top:2px">' + t("analytics.treasury.cashPlusStock", "cash + stock") + '</div>' +
+        '</div></div>';
+    }
+
     var heroHtml =
       '<div class="card" style="margin-bottom:16px">' +
-        '<div class="card-body" style="display:flex;flex-wrap:wrap;gap:24px;align-items:center;justify-content:space-between">' +
-          '<div>' +
-            '<div class="text-tertiary" style="font-size:12px;text-transform:uppercase;letter-spacing:0.5px">' + t("analytics.treasury.currentBalance", "Solde actuel") + (bal.accountName ? ' · ' + esc(bal.accountName) : '') + '</div>' +
-            '<div style="font-size:32px;font-weight:700;margin-top:4px">' + formatCurrency(bal.current || 0) + '</div>' +
+        '<div class="card-body" style="display:flex;flex-wrap:wrap;gap:20px;align-items:center;justify-content:space-between">' +
+          '<div style="display:flex;align-items:center;gap:12px"><div>' +
+            '<div class="text-tertiary" style="font-size:12px;text-transform:uppercase;letter-spacing:0.5px"><i data-lucide="wallet" style="width:12px;height:12px;vertical-align:-1px"></i> ' + t("analytics.treasury.currentBalance", "Solde Qonto") + (bal.accountName ? ' · ' + esc(bal.accountName) : '') + '</div>' +
+            '<div style="font-size:24px;font-weight:600;margin-top:4px">' + formatCurrency(bal.current || 0) + '</div>' +
             (balUpdated ? '<div class="text-tertiary" style="font-size:11px;margin-top:2px">' + t("analytics.treasury.updatedAt", "Maj") + ' ' + esc(balUpdated) + '</div>' : '') +
-          '</div>' +
-          '<div style="text-align:right">' +
+          '</div></div>' +
+          stockBlock +
+          patrimoineBlock +
+          '<div style="text-align:right;margin-left:auto">' +
             '<div class="text-tertiary" style="font-size:12px">' + t("analytics.treasury.period", "Periode") + '</div>' +
             '<div style="font-weight:600">' + esc(periodLbl) + '</div>' +
             '<a class="btn btn-ghost btn-sm mt-sm" href="https://app.qonto.com" target="_blank" rel="noopener noreferrer"><i data-lucide="external-link"></i> ' + t("analytics.treasury.openQonto", "Ouvrir Qonto") + '</a>' +
