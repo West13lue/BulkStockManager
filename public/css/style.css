@@ -2575,7 +2575,14 @@ input, select, textarea {
   align-items: center;
   gap: var(--space-sm);
   padding: var(--space-sm) 0;
+  border: none;
   border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
+  width: 100%;
+  cursor: pointer;
 }
 
 .top-item:last-child {
