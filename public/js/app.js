@@ -11595,12 +11595,19 @@
 
   function changeAnalyticsPeriod(period) {
     analyticsPeriod = period;
-    // Recharger selon l'onglet actif
+    // Recharger selon l'onglet actif. Sans ce switch complet, manual/orders/
+    // treasury basculaient silencieusement sur la vue Stock via loadAnalytics().
     if (analyticsTab === "sales") {
-      analyticsSalesData = null; // Forcer le rechargement
+      analyticsSalesData = null;
       loadAnalyticsSales();
+    } else if (analyticsTab === "manual") {
+      loadManualSalesTab();
+    } else if (analyticsTab === "orders") {
+      loadOrdersDebugTab();
+    } else if (analyticsTab === "treasury") {
+      loadAnalyticsTreasury();
     } else {
-      analyticsData = null; // Forcer le rechargement
+      analyticsData = null;
       loadAnalytics();
     }
   }
