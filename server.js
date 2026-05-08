@@ -635,23 +635,113 @@ async function getLocationIdForShop(shop) {
   return id;
 }
 
+// Pousse les unites disponibles (canSell) de chaque variante locale vers Shopify.
+// - Une variante en erreur n'interrompt PLUS le push des suivantes (regression
+//   precedente : tout `await` qui rejette sortait de la boucle silencieusement,
+//   laissant des variantes avec une vieille valeur sur le storefront).
+// - Si l'inventory_item n'est pas stocke a la location active, on tente
+//   automatiquement un `connect` puis un retry du `set`.
+// - Retourne { pushed, skipped, failed[] } pour pouvoir surfacer le detail
+//   en API (debug) ; les echecs partiels sont aussi logues en `warn`.
 async function pushProductInventoryToShopify(shop, productView) {
-  if (!productView?.variants) return;
+  if (!productView?.variants) return { pushed: 0, skipped: 0, failed: [] };
 
   const client = shopifyFor(shop);
   const locationId = await getLocationIdForShop(shop);
 
-  for (const [, v] of Object.entries(productView.variants)) {
-    const inventoryItemId = Number(v.inventoryItemId || 0);
-    const unitsAvailable = Math.max(0, Number(v.canSell || 0));
-    if (!inventoryItemId) continue;
+  let pushed = 0;
+  let skipped = 0;
+  const failed = [];
 
+  const trySet = async (inventoryItemId, available) => {
     await client.inventoryLevel.set({
       location_id: locationId,
       inventory_item_id: inventoryItemId,
-      available: unitsAvailable,
+      available,
     });
+  };
+
+  for (const [label, v] of Object.entries(productView.variants)) {
+    const inventoryItemId = Number(v?.inventoryItemId || 0);
+    const unitsAvailable = Math.max(0, Number(v?.canSell || 0));
+    if (!inventoryItemId) {
+      skipped++;
+      continue;
+    }
+
+    try {
+      await trySet(inventoryItemId, unitsAvailable);
+      pushed++;
+      continue;
+    } catch (err) {
+      const info = extractShopifyError(err);
+      const status = Number(info?.statusCode || 0);
+      const bodyStr = info?.body ? JSON.stringify(info.body) : "";
+      const notStocked = status === 422 && /not stocked/i.test(bodyStr + " " + (info?.message || ""));
+
+      if (notStocked) {
+        try {
+          await client.inventoryLevel.connect({
+            location_id: locationId,
+            inventory_item_id: inventoryItemId,
+          });
+          await trySet(inventoryItemId, unitsAvailable);
+          pushed++;
+          logEvent(
+            "inventory_level_reconnected",
+            {
+              shop,
+              productId: productView.productId,
+              productName: productView.name,
+              variantLabel: label,
+              inventoryItemId,
+              locationId,
+            },
+            "info"
+          );
+          continue;
+        } catch (retryErr) {
+          failed.push({
+            label,
+            inventoryItemId,
+            gramsPerUnit: Number(v?.gramsPerUnit) || 0,
+            requested: unitsAvailable,
+            stage: "connect_retry",
+            ...extractShopifyError(retryErr),
+          });
+          continue;
+        }
+      }
+
+      failed.push({
+        label,
+        inventoryItemId,
+        gramsPerUnit: Number(v?.gramsPerUnit) || 0,
+        requested: unitsAvailable,
+        stage: "set",
+        ...info,
+      });
+    }
   }
+
+  if (failed.length) {
+    logEvent(
+      "inventory_push_partial",
+      {
+        shop,
+        productId: productView.productId,
+        productName: productView.name,
+        locationId,
+        pushed,
+        skipped,
+        failedCount: failed.length,
+        failed,
+      },
+      "warn"
+    );
+  }
+
+  return { pushed, skipped, failed };
 }
 
 function findGramsPerUnitByInventoryItemId(productView, inventoryItemId) {
@@ -2872,6 +2962,155 @@ router.post("/api/sync/shopify", async (req, res) => {
   });
 });
 
+// =====================================================
+// ADMIN / DIAGNOSTIC INVENTAIRE
+// Compare le snapshot local (canSell calcule depuis totalGrams / gramsPerUnit)
+// avec l'etat Shopify variante par variante. Permet de detecter pourquoi une
+// variante reste vendable sur le storefront alors que canSell local = 0 :
+//   - inventory_management = null  -> Shopify ignore "available" (non suivi)
+//   - inventory_policy = "continue" -> survente autorisee
+//   - inventory level non connecte a la location -> set silencieux impossible
+//   - drift (Shopify.available != local.canSell) -> dernier push echoue
+// =====================================================
+router.get("/api/admin/inventory-diff", (req, res) => {
+  safeJson(req, res, async () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+
+    const productId = String(req.query?.productId || "").trim();
+    if (!productId) return apiError(res, 400, "productId manquant");
+
+    const local = stock.getProductSnapshot ? stock.getProductSnapshot(shop, productId) : null;
+    if (!local) return apiError(res, 404, "Produit introuvable cote app");
+
+    const client = shopifyFor(shop);
+    const locationId = await getLocationIdForShop(shop);
+
+    const rows = [];
+    for (const [label, v] of Object.entries(local.variants || {})) {
+      const inventoryItemId = Number(v?.inventoryItemId || 0);
+      const localCanSell = Number(v?.canSell || 0);
+
+      let shopifyAvailable = null;
+      let connectedToLocation = null;
+      let inventoryManagement = null;
+      let inventoryPolicy = null;
+      let variantTitle = null;
+      let errors = [];
+
+      if (inventoryItemId) {
+        try {
+          const levels = await client.inventoryLevel.list({
+            inventory_item_ids: inventoryItemId,
+            location_ids: locationId,
+          });
+          connectedToLocation = Array.isArray(levels) && levels.length > 0;
+          shopifyAvailable = connectedToLocation ? Number(levels[0]?.available || 0) : null;
+        } catch (e) {
+          errors.push({ stage: "inventory_level_list", ...extractShopifyError(e) });
+        }
+      }
+
+      if (v?.variantId) {
+        try {
+          const variant = await client.productVariant.get(Number(v.variantId));
+          inventoryManagement = variant?.inventory_management ?? null;
+          inventoryPolicy = variant?.inventory_policy ?? null;
+          variantTitle = variant?.title ?? null;
+        } catch (e) {
+          errors.push({ stage: "variant_get", ...extractShopifyError(e) });
+        }
+      }
+
+      const drift =
+        shopifyAvailable !== null && Number.isFinite(localCanSell)
+          ? shopifyAvailable - localCanSell
+          : null;
+
+      // Diagnostic synthetique : pourquoi cette variante peut rester achetable
+      // alors qu'on voudrait qu'elle soit "Sold out".
+      const sellableDespiteEmpty =
+        localCanSell === 0 &&
+        (
+          inventoryManagement === null ||
+          inventoryManagement === "" ||
+          inventoryPolicy === "continue" ||
+          (shopifyAvailable !== null && shopifyAvailable > 0)
+        );
+
+      rows.push({
+        label,
+        gramsPerUnit: Number(v?.gramsPerUnit) || 0,
+        inventoryItemId,
+        variantId: v?.variantId || null,
+        variantTitle,
+        local: { canSell: localCanSell },
+        shopify: {
+          available: shopifyAvailable,
+          inventoryManagement,
+          inventoryPolicy,
+          connectedToLocation,
+        },
+        drift,
+        sellableDespiteEmpty,
+        errors: errors.length ? errors : undefined,
+      });
+    }
+
+    res.json({
+      success: true,
+      shop,
+      productId,
+      productName: local.name,
+      totalGrams: local.totalGrams,
+      locationId,
+      variants: rows,
+      summary: {
+        variantCount: rows.length,
+        driftCount: rows.filter((r) => r.drift !== null && r.drift !== 0).length,
+        sellableDespiteEmpty: rows.filter((r) => r.sellableDespiteEmpty).length,
+        notConnected: rows.filter((r) => r.shopify.connectedToLocation === false).length,
+        notTracked: rows.filter(
+          (r) => r.shopify.inventoryManagement === null || r.shopify.inventoryManagement === ""
+        ).length,
+      },
+    });
+  });
+});
+
+// Force-republie l'etat local d'un produit vers Shopify (re-applique
+// pushProductInventoryToShopify). Utile quand le storefront semble "coince"
+// sur d'anciennes valeurs apres un push partiel.
+router.post("/api/admin/inventory-resync", (req, res) => {
+  safeJson(req, res, async () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+
+    const productId = String(req.body?.productId || "").trim();
+    if (!productId) return apiError(res, 400, "productId manquant");
+
+    const snap = stock.getProductSnapshot ? stock.getProductSnapshot(shop, productId) : null;
+    if (!snap) return apiError(res, 404, "Produit introuvable cote app");
+
+    let result = null;
+    try {
+      result = await pushProductInventoryToShopify(shop, snap);
+    } catch (e) {
+      logEvent("inventory_resync_error", { shop, productId, ...extractShopifyError(e) }, "error");
+      return apiError(res, 500, "Echec resync: " + (e?.message || "erreur inconnue"));
+    }
+
+    res.json({
+      success: true,
+      shop,
+      productId,
+      productName: snap.name,
+      totalGrams: snap.totalGrams,
+      result,
+    });
+  });
+});
+
 router.post("/api/restock", (req, res) => {
   safeJson(req, res, async () => {
     const shop = getShop(req);
@@ -4418,6 +4657,71 @@ router.get("/api/analytics/manual-sales", (req, res) => {
         totalGrams: Math.round(totalGrams * 100) / 100,
       },
       sales: manualSales.slice(0, limit),
+    });
+  });
+});
+
+// =====================================================
+// ÉTIQUETTES — dernière commande Shopify
+// =====================================================
+// Retourne la dernière commande Shopify (source webhook), pré-formattée pour
+// alimenter showLabelsModal({ prefilledConfigs }) côté frontend.
+// Filtre : on exclut les ventes manuelles (source === "manual" ou orderId
+// préfixé "manual_"). Look-back 60 jours pour rester pertinent.
+router.get("/api/labels/latest-order", (req, res) => {
+  safeJson(req, res, () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    if (!analyticsStore || !analyticsStore.listSales) return apiError(res, 500, "Analytics non disponible");
+
+    const fromDate = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000);
+    const sales = analyticsStore.listSales({ shop, from: fromDate.toISOString(), limit: 5000 });
+
+    const shopifySales = (sales || []).filter(s => {
+      if (!s || !s.orderId) return false;
+      if (s.source === "manual") return false;
+      if (String(s.orderId).startsWith("manual_")) return false;
+      return true;
+    });
+
+    if (shopifySales.length === 0) {
+      return res.json({ order: null });
+    }
+
+    shopifySales.sort((a, b) => new Date(b.orderDate) - new Date(a.orderDate));
+    const latestOrderId = shopifySales[0].orderId;
+    const latestDate = shopifySales[0].orderDate;
+
+    const lines = shopifySales.filter(s => s.orderId === latestOrderId);
+
+    const items = lines.map(s => {
+      const qty = Number(s.quantity || 0) || 1;
+      const totalGrams = Number(s.totalGrams || 0);
+      const gramsPerUnit = Number(s.gramsPerUnit || 0) || (qty > 0 ? totalGrams / qty : totalGrams);
+      const netRevenue = Number(s.netRevenue || 0);
+      const unitPrice = qty > 0 ? netRevenue / qty : netRevenue;
+      return {
+        productId: String(s.productId || ""),
+        productName: String(s.productName || ""),
+        variantId: s.variantId || null,
+        variantTitle: s.variantTitle || null,
+        quantity: qty,
+        gramsPerUnit: Math.round(gramsPerUnit * 100) / 100,
+        totalGrams: Math.round(totalGrams * 100) / 100,
+        netRevenue: Math.round(netRevenue * 100) / 100,
+        unitPrice: Math.round(unitPrice * 100) / 100,
+      };
+    });
+
+    res.json({
+      order: {
+        orderId: latestOrderId,
+        orderNumber: lines[0].orderNumber || null,
+        orderDate: latestDate,
+        currency: lines[0].currency || "EUR",
+        items,
+        totalQuantity: items.reduce((sum, i) => sum + i.quantity, 0),
+      },
     });
   });
 });

@@ -91,7 +91,9 @@
     'switchSalesChartMetric', 'sortAnalyticsProducts', 'searchAnalyticsProducts',
     'goAnalyticsProductsPage', 'viewProductInCatalog',
     // Dashboard refonte
-    'switchDashboardActivity'
+    'switchDashboardActivity',
+    // Etiquettes derniere commande Shopify
+    'loadLatestOrderLabels', 'printLatestOrderLabels'
   ];
   
   // Créer window.app avec des proxies pour toutes les fonctions
@@ -1536,6 +1538,15 @@
       urgencyHtml +
       kpiStrip +
 
+      // Card Etiquette derniere commande Shopify (auto-update via webhook)
+      '<div class="card card-full-row" id="dashboardLatestOrderLabels">' +
+        '<div class="card-header">' +
+          '<h3 class="card-title"><i data-lucide="tag" aria-hidden="true"></i> ' + t("dashboard.latestOrderLabels", "Etiquette derniere commande") + '</h3>' +
+          '<button class="btn btn-ghost btn-sm" onclick="app.loadLatestOrderLabels()" data-tooltip="' + t("tooltip.refreshLatestOrder", "Recharger la derniere commande Shopify") + '" data-tooltip-pos="left" aria-label="' + t("action.refresh", "Actualiser") + '"><i data-lucide="refresh-cw" aria-hidden="true"></i></button>' +
+        '</div>' +
+        '<div class="card-body" id="dashboardLatestOrderLabelsBody"><div class="text-center py-lg"><div class="spinner"></div></div></div>' +
+      '</div>' +
+
       // Quick actions (existing)
       '<div class="quick-actions-bar">' +
         '<div class="quick-actions-title"><i data-lucide="zap" aria-hidden="true"></i> ' + t("dashboard.quickActions", "Actions rapides") + '</div>' +
@@ -1586,6 +1597,7 @@
     loadDashboardMovementsAndActivity();
     if (hasFeature("hasAnalytics")) loadDashboardSalesKpis();
     if (hasFeature("hasBatchTracking")) loadDashboardExpiringBatches();
+    loadLatestOrderLabels();
     if (typeof lucide !== "undefined") lucide.createIcons();
   }
 
@@ -1765,6 +1777,131 @@
     } catch (e) {
       c.innerHTML = '<p class="text-secondary text-center py-lg">' + t("msg.error", "Erreur") + '</p>';
     }
+  }
+
+  // ----- Etiquette derniere commande Shopify -----
+  // Recupere la derniere commande Shopify (source webhook) et l'affiche dans
+  // une card avec un bouton qui ouvre showLabelsModal pre-rempli (1 etiquette
+  // par pochon). Auto-loaded a chaque rendu du dashboard.
+  var _latestOrderIdSeen = null;
+
+  async function loadLatestOrderLabels() {
+    var c = document.getElementById("dashboardLatestOrderLabelsBody");
+    if (!c) return;
+    try {
+      var res = await authFetch(apiUrl("/labels/latest-order"));
+      if (!res.ok) {
+        c.innerHTML = '<p class="text-secondary text-center" style="font-size:13px;padding:16px 0">' +
+          t("dashboard.latestOrder.error", "Impossible de charger la derniere commande.") + '</p>';
+        return;
+      }
+      var data = await res.json();
+      var order = data && data.order;
+      if (!order || !order.items || order.items.length === 0) {
+        c.innerHTML = '<div class="text-center" style="padding:20px 0">' +
+          '<i data-lucide="package-x" aria-hidden="true" style="opacity:0.4;width:28px;height:28px"></i>' +
+          '<p class="text-secondary" style="margin:6px 0 2px;font-size:13px">' +
+            t("dashboard.latestOrder.empty", "Aucune commande Shopify recente.") + '</p>' +
+          '<p class="text-tertiary" style="margin:0;font-size:12px">' +
+            t("dashboard.latestOrder.emptyHint", "Les etiquettes apparaitront ici des qu\'une commande arrivera.") + '</p>' +
+        '</div>';
+        window._latestOrderForLabels = null;
+        if (typeof lucide !== "undefined") lucide.createIcons();
+        return;
+      }
+
+      // Toast quand une nouvelle commande arrive entre deux refresh
+      if (_latestOrderIdSeen && _latestOrderIdSeen !== order.orderId) {
+        showToast(
+          t("dashboard.latestOrder.newOrder", "Nouvelle commande prete a etiqueter") +
+            " #" + (order.orderNumber || order.orderId),
+          "success"
+        );
+      }
+      _latestOrderIdSeen = order.orderId;
+      window._latestOrderForLabels = order;
+
+      var lang = (typeof I18N !== "undefined" && I18N.getLanguage) ? I18N.getLanguage() : "fr";
+      var locale = lang === "fr" ? "fr-FR" : "en-US";
+      var dateStr;
+      try {
+        dateStr = new Date(order.orderDate).toLocaleString(locale, { dateStyle: "medium", timeStyle: "short" });
+      } catch (_) { dateStr = String(order.orderDate || ""); }
+
+      var totalLabels = order.items.reduce(function(s, i) { return s + (i.quantity || 0); }, 0);
+      var pouchLbl = totalLabels === 1
+        ? t("dashboard.latestOrder.pouchOne", "pochon")
+        : t("dashboard.latestOrder.pouchMany", "pochons");
+      var orderHeader = '#' + esc(String(order.orderNumber || order.orderId)) +
+        ' &middot; ' + esc(dateStr) +
+        ' &middot; ' + totalLabels + ' ' + pouchLbl;
+
+      var rows = order.items.map(function(it) {
+        var product = (state.products || []).find(function(p) { return p.productId === it.productId; });
+        var missing = !product;
+        return '<tr style="border-top:1px solid var(--border-color)">' +
+          '<td style="padding:8px 6px">' +
+            '<strong>' + esc(it.productName || "—") + '</strong>' +
+            (it.variantTitle ? ' <span style="color:var(--text-secondary);font-size:12px">&middot; ' + esc(it.variantTitle) + '</span>' : '') +
+            (missing ? ' <span class="badge badge-warning" style="font-size:10px;margin-left:4px">' + t("dashboard.latestOrder.notInCatalog", "absent catalogue") + '</span>' : '') +
+          '</td>' +
+          '<td style="padding:8px 6px;text-align:right;white-space:nowrap">x' + it.quantity + '</td>' +
+          '<td style="padding:8px 6px;text-align:right;color:var(--text-secondary);white-space:nowrap">' + formatWeight(it.gramsPerUnit) + '/u</td>' +
+          '<td style="padding:8px 6px;text-align:right;white-space:nowrap">' + formatCurrency(it.unitPrice) + '/u</td>' +
+        '</tr>';
+      }).join("");
+
+      var hasPrintable = order.items.some(function(it) {
+        return (state.products || []).some(function(p) { return p.productId === it.productId; });
+      });
+
+      c.innerHTML =
+        '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px">' +
+          '<div style="font-weight:600;font-size:14px">' + orderHeader + '</div>' +
+          '<button class="btn btn-primary btn-sm" onclick="app.printLatestOrderLabels()"' +
+            (hasPrintable ? '' : ' disabled') +
+            ' data-tooltip="' + t("tooltip.printLatestOrder", "Ouvre le modal d\'etiquettes pre-rempli avec les pochons de cette commande") + '" data-tooltip-pos="left">' +
+            '<i data-lucide="printer" aria-hidden="true"></i> ' +
+            t("dashboard.latestOrder.printBtn", "Imprimer les etiquettes") +
+          '</button>' +
+        '</div>' +
+        '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px">' +
+          rows +
+        '</table></div>';
+
+      if (typeof lucide !== "undefined") lucide.createIcons();
+    } catch (e) {
+      console.warn("loadLatestOrderLabels error", e);
+      c.innerHTML = '<p class="text-secondary text-center" style="font-size:13px;padding:16px 0">' +
+        t("dashboard.latestOrder.error", "Impossible de charger la derniere commande.") + '</p>';
+    }
+  }
+
+  function printLatestOrderLabels() {
+    var order = window._latestOrderForLabels;
+    if (!order || !order.items || order.items.length === 0) {
+      showToast(t("dashboard.latestOrder.empty", "Aucune commande Shopify recente."), "warning");
+      return;
+    }
+    var prefilled = order.items
+      .filter(function(it) {
+        return (state.products || []).some(function(p) { return p.productId === it.productId; });
+      })
+      .map(function(it) {
+        return {
+          productId: it.productId,
+          lotId: "",
+          qty: it.quantity || 1,
+          weight: it.gramsPerUnit || (it.quantity > 0 ? it.totalGrams / it.quantity : it.totalGrams) || 0,
+          price: Math.round((it.unitPrice || 0) * 100) / 100,
+          lotData: null
+        };
+      });
+    if (prefilled.length === 0) {
+      showToast(t("dashboard.latestOrder.noProducts", "Produits introuvables dans le catalogue local."), "warning");
+      return;
+    }
+    showLabelsModal({ prefilledConfigs: prefilled });
   }
 
   // Modal produits stock bas (utilise les seuils Parametres > Gestion du stock)
@@ -11778,6 +11915,9 @@
     viewProductInCatalog:    viewProductInCatalog,
     // Dashboard refonte
     switchDashboardActivity: switchDashboardActivity,
+    // Etiquettes derniere commande Shopify
+    loadLatestOrderLabels: loadLatestOrderLabels,
+    printLatestOrderLabels: printLatestOrderLabels,
   };
   
   // Stocker les vraies fonctions
