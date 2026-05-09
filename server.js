@@ -3339,6 +3339,126 @@ router.post("/api/sales/manual", (req, res) => {
   });
 });
 
+// =====================================================
+// LIGNE CADEAU sur commande Shopify existante
+// =====================================================
+// Ajoute une ligne de produit "offert" rattachée à une commande Shopify
+// existante. Décrémente le stock comme une vente normale, enregistre une
+// ligne analytics avec netRevenue=0 et totalCost = qty × gramsPerUnit × CMP
+// pour que la marge totale de la commande reflète le coût du cadeau.
+//
+// Body: { orderId, orderNumber?, productId, quantity, gramsPerUnit }
+//   - orderId      : id Shopify de la commande à laquelle rattacher (obligatoire)
+//   - quantity     : nombre de pochons cadeaux (>=1)
+//   - gramsPerUnit : poids unitaire en g (>0)
+// Le coût (CMP) est résolu côté serveur depuis le snapshot produit.
+router.post("/api/sales/gift", (req, res) => {
+  safeJson(req, res, async () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+
+    const orderId = String(req.body?.orderId || "").trim();
+    const orderNumber = String(req.body?.orderNumber || "").trim();
+    const productId = String(req.body?.productId || "").trim();
+    const quantity = Number(req.body?.quantity || 0);
+    const gramsPerUnit = Number(req.body?.gramsPerUnit || 0);
+
+    if (!orderId) return apiError(res, 400, "orderId manquant");
+    if (!productId) return apiError(res, 400, "productId manquant");
+    if (!Number.isFinite(quantity) || quantity <= 0) return apiError(res, 400, "quantity invalide");
+    if (!Number.isFinite(gramsPerUnit) || gramsPerUnit <= 0) return apiError(res, 400, "gramsPerUnit invalide");
+
+    const productSnapshot = stock.getProductSnapshot ? stock.getProductSnapshot(shop, productId) : null;
+    if (!productSnapshot) return apiError(res, 404, "Produit introuvable");
+
+    const productName = productSnapshot.name || productId;
+    const costPerGram = Number(productSnapshot.averageCostPerGram || 0);
+    const totalGrams = quantity * gramsPerUnit;
+    const totalCost = totalGrams * costPerGram;
+    const margin = -totalCost; // netRevenue = 0
+    const marginPercent = 0;
+
+    // 1. Décrémenter le stock
+    if (typeof stock.applyOrderToProduct === "function") {
+      try {
+        await stock.applyOrderToProduct(shop, productId, totalGrams);
+      } catch (e) {
+        return apiError(res, 400, "Erreur déduction stock: " + e.message);
+      }
+    }
+
+    // 2. Mouvement (source: gift) — distinct des ventes pour pouvoir filtrer
+    if (movementStore && movementStore.addMovement) {
+      movementStore.addMovement({
+        source: "gift",
+        type: "gift_line",
+        productId,
+        productName,
+        gramsDelta: -Math.abs(totalGrams),
+        totalAfter: (productSnapshot.totalGrams || 0) - totalGrams,
+        orderId,
+        orderNumber: orderNumber || undefined,
+        sellingPriceTotal: 0,
+        sellingPricePerGram: 0,
+        shop,
+      }, shop);
+    }
+
+    // 3. Analytics : netRevenue=0, le coût pèse sur la marge de la commande.
+    // La dédup analytics se fait sur (orderId, productId, variantId) ; on
+    // synthétise un variantId unique par appel pour permettre plusieurs cadeaux
+    // du même produit sur la même commande sans collision avec une vraie ligne.
+    const giftVariantId = "gift_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8);
+    if (analyticsStore && analyticsStore.addSale) {
+      analyticsStore.addSale({
+        orderId,
+        orderNumber: orderNumber || null,
+        orderDate: new Date().toISOString(),
+        productId,
+        productName,
+        variantId: giftVariantId,
+        variantTitle: "Cadeau",
+        quantity,
+        gramsPerUnit,
+        totalGrams,
+        grossPrice: 0,
+        discountAmount: 0,
+        netRevenue: 0,
+        costPerGram,
+        totalCost,
+        margin,
+        marginPercent,
+        source: "gift",
+        shop,
+      }, shop);
+    }
+
+    // 4. Sync Shopify
+    const updatedProduct = stock.getProductSnapshot ? stock.getProductSnapshot(shop, productId) : null;
+    if (updatedProduct) {
+      try {
+        await pushProductInventoryToShopify(shop, updatedProduct);
+      } catch (e) {
+        logEvent("inventory_push_error", { shop, productId, error: e.message }, "error");
+      }
+    }
+
+    logEvent("gift_line_added", { shop, orderId, productId, productName, quantity, totalGrams, totalCost }, "info");
+
+    res.json({
+      success: true,
+      orderId,
+      productId,
+      productName,
+      quantity,
+      totalGrams,
+      totalCost: Math.round(totalCost * 100) / 100,
+      margin: Math.round(margin * 100) / 100,
+      newStock: updatedProduct ? updatedProduct.totalGrams : null,
+    });
+  });
+});
+
 router.post("/api/test-order", (req, res) => {
   safeJson(req, res, async () => {
     const shop = getShop(req);

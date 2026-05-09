@@ -56,7 +56,7 @@
     'openBatchDetails', 'showAdjustBatchModal', 'saveAdjustBatch',
     'deactivateBatch', 'deleteBatch', 'markExpiredBatches',
     'showLabelsModal', 'loadLabelLots', 'previewLabels', 'printLabels',
-    'switchLabelTab', 'addLabelConfig', 'removeLabelConfig',
+    'switchLabelTab', 'addLabelConfig', 'addGiftLabelConfig', 'removeLabelConfig',
     'onLabelProductChange', 'onLabelLotChange', 'onLabelFieldChange',
     'onBatchProductChange', 'onBatchStatusChange', 'onBatchExpiringChange',
     'loadInventorySessions', 'showCreateInventorySessionModal', 'createInventorySession',
@@ -1951,7 +1951,10 @@
       showToast(t("dashboard.latestOrder.noProducts", "Produits introuvables dans le catalogue local."), "warning");
       return;
     }
-    showLabelsModal({ prefilledConfigs: prefilled });
+    showLabelsModal({
+      prefilledConfigs: prefilled,
+      orderContext: { orderId: order.orderId, orderNumber: order.orderNumber }
+    });
   }
 
   // Modal produits stock bas (utilise les seuils Parametres > Gestion du stock)
@@ -3743,14 +3746,20 @@
 
   var labelConfigs = [];
   var activeLabelTab = 0;
+  // Contexte commande (set quand le modal est ouvert via "Imprimer etiquettes derniere
+  // commande"). Permet d'autoriser l'ajout de pochons cadeaux rattaches a cette commande.
+  var labelsOrderContext = null;
 
   // showLabelsModal(preselectedProductId?, preselectedLotId?)
-  // showLabelsModal({ prefilledConfigs: [...] })  ← used by sale flow
+  // showLabelsModal({ prefilledConfigs: [...], orderContext?: { orderId, orderNumber } })
   function showLabelsModal(arg1, arg2) {
     var prefilled = null;
+    var orderContext = null;
     if (arg1 && typeof arg1 === "object" && Array.isArray(arg1.prefilledConfigs)) {
       prefilled = arg1.prefilledConfigs;
+      orderContext = arg1.orderContext || null;
     }
+    labelsOrderContext = orderContext;
 
     if (prefilled && prefilled.length > 0) {
       labelConfigs = prefilled.map(function (c) {
@@ -3760,11 +3769,12 @@
           qty:       c.qty || 1,
           weight:    c.weight || "",
           price:     c.price || "",
-          lotData:   c.lotData || null
+          lotData:   c.lotData || null,
+          isGift:    !!c.isGift
         };
       });
     } else {
-      labelConfigs = [{ productId: arg1 || "", lotId: arg2 || "", qty: 1, weight: "", price: "", lotData: null }];
+      labelConfigs = [{ productId: arg1 || "", lotId: arg2 || "", qty: 1, weight: "", price: "", lotData: null, isGift: false }];
     }
     activeLabelTab = 0;
 
@@ -3819,18 +3829,27 @@
     if (!container) return;
 
     var html = labelConfigs.map(function(cfg, i) {
-      var active = i === activeLabelTab ? "background:var(--primary,#6366f1);color:#fff;border-color:var(--primary,#6366f1)" : "background:var(--bg-secondary);color:var(--text-primary)";
+      var isGift = !!cfg.isGift;
+      var activeColor = isGift ? "#f59e0b" : "var(--primary,#6366f1)";
+      var active = i === activeLabelTab
+        ? "background:" + activeColor + ";color:#fff;border-color:" + activeColor
+        : "background:var(--bg-secondary);color:var(--text-primary)";
       var product = (state.products || []).find(function(p) { return p.productId === cfg.productId; });
       var label = product ? product.name : t("labels.labelNum", "Etiquette") + " " + (i + 1);
       if (label.length > 20) label = label.substring(0, 18) + "...";
+      var giftPrefix = isGift ? '🎁 ' : ''; // 🎁
       return '<div style="display:flex;align-items:center;gap:0">' +
         '<button onclick="app.switchLabelTab(' + i + ')" style="padding:6px 14px;border:1px solid var(--border-color);border-radius:6px 0 0 6px;cursor:pointer;font-size:12px;font-weight:500;' + active + '">' +
-        label + ' <span style="opacity:0.7">x' + cfg.qty + '</span></button>' +
+        giftPrefix + label + ' <span style="opacity:0.7">x' + cfg.qty + '</span></button>' +
         (labelConfigs.length > 1 ? '<button onclick="app.removeLabelConfig(' + i + ')" style="padding:6px 8px;border:1px solid var(--border-color);border-left:0;border-radius:0 6px 6px 0;cursor:pointer;font-size:11px;background:var(--bg-secondary);color:var(--danger,#ef4444)" title="' + t("action.delete", "Supprimer") + '">x</button>' : '<span style="width:0"></span>') +
         '</div>';
     }).join("");
 
     html += '<button onclick="app.addLabelConfig()" style="padding:6px 14px;border:1px dashed var(--border-color);border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;background:transparent;color:var(--primary,#6366f1)">+ ' + t("labels.addLabel", "Ajouter") + '</button>';
+
+    if (labelsOrderContext && labelsOrderContext.orderId) {
+      html += '<button onclick="app.addGiftLabelConfig()" style="padding:6px 14px;border:1px dashed #f59e0b;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;background:transparent;color:#f59e0b" title="' + t("labels.giftHint", "Pochon offert : decremente le stock et compte le cout dans la marge de la commande, sans CA.") + '">🎁 + ' + t("labels.giftAdd", "Pochon cadeau") + '</button>';
+    }
 
     container.innerHTML = html;
   }
@@ -3850,7 +3869,15 @@
       return '<option value="' + esc(p.productId) + '"' + sel + '>' + esc(p.name) + '</option>';
     }).join("");
 
+    var giftBanner = cfg.isGift
+      ? '<div style="margin-bottom:12px;padding:10px 12px;background:rgba(245,158,11,0.08);border-left:3px solid #f59e0b;border-radius:6px;font-size:12px;line-height:1.4">' +
+          '<strong style="color:#b45309">🎁 ' + t("labels.giftBadge", "Pochon cadeau") + '</strong> &middot; ' +
+          t("labels.giftHint", "Le cout (CMP) sera compte dans la marge de la commande, sans CA. Le stock sera decremente a l\'impression.") +
+        '</div>'
+      : '';
+
     container.innerHTML =
+      giftBanner +
       '<div class="form-row-mobile">' +
       '<div class="form-group" style="flex:2"><label class="form-label">' + t("labels.product", "Produit") + ' *</label>' +
       '<select class="form-select" id="labelProduct" onchange="app.onLabelProductChange()">' +
@@ -3867,7 +3894,7 @@
       '<div class="form-group" style="flex:1"><label class="form-label">' + t("labels.weight", "Poids") + ' (' + weightUnit + ')</label>' +
       '<input type="number" class="form-input" id="labelWeight" value="' + (cfg.weight || "") + '" step="0.1" placeholder="Auto" onchange="app.onLabelFieldChange()"></div>' +
       '<div class="form-group" style="flex:1"><label class="form-label">' + t("labels.price", "Prix") + ' (' + currSymbol + ')</label>' +
-      '<input type="number" class="form-input" id="labelPrice" value="' + (cfg.price || "") + '" step="0.01" placeholder="' + t("labels.optional", "Optionnel") + '" onchange="app.onLabelFieldChange()"></div>' +
+      '<input type="number" class="form-input" id="labelPrice" value="' + (cfg.price || "") + '" step="0.01" placeholder="' + t("labels.optional", "Optionnel") + '" onchange="app.onLabelFieldChange()"' + (cfg.isGift ? ' disabled title="' + t("labels.giftPriceDisabled", "Prix non applicable sur un pochon cadeau") + '"' : '') + '></div>' +
       '</div>';
 
     if (cfg.productId) {
@@ -3884,7 +3911,16 @@
 
   function addLabelConfig() {
     saveLabelConfigFromForm();
-    labelConfigs.push({ productId: "", lotId: "", qty: 1, weight: "", price: "", lotData: null });
+    labelConfigs.push({ productId: "", lotId: "", qty: 1, weight: "", price: "", lotData: null, isGift: false });
+    activeLabelTab = labelConfigs.length - 1;
+    renderLabelTabs();
+    renderLabelConfig();
+  }
+
+  function addGiftLabelConfig() {
+    if (!labelsOrderContext || !labelsOrderContext.orderId) return;
+    saveLabelConfigFromForm();
+    labelConfigs.push({ productId: "", lotId: "", qty: 1, weight: "", price: "", lotData: null, isGift: true });
     activeLabelTab = labelConfigs.length - 1;
     renderLabelTabs();
     renderLabelConfig();
@@ -3977,11 +4013,12 @@
         qty: Math.min(cfg.qty || 1, 200),
         weight: weight,
         format: format,
-        price: cfg.price || 0,
+        price: cfg.isGift ? 0 : (cfg.price || 0),
         customLine: customLine,
         showQR: showQR,
-        showPrice: showPrice,
-        showSupplier: showSupplier
+        showPrice: showPrice && !cfg.isGift,
+        showSupplier: showSupplier,
+        isGift: !!cfg.isGift
       };
     }).filter(function(d) { return d.productName; });
   }
@@ -4120,6 +4157,15 @@
       return;
     }
 
+    // Enregistrer les lignes cadeaux en analytics + decrementer le stock.
+    // Best-effort : si une ligne echoue, on continue les autres et on log.
+    var giftLines = allData.filter(function(d) { return d.isGift && d.productId && d.qty > 0 && d.weight > 0; });
+    if (giftLines.length > 0 && labelsOrderContext && labelsOrderContext.orderId) {
+      recordGiftLines(labelsOrderContext.orderId, labelsOrderContext.orderNumber, giftLines);
+    } else if (giftLines.length > 0 && (!labelsOrderContext || !labelsOrderContext.orderId)) {
+      showToast(t("labels.giftNoOrder", "Pochon cadeau ignore (commande inconnue)."), "warning");
+    }
+
     printWindow.document.write(
       '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>' + t("labels.printTitle", "Etiquettes") + '</title>' +
       '<style>' +
@@ -4141,6 +4187,46 @@
       '</body></html>'
     );
     printWindow.document.close();
+  }
+
+  // POST chaque ligne cadeau au backend. Sequentiel pour respecter la dedup
+  // analytics et eviter de saturer Render. Affiche un toast resume.
+  async function recordGiftLines(orderId, orderNumber, giftLines) {
+    var saved = 0, failed = 0;
+    for (var i = 0; i < giftLines.length; i++) {
+      var g = giftLines[i];
+      try {
+        var res = await authFetch(apiUrl("/sales/gift"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            orderId: orderId,
+            orderNumber: orderNumber || "",
+            productId: g.productId,
+            quantity: g.qty,
+            gramsPerUnit: g.weight
+          })
+        });
+        if (res.ok) saved++; else failed++;
+      } catch (e) {
+        console.warn("recordGiftLines error", e);
+        failed++;
+      }
+    }
+    if (saved > 0) {
+      showToast(
+        t("labels.giftSaved", "{count} ligne(s) cadeau enregistree(s)").replace("{count}", saved),
+        "success"
+      );
+      // Refresh dashboard latest order card to reflect updated stock.
+      if (typeof loadLatestOrderLabels === "function") loadLatestOrderLabels();
+    }
+    if (failed > 0) {
+      showToast(
+        t("labels.giftFailed", "{count} ligne(s) cadeau non enregistree(s)").replace("{count}", failed),
+        "error"
+      );
+    }
   }
 
   // ============================================
@@ -12216,6 +12302,7 @@
     printLabels: printLabels,
     switchLabelTab: switchLabelTab,
     addLabelConfig: addLabelConfig,
+    addGiftLabelConfig: addGiftLabelConfig,
     removeLabelConfig: removeLabelConfig,
     onLabelProductChange: onLabelProductChange,
     onLabelLotChange: onLabelLotChange,
