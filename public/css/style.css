@@ -1227,6 +1227,11 @@ input, select, textarea {
   opacity: 0;
   visibility: hidden;
   transition: all var(--transition-normal);
+  /* Layout flex column : le footer reste toujours visible, le body absorbe
+     l'espace dispo et scrolle si necessaire. Evite que le footer soit clippe
+     par overflow:hidden quand le body est plus haut que prevu. */
+  display: flex;
+  flex-direction: column;
 }
 
 .modal.active {
@@ -1279,7 +1284,10 @@ input, select, textarea {
 .modal-body {
   padding: var(--space-xl);
   overflow-y: auto;
-  max-height: calc(90vh - 160px);
+  /* flex:1 + min-height:0 = le body prend toute la hauteur restante et scrolle
+     proprement. Plus de max-height fige : c'est le parent .modal qui borne. */
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .modal-footer {
@@ -1290,6 +1298,8 @@ input, select, textarea {
   padding: var(--space-lg) var(--space-xl);
   border-top: 1px solid var(--border);
   background: var(--bg-tertiary);
+  /* Le footer ne doit jamais etre comprime ni clippe. */
+  flex-shrink: 0;
 }
 
 /* ============================================
@@ -2767,9 +2777,10 @@ html, body {
   padding-bottom: 100px;
 }
 
-/* Scroll dans les modals */
+/* Scroll dans les modals : la hauteur est gere par le flex layout sur .modal,
+   on garde juste overflow-y auto par securite. NE PAS remettre max-height ici,
+   ca cassait l'affichage du footer quand le body etait trop haut. */
 .modal-body {
-  max-height: 70vh;
   overflow-y: auto;
 }
 
@@ -3574,10 +3585,11 @@ html, body {
   }
   
   .modal-body {
-    max-height: 60vh;
+    /* Pas de max-height ici : le flex layout du parent .modal gere la hauteur
+       et garantit que le footer reste visible. */
     overflow-y: auto;
   }
-  
+
   .modal-footer {
     flex-direction: column;
     gap: var(--space-sm);

@@ -2251,9 +2251,9 @@
       '<option value="">' + t("form.select", "-- Selectionner --") + '</option>' + productOptions +
       '</select></div>' +
       '<div style="flex:1"><label class="form-label" style="font-size:12px">' + t("sale.quantity", "Qte") + ' (' + weightUnit + ')</label>' +
-      '<input type="number" class="form-input sale-line-qty" placeholder="5" step="0.1" min="0.1" onchange="app.updateSaleSummary()" style="font-size:13px"></div>' +
+      '<input type="number" class="form-input sale-line-qty" placeholder="' + t("sale.quantityPh", "Qte") + '" step="0.1" min="0.1" onchange="app.updateSaleSummary()" oninput="app.updateSaleSummary()" style="font-size:13px"></div>' +
       '<div style="flex:1"><label class="form-label" style="font-size:12px">' + t("sale.linePrice", "Prix") + ' (' + currSymbol + ')</label>' +
-      '<input type="number" class="form-input sale-line-price" placeholder="' + t("sale.linePricePh", "auto") + '" step="0.01" min="0" onchange="app.updateSaleSummary()" style="font-size:13px"></div>' +
+      '<input type="number" class="form-input sale-line-price" placeholder="' + t("sale.linePricePh", "auto") + '" step="0.01" min="0" onchange="app.updateSaleSummary()" oninput="app.updateSaleSummary()" style="font-size:13px"></div>' +
       '<button class="btn btn-ghost btn-xs text-danger" onclick="app.removeSaleLine(' + saleLineIdx + ')" style="margin-bottom:2px"><i data-lucide="x" style="width:14px;height:14px"></i></button>' +
       '</div>';
 
@@ -2333,9 +2333,20 @@
     var perLineMode = anyLinePrice && allLinePrices;
     var effectiveTotal = perLineMode ? sumLinePrices : priceTotal;
 
-    if (perLineMode && priceTotalInput) {
-      // Synchroniser le champ total avec la somme des lignes
-      priceTotalInput.value = effectiveTotal.toFixed(2);
+    if (priceTotalInput) {
+      if (perLineMode) {
+        // Mode prix par ligne : total auto, non editable, visuel grise.
+        priceTotalInput.value = effectiveTotal.toFixed(2);
+        priceTotalInput.readOnly = true;
+        priceTotalInput.style.opacity = "0.7";
+        priceTotalInput.style.cursor = "not-allowed";
+        priceTotalInput.title = t("sale.totalLockedTitle", "Total calcule depuis les prix par ligne");
+      } else {
+        priceTotalInput.readOnly = false;
+        priceTotalInput.style.opacity = "";
+        priceTotalInput.style.cursor = "";
+        priceTotalInput.title = "";
+      }
     }
 
     lines.forEach(function(l) {
@@ -2388,7 +2399,40 @@
   async function saveManualSale() {
     var lines = getSaleLines();
     if (lines.length === 0) {
-      showToast(t("sale.addAtLeastOne", "Ajoutez au moins un produit"), "error");
+      // Diagnostic precis : pourquoi getSaleLines a filtre toutes les lignes ?
+      // Cas frequent : produit selectionne mais qte vide (le placeholder peut
+      // tromper l'utilisateur). On pointe le champ exact qui manque.
+      var rawLines = document.querySelectorAll(".sale-line");
+      if (rawLines.length === 0) {
+        showToast(t("sale.addAtLeastOne", "Ajoutez au moins un produit"), "error");
+        return;
+      }
+      var missingProduct = 0;
+      var missingQty = []; // noms produits dont la qte manque
+      rawLines.forEach(function(el) {
+        var prodSelect = el.querySelector(".sale-line-product");
+        var qtyInput = el.querySelector(".sale-line-qty");
+        if (!prodSelect || !prodSelect.value) {
+          missingProduct++;
+        } else {
+          var qty = parseFloat(qtyInput ? qtyInput.value : "") || 0;
+          if (qty <= 0) {
+            var opt = prodSelect.selectedOptions ? prodSelect.selectedOptions[0] : null;
+            var name = opt ? (opt.dataset.name || opt.textContent.split("(")[0].trim()) : t("sale.product", "Produit");
+            missingQty.push(name);
+          }
+        }
+      });
+      if (missingQty.length > 0) {
+        showToast(
+          t("sale.qtyMissing", "Quantite manquante sur la ligne : ") + missingQty.join(", "),
+          "error"
+        );
+      } else if (missingProduct > 0) {
+        showToast(t("sale.productMissing", "Selectionne un produit dans chaque ligne"), "error");
+      } else {
+        showToast(t("sale.addAtLeastOne", "Ajoutez au moins un produit"), "error");
+      }
       return;
     }
 
