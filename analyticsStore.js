@@ -378,12 +378,19 @@ function toJSON(sales = []) {
  */
 function getMonthsBetween(from, to) {
   const months = [];
+  // Tout en UTC pour rester coherent avec fileForMonth(), qui nomme les
+  // fichiers mensuels via toISOString() (= UTC). Auparavant l'arithmetique se
+  // faisait en heure LOCALE (setDate/setMonth) alors que la cle mois etait lue
+  // en UTC (toISOString) : en timezone positive (ex: Paris UTC+2), le 1er du
+  // mois a 00:00 local = mois precedent a 22:00 UTC, ce qui decalait la liste
+  // et OMETTAIT le mois courant quand la plage se terminait le 1er du mois.
   const current = new Date(from);
-  current.setDate(1);
+  current.setUTCDate(1);
+  current.setUTCHours(0, 0, 0, 0);
 
   while (current <= to) {
     months.push(current.toISOString().slice(0, 7));
-    current.setMonth(current.getMonth() + 1);
+    current.setUTCMonth(current.getUTCMonth() + 1);
   }
 
   return months;
