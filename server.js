@@ -3251,10 +3251,17 @@ router.post("/api/sales/manual", (req, res) => {
     const marginPercent = sellingPriceTotal > 0 ? Math.round((margin / sellingPriceTotal) * 100) : 0;
     const sellingPricePerGram = grams > 0 ? sellingPriceTotal / grams : 0;
 
-    // 1. Deduct stock
+    // 1. Deduct stock. applyOrderToProduct clampe le stock a 0 et renvoie le
+    // snapshot a jour : on en extrait le stock reel post-deduction pour que le
+    // mouvement enregistre la bonne valeur (et non un totalAfter negatif quand
+    // on vend plus que le stock disponible).
+    let stockAfter = Math.max(0, (productSnapshot.totalGrams || 0) - grams);
     if (typeof stock.applyOrderToProduct === "function") {
       try {
-        await stock.applyOrderToProduct(shop, productId, grams);
+        const deducted = await stock.applyOrderToProduct(shop, productId, grams);
+        if (deducted && Number.isFinite(deducted.totalGrams)) {
+          stockAfter = deducted.totalGrams;
+        }
       } catch (e) {
         return apiError(res, 400, "Erreur déduction stock: " + e.message);
       }
@@ -3273,7 +3280,7 @@ router.post("/api/sales/manual", (req, res) => {
         productId,
         productName,
         gramsDelta: -Math.abs(grams),
-        totalAfter: (productSnapshot.totalGrams || 0) - grams,
+        totalAfter: stockAfter,
         orderId,
         orderNumber,
         orderName: orderName || undefined,
@@ -3336,6 +3343,129 @@ router.post("/api/sales/manual", (req, res) => {
       marginPercent,
       newStock: updatedProduct ? updatedProduct.totalGrams : null,
     });
+  });
+});
+
+// =====================================================
+// ANNULATION D'UNE VENTE MANUELLE (restitution de stock)
+// =====================================================
+// Coeur partage par les deux routes ci-dessous. Recoit un tableau
+// d'enregistrements analytics (deja verifies source === "manual") et, pour
+// chacun :
+//   1. recredite le stock via restockProduct SANS prix d'achat -> le CMP ne
+//      change pas (operation symetrique de la vente) ;
+//   2. ecrit un mouvement de contre-passation (gramsDelta positif) plutot que
+//      d'effacer le mouvement d'origine (movementStore est append-only) ;
+//   3. supprime la ligne analytics ;
+//   4. re-pousse l'inventaire vers Shopify (une fois par produit touche).
+// Si la restitution de stock echoue pour une ligne, on NE supprime PAS son
+// analytics (on garde l'etat coherent) et on remonte l'erreur.
+async function cancelManualSales(shop, sales) {
+  const result = { cancelled: 0, restitutedGrams: 0, errors: [] };
+  const touchedProducts = new Set();
+
+  for (const sale of sales) {
+    const productId = String(sale.productId || "");
+    const grams = Number(sale.totalGrams || 0);
+    if (!productId) {
+      result.errors.push({ id: sale.id, error: "productId manquant" });
+      continue;
+    }
+
+    // 1. Restituer le stock (CMP inchange : pas de prix d'achat fourni).
+    let stockAfter = null;
+    if (typeof stock.restockProduct === "function" && grams > 0) {
+      try {
+        const snap = await stock.restockProduct(shop, productId, grams);
+        if (snap && Number.isFinite(snap.totalGrams)) stockAfter = snap.totalGrams;
+      } catch (e) {
+        result.errors.push({ id: sale.id, error: "restitution stock: " + e.message });
+        continue; // ne pas supprimer l'analytics si la restitution a echoue
+      }
+    }
+
+    // 2. Mouvement de contre-passation (audit : vente -X puis annulation +X).
+    if (movementStore && movementStore.addMovement) {
+      movementStore.addMovement({
+        source: "sale",
+        type: "manual_sale_cancel",
+        productId,
+        productName: sale.productName || productId,
+        gramsDelta: Math.abs(grams),
+        totalAfter: stockAfter !== null ? stockAfter : undefined,
+        orderId: sale.orderId || undefined,
+        orderNumber: sale.orderNumber || undefined,
+        orderName: sale.orderName || undefined,
+        customerName: sale.customerName || undefined,
+        note: "Annulation vente manuelle",
+        shop,
+      }, shop);
+    }
+
+    // 3. Supprimer la ligne analytics.
+    if (analyticsStore && analyticsStore.deleteSale) {
+      analyticsStore.deleteSale(shop, sale.id);
+    }
+
+    touchedProducts.add(productId);
+    result.cancelled++;
+    result.restitutedGrams += grams;
+  }
+
+  // 4. Sync Shopify (une seule fois par produit touche, best-effort).
+  for (const pid of touchedProducts) {
+    const snap = stock.getProductSnapshot ? stock.getProductSnapshot(shop, pid) : null;
+    if (snap) {
+      try {
+        await pushProductInventoryToShopify(shop, snap);
+      } catch (e) {
+        logEvent("inventory_push_error", { shop, productId: pid, error: e.message }, "error");
+      }
+    }
+  }
+
+  return result;
+}
+
+// Annuler une seule ligne de vente manuelle (route specifique declaree AVANT
+// la route commande pour eviter toute ambiguite de matching).
+router.post("/api/sales/manual/line/:saleId/cancel", (req, res) => {
+  safeJson(req, res, async () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    if (!analyticsStore || !analyticsStore.listSales) return apiError(res, 500, "Analytics non disponible");
+
+    const saleId = String(req.params.saleId || "").trim();
+    if (!saleId) return apiError(res, 400, "saleId manquant");
+
+    const all = analyticsStore.listSales({ shop, limit: 50000 });
+    const line = all.find(s => String(s.id) === saleId);
+    if (!line) return apiError(res, 404, "Ligne introuvable");
+    if (line.source !== "manual") return apiError(res, 400, "Seules les ventes manuelles peuvent etre annulees ici");
+
+    const result = await cancelManualSales(shop, [line]);
+    logEvent("manual_sale_line_cancelled", { shop, saleId, grams: result.restitutedGrams }, "info");
+    res.json({ success: true, ...result });
+  });
+});
+
+// Annuler une commande de vente manuelle entiere (toutes ses lignes).
+router.post("/api/sales/manual/:orderId/cancel", (req, res) => {
+  safeJson(req, res, async () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+    if (!analyticsStore || !analyticsStore.listSales) return apiError(res, 500, "Analytics non disponible");
+
+    const orderId = String(req.params.orderId || "").trim();
+    if (!orderId) return apiError(res, 400, "orderId manquant");
+
+    const all = analyticsStore.listSales({ shop, limit: 50000 });
+    const lines = all.filter(s => String(s.orderId) === orderId && s.source === "manual");
+    if (lines.length === 0) return apiError(res, 404, "Vente manuelle introuvable");
+
+    const result = await cancelManualSales(shop, lines);
+    logEvent("manual_sale_cancelled", { shop, orderId, lines: result.cancelled, grams: result.restitutedGrams }, "info");
+    res.json({ success: true, ...result });
   });
 });
 

@@ -253,7 +253,8 @@ async function applyOrderToProduct(shopOrProductId, maybeProductId, gramsToSubtr
 
     const g = clampMin0(grams);
     cfg.totalGrams = clampMin0(clampMin0(cfg.totalGrams) - g);
-    // ai Lors d'une vente, le CMP ne change PAS
+    // Lors d'une vente, on ne retire que des grammes : le CMP (cout moyen
+    // pondere) ne change pas. Le stock est clampe a 0 (jamais negatif).
 
     persistState(sh);
     return snapshotProduct(sh, pid);

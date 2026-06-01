@@ -1,5 +1,8 @@
 // salesOrderStore.js - Gestion des commandes de vente (Sales Orders)
-// Import Shopify ou manuel, calcul marge, deduction stock
+// Import Shopify ou saisie manuelle, persistance JSON par mois, calcul de
+// marge. NB: ce store NE deduit PAS le stock (il enregistre seulement la
+// commande et ses couts). La deduction de stock est faite cote handler
+// /api/sales/manual via stockManager.applyOrderToProduct.
 
 const fs = require("fs");
 const path = require("path");
@@ -103,9 +106,9 @@ function createSalesOrder(shop, soData) {
       const salePrice = Number(line.salePrice || line.price || 0);
       const costPricePerGram = Number(line.costPrice || line.costAtSale || 0);
       
-      // Calcul correct: CA = qty * prix unitaire, Cout = totalGrams * cout/g
+      // CA = quantite * prix unitaire ; Cout = total grammes consommes * CMP/g
       const saleTotal = qty * salePrice;
-      const costTotal = totalGrams * costPricePerGram; // CORRECTION: utiliser totalGrams
+      const costTotal = totalGrams * costPricePerGram;
       
       return {
         id: line.id || `line_${idx + 1}`,
@@ -203,8 +206,12 @@ function updateSalesOrder(shop, soId, updates) {
   
   const yearMonth = so._yearMonth;
   const orders = loadOrdersByMonth(shop, yearMonth);
-  const index = orders.findIndex(o => o.id === soId);
-  
+  // getSalesOrder retrouve une commande par id, number OU externalId. On
+  // reindexe donc sur l'id reel de la commande trouvee (et non sur soId, qui
+  // pourrait etre un number/externalId -> findIndex == -1 -> crash).
+  const index = orders.findIndex(o => o.id === so.id);
+  if (index === -1) throw new Error(`Commande non trouvee: ${soId}`);
+
   if (updates.status !== undefined) orders[index].status = updates.status;
   if (updates.notes !== undefined) orders[index].notes = updates.notes;
   if (updates.shippedAt !== undefined) orders[index].shippedAt = updates.shippedAt;

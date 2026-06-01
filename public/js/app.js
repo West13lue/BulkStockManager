@@ -79,7 +79,7 @@
     'openSODetails', 'showReceivePOModal', 'receivePO',
     'showFullActivityLog',
     'exportStockCSV', 'exportMovementsCSV', 'exportAnalyticsCSV',
-    'cancelPlan', 'changeAnalyticsPeriod', 'switchAnalyticsTab', 'loadManualSalesTab', 'loadOrdersDebugTab', 'toggleOrderDebugRow', 'toggleManualSaleRow', 'analyzeDuplicates', 'toggleAllDedupOrders', 'executeDedup',
+    'cancelPlan', 'changeAnalyticsPeriod', 'switchAnalyticsTab', 'loadManualSalesTab', 'loadOrdersDebugTab', 'toggleOrderDebugRow', 'toggleManualSaleRow', 'cancelManualSale', 'cancelManualSaleLine', 'analyzeDuplicates', 'toggleAllDedupOrders', 'executeDedup',
     'updateMergeBtn', 'mergeSelectedOrders',
     'switchOrdersTab', 'onOrderStatusChange', 'onOrderPeriodChange', 'onOrderSourceChange',
     'importShopifyOrders',
@@ -2296,6 +2296,40 @@
     return lines;
   }
 
+  // Source de verite UNIQUE pour la distribution du prix de vente sur les
+  // lignes, partagee par l'apercu (updateSaleSummary) et l'envoi
+  // (saveManualSale) afin que l'apercu reflete exactement ce qui sera
+  // enregistre, y compris en mode mixte. Regle :
+  //  - une ligne avec un prix saisi (linePrice > 0) garde ce prix tel quel ;
+  //  - le reste du total (priceTotal - somme des prix saisis, borne a 0) est
+  //    reparti sur les lignes sans prix, proportionnellement a leur cout
+  //    (CMP x grammes), ou a parts egales si tous ces couts sont nuls.
+  // Retourne un tableau de prix aligne sur `lines`.
+  function computeSaleLinePrices(lines, priceTotal) {
+    var pt = Number(priceTotal) || 0;
+    var pricedSum = 0;
+    var unpricedCost = 0;
+    var unpricedCount = 0;
+
+    lines.forEach(function(l) {
+      if (l.linePrice !== null && l.linePrice > 0) {
+        pricedSum += l.linePrice;
+      } else {
+        unpricedCost += l.qtyGrams * l.cmp;
+        unpricedCount++;
+      }
+    });
+
+    var remainingTotal = Math.max(0, pt - pricedSum);
+
+    return lines.map(function(l) {
+      if (l.linePrice !== null && l.linePrice > 0) return l.linePrice;
+      if (unpricedCost > 0) return ((l.qtyGrams * l.cmp) / unpricedCost) * remainingTotal;
+      if (unpricedCount > 0) return remainingTotal / unpricedCount;
+      return 0;
+    });
+  }
+
   function updateSaleSummary() {
     var lines = getSaleLines();
     var preview = document.getElementById("saleSummary");
@@ -2306,37 +2340,22 @@
       return;
     }
 
-    var totalCost = 0;
-    var totalGrams = 0;
-    var sumLinePrices = 0;
-    var anyLinePrice = false;
-    var allLinePrices = lines.length > 0;
-    var linesHtml = "";
     var currSymbol = getCurrencySymbol();
+    var linesHtml = "";
 
-    lines.forEach(function(l) {
-      var lineCost = l.qtyGrams * l.cmp;
-      totalCost += lineCost;
-      totalGrams += l.qtyGrams;
-      if (l.linePrice !== null && l.linePrice > 0) {
-        anyLinePrice = true;
-        sumLinePrices += l.linePrice;
-      } else {
-        allLinePrices = false;
-      }
-    });
+    var anyLinePrice = lines.some(function(l) { return l.linePrice !== null && l.linePrice > 0; });
+    var allLinePrices = lines.every(function(l) { return l.linePrice !== null && l.linePrice > 0; });
+    // Mode "prix par ligne" : toutes les lignes ont un prix -> total calcule.
+    var perLineMode = anyLinePrice && allLinePrices;
 
     var priceTotalInput = document.getElementById("salePriceTotal");
     var priceTotal = parseFloat((priceTotalInput || {}).value) || 0;
 
-    // Mode "prix par ligne" : si toutes les lignes ont un prix, le total est calcule
-    var perLineMode = anyLinePrice && allLinePrices;
-    var effectiveTotal = perLineMode ? sumLinePrices : priceTotal;
-
     if (priceTotalInput) {
       if (perLineMode) {
-        // Mode prix par ligne : total auto, non editable, visuel grise.
-        priceTotalInput.value = effectiveTotal.toFixed(2);
+        // Total auto (somme des prix de ligne), champ non editable, visuel grise.
+        priceTotal = lines.reduce(function(s, l) { return s + l.linePrice; }, 0);
+        priceTotalInput.value = priceTotal.toFixed(2);
         priceTotalInput.readOnly = true;
         priceTotalInput.style.opacity = "0.7";
         priceTotalInput.style.cursor = "not-allowed";
@@ -2349,22 +2368,15 @@
       }
     }
 
-    lines.forEach(function(l) {
+    var prices = computeSaleLinePrices(lines, priceTotal);
+
+    var totalCost = 0;
+    var totalGrams = 0;
+    lines.forEach(function(l, i) {
       var lineCost = l.qtyGrams * l.cmp;
-      var linePrice;
-      if (perLineMode) {
-        linePrice = l.linePrice;
-      } else if (anyLinePrice && l.linePrice !== null && l.linePrice > 0) {
-        // Mode partiel : utiliser le prix saisi
-        linePrice = l.linePrice;
-      } else if (priceTotal > 0 && totalCost > 0) {
-        // Distribution proportionnelle au cout
-        linePrice = (lineCost / totalCost) * priceTotal;
-      } else if (priceTotal > 0) {
-        linePrice = priceTotal / lines.length;
-      } else {
-        linePrice = 0;
-      }
+      totalCost += lineCost;
+      totalGrams += l.qtyGrams;
+      var linePrice = prices[i];
       var lineMargin = linePrice - lineCost;
       var lineMarginPct = linePrice > 0 ? Math.round((lineMargin / linePrice) * 100) : 0;
       var lineMarginColor = lineMargin >= 0 ? "var(--success, #22c55e)" : "var(--danger, #ef4444)";
@@ -2377,6 +2389,7 @@
         '</span></div>';
     });
 
+    var effectiveTotal = prices.reduce(function(s, p) { return s + p; }, 0);
     var totalMargin = effectiveTotal - totalCost;
     var totalMarginPct = effectiveTotal > 0 ? Math.round((totalMargin / effectiveTotal) * 100) : 0;
     var totalMarginColor = totalMargin >= 0 ? "var(--success, #22c55e)" : "var(--danger, #ef4444)";
@@ -2524,29 +2537,13 @@
     var errors = 0;
     var results = [];
 
-    // Calculer la part du total a distribuer aux lignes SANS prix saisi
-    // (mode mixte : certaines lignes ont leur prix, d'autres non).
-    var pricedSum = lines.reduce(function(s, l) {
-      return s + (l.linePrice !== null && l.linePrice > 0 ? l.linePrice : 0);
-    }, 0);
-    var unpricedCost = lines.reduce(function(s, l) {
-      return s + (l.linePrice !== null && l.linePrice > 0 ? 0 : l.qtyGrams * l.cmp);
-    }, 0);
-    var remainingTotal = Math.max(0, priceTotal - pricedSum);
+    // Distribution du prix de vente sur les lignes : meme regle que l'apercu
+    // (computeSaleLinePrices = source de verite unique, mode mixte inclus).
+    var linePrices = computeSaleLinePrices(lines, priceTotal);
 
     for (var i = 0; i < lines.length; i++) {
       var l = lines[i];
-      var lineCost = l.qtyGrams * l.cmp;
-      var linePrice;
-      if (l.linePrice !== null && l.linePrice > 0) {
-        // Prix saisi par l'utilisateur : utilise tel quel
-        linePrice = l.linePrice;
-      } else if (unpricedCost > 0) {
-        // Distribuer le reste du total proportionnellement au cout
-        linePrice = (lineCost / unpricedCost) * remainingTotal;
-      } else {
-        linePrice = remainingTotal / Math.max(1, lines.filter(function(x) { return !(x.linePrice > 0); }).length);
-      }
+      var linePrice = linePrices[i];
 
       try {
         var res = await authFetch(apiUrl("/sales/manual"), {
@@ -10645,12 +10642,16 @@
         var lMargin = (Number(l.netRevenue) || 0) - (Number(l.totalCost) || 0);
         var lMarginPct = Number(l.netRevenue) > 0 ? Math.round((lMargin / Number(l.netRevenue)) * 100) : 0;
         var lMarginColor = lMargin >= 0 ? "var(--success)" : "var(--danger)";
+        var lName = encodeURIComponent(l.productName || "");
         return '<tr>' +
           '<td><strong>' + esc(l.productName || "-") + '</strong></td>' +
           '<td>' + formatWeight(l.totalGrams || 0) + '</td>' +
           '<td>' + formatCurrency(l.netRevenue || 0) + '</td>' +
           '<td style="color:var(--text-secondary)">' + formatCurrency(l.totalCost || 0) + '</td>' +
           '<td style="color:' + lMarginColor + ';font-weight:600">' + (lMargin >= 0 ? "+" : "") + formatCurrency(lMargin) + ' <span style="font-size:11px;font-weight:400">(' + lMarginPct + '%)</span></td>' +
+          '<td style="text-align:right;white-space:nowrap">' +
+            '<button class="btn btn-ghost btn-xs text-danger" onclick="app.cancelManualSaleLine(\'' + escPlain(l.id || "") + '\',' + (Number(l.totalGrams) || 0) + ',\'' + lName + '\')" title="' + t("manualSales.cancelLine", "Annuler cette ligne (restitue le stock)") + '"><i data-lucide="rotate-ccw" style="width:13px;height:13px"></i></button>' +
+          '</td>' +
           '</tr>';
       }).join("");
 
@@ -10678,8 +10679,12 @@
               '<th>' + t("manualSales.revenue", "Vente") + '</th>' +
               '<th>' + t("manualSales.cost", "Cout") + '</th>' +
               '<th>' + t("manualSales.margin", "Marge") + '</th>' +
+              '<th style="width:1%"></th>' +
             '</tr></thead><tbody>' + detailRows + '</tbody>' +
           '</table>' +
+          '<div style="display:flex;justify-content:flex-end;padding:10px 16px;border-top:1px solid var(--border)">' +
+            '<button class="btn btn-ghost btn-sm text-danger" onclick="app.cancelManualSale(\'' + escPlain(o.orderId || "") + '\',' + (Number(o.totalGrams) || 0) + ',' + o.lines.length + ',\'' + encodeURIComponent(orderTitle) + '\')"><i data-lucide="rotate-ccw" style="width:14px;height:14px"></i> ' + t("manualSales.cancelOrder", "Annuler la vente (restituer le stock)") + '</button>' +
+          '</div>' +
         '</div>' +
       '</div>';
     }).join("");
@@ -10700,6 +10705,60 @@
     if (chev) chev.style.transform = open ? "rotate(0deg)" : "rotate(90deg)";
     var head = detail.previousElementSibling;
     if (head && head.setAttribute) head.setAttribute("aria-expanded", String(!open));
+  }
+
+  // Annule une commande de vente manuelle entiere : restitue le stock de
+  // toutes ses lignes (le backend re-pousse aussi l'inventaire Shopify).
+  async function cancelManualSale(orderId, totalGrams, lineCount, encodedTitle) {
+    if (!orderId) return;
+    var title = "";
+    try { title = decodeURIComponent(encodedTitle || ""); } catch (e) { title = ""; }
+    var ok = await showConfirmDialog(
+      t("manualSales.cancelOrderConfirm", "Annuler cette vente manuelle ?") +
+      (title ? "\n\n" + title : "") +
+      "\n\n" + t("manualSales.cancelRestitue", "Le stock sera recredite de") + " " + formatWeight(totalGrams || 0) +
+      " (" + (lineCount || 0) + " " + t("manualSales.lineCount", "ligne(s)") + ").",
+      { danger: true, confirmText: t("manualSales.cancelConfirmBtn", "Annuler la vente") }
+    );
+    if (!ok) return;
+    try {
+      var res = await authFetch(apiUrl("/sales/manual/" + encodeURIComponent(orderId) + "/cancel"), { method: "POST" });
+      if (!res.ok) {
+        showToast(t("manualSales.cancelError", "Echec de l'annulation"), "error");
+        return;
+      }
+      showToast(t("manualSales.cancelDone", "Vente annulee, stock restitue"), "success");
+      await loadProducts(true);
+      loadManualSalesTab();
+    } catch (e) {
+      showToast(t("manualSales.cancelError", "Echec de l'annulation") + ": " + e.message, "error");
+    }
+  }
+
+  // Annule une seule ligne de vente manuelle (restitue le stock de cette ligne).
+  async function cancelManualSaleLine(saleId, grams, encodedName) {
+    if (!saleId) return;
+    var name = "";
+    try { name = decodeURIComponent(encodedName || ""); } catch (e) { name = ""; }
+    var ok = await showConfirmDialog(
+      t("manualSales.cancelLineConfirm", "Annuler cette ligne ?") +
+      (name ? "\n\n" + name : "") +
+      "\n\n" + t("manualSales.cancelRestitue", "Le stock sera recredite de") + " " + formatWeight(grams || 0) + ".",
+      { danger: true, confirmText: t("manualSales.cancelConfirmBtn", "Annuler la vente") }
+    );
+    if (!ok) return;
+    try {
+      var res = await authFetch(apiUrl("/sales/manual/line/" + encodeURIComponent(saleId) + "/cancel"), { method: "POST" });
+      if (!res.ok) {
+        showToast(t("manualSales.cancelError", "Echec de l'annulation"), "error");
+        return;
+      }
+      showToast(t("manualSales.cancelDone", "Vente annulee, stock restitue"), "success");
+      await loadProducts(true);
+      loadManualSalesTab();
+    } catch (e) {
+      showToast(t("manualSales.cancelError", "Echec de l'annulation") + ": " + e.message, "error");
+    }
   }
 
   async function loadOrdersDebugTab() {
@@ -12325,6 +12384,8 @@
     updateMergeBtn: updateMergeBtn,
     mergeSelectedOrders: mergeSelectedOrders,
     toggleManualSaleRow: toggleManualSaleRow,
+    cancelManualSale: cancelManualSale,
+    cancelManualSaleLine: cancelManualSaleLine,
     analyzeDuplicates: analyzeDuplicates,
     toggleAllDedupOrders: toggleAllDedupOrders,
     executeDedup: executeDedup,
