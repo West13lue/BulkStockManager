@@ -89,7 +89,7 @@
     'selectSearchResultByIndex', 'toggleSection',
     // Analytics ventes refonte
     'switchSalesChartMetric', 'sortAnalyticsProducts', 'searchAnalyticsProducts',
-    'goAnalyticsProductsPage', 'viewProductInCatalog',
+    'goAnalyticsProductsPage', 'viewProductInCatalog', 'showProductOrders',
     // Dashboard refonte
     'switchDashboardActivity',
     // Etiquettes derniere commande Shopify
@@ -11691,7 +11691,7 @@
       var safeName = pname.replace(/'/g, "&#39;");
       var numClass = mClass === "success" ? "success" : (mClass === "danger" ? "danger" : "");
       html += '<tr>' +
-        '<td>' + pname + '</td>' +
+        '<td><button type="button" onclick="app.showProductOrders(\'' + pid + '\', \'' + safeName + '\')" title="' + t("analytics.viewOrders", "Voir les commandes ou ce produit a ete vendu") + '" style="background:none;border:none;padding:0;margin:0;font:inherit;color:var(--text-primary);cursor:pointer;text-align:left;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:3px;text-decoration-color:var(--text-tertiary,#888)">' + pname + '</button></td>' +
         '<td class="col-num">' + formatWeight(p.gramsSold) + '</td>' +
         '<td class="col-num">' + formatCurrency(p.revenue) + '</td>' +
         '<td class="col-num">' + formatCurrency(p.cost) + '</td>' +
@@ -11866,6 +11866,124 @@
       state.filters.search = productName || "";
     }
     navigateTo("products");
+  }
+
+  // Ouvre une modale listant les commandes dans lesquelles un produit a ete vendu
+  // sur la periode analytics courante. Reutilise /api/analytics/sales?productId=...
+  // (le tableau brut `sales` est deja filtre par produit cote serveur, meme fenetre
+  // temporelle que le tableau -> les totaux concordent avec la ligne du produit).
+  async function showProductOrders(productId, productName) {
+    if (!productId) return;
+    showModal({
+      title: '<i data-lucide="receipt"></i> ' + t("analytics.ordersForProduct", "Commandes") + ' — ' + esc(productName || ""),
+      size: "lg",
+      content: '<div class="text-center" style="padding:48px"><div class="spinner"></div></div>'
+    });
+    if (typeof lucide !== "undefined") lucide.createIcons();
+
+    try {
+      var period = analyticsPeriod || "30";
+      var res = await authFetch(apiUrl(
+        "/analytics/sales?productId=" + encodeURIComponent(productId) +
+        "&period=" + encodeURIComponent(period) + "&limit=5000"
+      ));
+      if (!res.ok) throw new Error(t("msg.error", "Erreur") + " (" + res.status + ")");
+      var data = await res.json();
+      renderProductOrdersModal(data);
+    } catch (e) {
+      var body = document.querySelector("#modalsContainer .modal-body");
+      if (body) body.innerHTML = '<p class="text-danger" style="padding:16px">' + esc(e.message) + '</p>';
+    }
+  }
+
+  function renderProductOrdersModal(data) {
+    var body = document.querySelector("#modalsContainer .modal-body");
+    if (!body) return;
+
+    var sales = (data && data.sales) || [];
+    if (!sales.length) {
+      body.innerHTML = '<div class="empty-state-small" style="padding:32px;text-align:center">' +
+        '<p class="text-secondary">' + t("analytics.noOrdersForProduct", "Aucune commande pour ce produit sur la periode selectionnee.") + '</p></div>';
+      return;
+    }
+
+    // Regroupe par commande (un produit peut avoir plusieurs variantes/lignes dans la
+    // meme commande -> on agrege poids, CA et marge).
+    var byOrder = {};
+    var order = [];
+    sales.forEach(function(s) {
+      var key = s.orderId || s.id;
+      if (!byOrder[key]) {
+        byOrder[key] = {
+          label: s.orderNumber || s.orderName || s.orderId || "—",
+          date: s.orderDate || s.ts,
+          source: s.source,
+          grams: 0, revenue: 0, margin: 0
+        };
+        order.push(key);
+      }
+      var o = byOrder[key];
+      o.grams += Number(s.totalGrams) || 0;
+      o.revenue += Number(s.netRevenue) || 0;
+      o.margin += Number(s.margin) || 0;
+    });
+
+    var rows = order.map(function(k) { return byOrder[k]; });
+    rows.sort(function(a, b) { return new Date(b.date) - new Date(a.date); });
+
+    var tot = rows.reduce(function(acc, o) {
+      acc.grams += o.grams; acc.revenue += o.revenue; acc.margin += o.margin;
+      return acc;
+    }, { grams: 0, revenue: 0, margin: 0 });
+
+    var lang = (typeof I18N !== "undefined" && I18N.getLanguage) ? I18N.getLanguage() : "fr";
+    var locale = lang === "fr" ? "fr-FR" : "en-US";
+    var fmtDate = function(d) {
+      try { return new Date(d).toLocaleDateString(locale, { day: "2-digit", month: "2-digit", year: "numeric" }); }
+      catch (_) { return ""; }
+    };
+    var marginColor = function(m) { return m >= 0 ? "var(--success,#22c55e)" : "var(--danger,#ef4444)"; };
+
+    var html =
+      '<div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:14px;font-size:13px;color:var(--text-secondary)">' +
+        '<span>' + rows.length + ' ' + t("analytics.ordersCount", "commande(s)") + '</span>' +
+        '<span>' + t("analytics.qtySold", "Qte vendue") + ': <strong style="color:var(--text-primary)">' + formatWeight(tot.grams) + '</strong></span>' +
+        '<span>' + t("analytics.revenueShort", "CA") + ': <strong style="color:var(--text-primary)">' + formatCurrency(tot.revenue) + '</strong></span>' +
+      '</div>' +
+      '<div style="max-height:50vh;overflow:auto;border:1px solid var(--border-color);border-radius:8px">' +
+      '<table class="data-table" style="width:100%;font-size:13px;border-collapse:collapse">' +
+      '<thead style="position:sticky;top:0;background:var(--bg-secondary);z-index:1"><tr>' +
+        '<th style="text-align:left;padding:8px 10px">' + t("analytics.order", "Commande") + '</th>' +
+        '<th style="text-align:left;padding:8px 10px">' + t("analytics.date", "Date") + '</th>' +
+        '<th style="text-align:left;padding:8px 10px">' + t("analytics.source", "Source") + '</th>' +
+        '<th style="text-align:right;padding:8px 10px">' + t("analytics.qtySold", "Qte vendue") + '</th>' +
+        '<th style="text-align:right;padding:8px 10px">' + t("analytics.revenueShort", "CA") + '</th>' +
+        '<th style="text-align:right;padding:8px 10px">' + t("analytics.marginShort", "Marge") + '</th>' +
+      '</tr></thead><tbody>' +
+      rows.map(function(o) {
+        var srcLabel = o.source === "manual" ? t("analytics.sourceManual", "Manuelle")
+          : (o.source === "webhook" ? "Shopify" : (o.source || "—"));
+        var srcBadge = o.source === "manual" ? "badge-info" : "badge-success";
+        return '<tr style="border-top:1px solid var(--border-color)">' +
+          '<td style="padding:8px 10px;font-weight:600">' + esc(o.label) + '</td>' +
+          '<td style="padding:8px 10px;color:var(--text-secondary)">' + esc(fmtDate(o.date)) + '</td>' +
+          '<td style="padding:8px 10px"><span class="badge ' + srcBadge + '" style="font-size:11px;padding:2px 8px">' + esc(srcLabel) + '</span></td>' +
+          '<td style="text-align:right;padding:8px 10px">' + formatWeight(o.grams) + '</td>' +
+          '<td style="text-align:right;padding:8px 10px">' + formatCurrency(o.revenue) + '</td>' +
+          '<td style="text-align:right;padding:8px 10px;color:' + marginColor(o.margin) + '">' + formatCurrency(o.margin) + '</td>' +
+          '</tr>';
+      }).join("") +
+      '</tbody>' +
+      '<tfoot><tr style="border-top:2px solid var(--border-color);font-weight:600;background:var(--bg-secondary)">' +
+        '<td colspan="3" style="padding:8px 10px">' + t("analytics.total", "Total") + '</td>' +
+        '<td style="text-align:right;padding:8px 10px">' + formatWeight(tot.grams) + '</td>' +
+        '<td style="text-align:right;padding:8px 10px">' + formatCurrency(tot.revenue) + '</td>' +
+        '<td style="text-align:right;padding:8px 10px;color:' + marginColor(tot.margin) + '">' + formatCurrency(tot.margin) + '</td>' +
+      '</tr></tfoot>' +
+      '</table></div>';
+
+    body.innerHTML = html;
+    if (typeof lucide !== "undefined") lucide.createIcons();
   }
 
   async function loadAnalytics() {
@@ -12557,6 +12675,7 @@
     searchAnalyticsProducts: searchAnalyticsProducts,
     goAnalyticsProductsPage: goAnalyticsProductsPage,
     viewProductInCatalog:    viewProductInCatalog,
+    showProductOrders:       showProductOrders,
     // Dashboard refonte
     switchDashboardActivity: switchDashboardActivity,
     // Etiquettes derniere commande Shopify
