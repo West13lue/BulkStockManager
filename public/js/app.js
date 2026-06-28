@@ -11883,20 +11883,26 @@
 
     try {
       var period = analyticsPeriod || "30";
+      // Historique mouvements (pour le dernier ravitaillement) : independant, ne
+      // bloque pas l'affichage des commandes si la requete echoue.
+      var histPromise = authFetch(apiUrl("/products/" + encodeURIComponent(productId) + "/history?limit=2000"))
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .catch(function() { return null; });
       var res = await authFetch(apiUrl(
         "/analytics/sales?productId=" + encodeURIComponent(productId) +
         "&period=" + encodeURIComponent(period) + "&limit=5000"
       ));
       if (!res.ok) throw new Error(t("msg.error", "Erreur") + " (" + res.status + ")");
       var data = await res.json();
-      renderProductOrdersModal(data);
+      var hist = await histPromise;
+      renderProductOrdersModal(data, (hist && hist.data) || []);
     } catch (e) {
       var body = document.querySelector("#modalsContainer .modal-body");
       if (body) body.innerHTML = '<p class="text-danger" style="padding:16px">' + esc(e.message) + '</p>';
     }
   }
 
-  function renderProductOrdersModal(data) {
+  function renderProductOrdersModal(data, movements) {
     var body = document.querySelector("#modalsContainer .modal-body");
     if (!body) return;
 
@@ -11944,11 +11950,34 @@
     };
     var marginColor = function(m) { return m >= 0 ? "var(--success,#22c55e)" : "var(--danger,#ef4444)"; };
 
+    // Dernier ravitaillement : dernier mouvement d'entree de stock (restock, ou
+    // ajustement positif). Montant = grammes ajoutes x prix d'achat/g du mouvement
+    // (affiche seulement si un prix d'achat a ete saisi lors du ravitaillement).
+    var restockHtml = "";
+    var restocks = (movements || []).filter(function(m) {
+      return m && (m.source === "restock" || (m.source === "adjust_total" && (Number(m.gramsDelta) || 0) > 0));
+    });
+    restocks.sort(function(a, b) { return Date.parse(b.ts || "") - Date.parse(a.ts || ""); });
+    if (restocks.length) {
+      var lr = restocks[0];
+      var lrGrams = Number(lr.gramsDelta) || 0;
+      var lrPpg = Number(lr.purchasePricePerGram) || 0;
+      var lrAmount = lrPpg > 0 ? lrGrams * lrPpg : null;
+      restockHtml = '<span><i data-lucide="truck" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px"></i>' +
+        t("analytics.lastRestock", "Dernier ravitaillement") + ': <strong style="color:var(--text-primary)">' +
+        esc(fmtDate(lr.ts)) +
+        (lrAmount != null ? ' · ' + formatCurrency(lrAmount) : '') +
+        '</strong>' +
+        (lrGrams ? ' <span style="opacity:.7">(' + formatWeight(lrGrams) + ')</span>' : '') +
+        '</span>';
+    }
+
     var html =
       '<div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:14px;font-size:13px;color:var(--text-secondary)">' +
         '<span>' + rows.length + ' ' + t("analytics.ordersCount", "commande(s)") + '</span>' +
         '<span>' + t("analytics.qtySold", "Qte vendue") + ': <strong style="color:var(--text-primary)">' + formatWeight(tot.grams) + '</strong></span>' +
         '<span>' + t("analytics.revenueShort", "CA") + ': <strong style="color:var(--text-primary)">' + formatCurrency(tot.revenue) + '</strong></span>' +
+        restockHtml +
       '</div>' +
       '<div style="max-height:50vh;overflow:auto;border:1px solid var(--border-color);border-radius:8px">' +
       '<table class="data-table" style="width:100%;font-size:13px;border-collapse:collapse">' +
