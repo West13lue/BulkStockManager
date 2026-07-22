@@ -748,7 +748,7 @@
   function setupNavigation() {
     // Traduire les labels de navigation
     translateNavigationLabels();
-    
+
     document.querySelectorAll(".nav-item[data-tab]").forEach(function (el) {
       el.addEventListener("click", function (e) {
         e.preventDefault();
@@ -760,6 +760,12 @@
         }
         navigateTo(tab);
       });
+    });
+
+    // Ferme le menu kebab de ligne (renderTable) ouvert au clic ailleurs
+    document.addEventListener("click", function() {
+      var open = document.querySelector(".row-menu.open");
+      if (open) open.classList.remove("open");
     });
   }
 
@@ -6117,6 +6123,32 @@
     renderTab(state.currentTab);
   }
 
+  // Statut stock aligné sur la logique dashboard (renderDashboard) :
+  // mêmes seuils settings, mêmes bornes.
+  function _statusOf(p) {
+    var g = p.totalGrams || 0;
+    var critT = (settingsData && settingsData.stock && Number(settingsData.stock.criticalThreshold)) || 0;
+    var lowT = (settingsData && settingsData.stock && Number(settingsData.stock.lowStockThreshold)) || 0;
+    if (g === 0 || (critT > 0 && g < critT)) return "critical";
+    if (lowT > 0 && g < lowT) return "low";
+    return "ok";
+  }
+
+  function _stockGaugeHtml(p) {
+    var g = p.totalGrams || 0;
+    var lowT = (settingsData && settingsData.stock && Number(settingsData.stock.lowStockThreshold)) || 0;
+    var pct = lowT > 0 ? Math.min(100, Math.round((g / (lowT * 2)) * 100)) : (g > 0 ? 100 : 0);
+    return '<span class="stock-gauge is-' + _statusOf(p) + '" aria-hidden="true"><span class="stock-gauge__fill" style="width:' + pct + '%"></span></span>';
+  }
+
+  function toggleRowMenu(pid, ev) {
+    if (ev) ev.stopPropagation();
+    var menu = document.getElementById("rowmenu-" + pid);
+    var open = document.querySelector(".row-menu.open");
+    if (open && open !== menu) open.classList.remove("open");
+    if (menu) menu.classList.toggle("open");
+  }
+
   function renderTable(products) {
     var rows = products
       .map(function (p) {
@@ -6136,32 +6168,39 @@
         if (Array.isArray(p.categoryIds) && p.categoryIds.length > 0) {
           catChips = p.categoryIds.map(function(catId) {
             var cat = state.categories.find(function(c) { return c.id === catId; });
-            if (cat) {
-              return '<span class="category-chip">' + esc(cat.name) + '</span>';
-            }
-            return "";
+            return cat ? '<span class="category-chip">' + esc(cat.name) + '</span>' : "";
           }).join("");
         } else {
           catChips = '<span class="category-chip category-chip-empty">-</span>';
         }
 
         var isChecked = selectedProducts.has(p.productId) ? " checked" : "";
+        var pid = esc(p.productId);
 
         return (
-          '<tr class="product-row' + stockClass + '" data-product-id="' + esc(p.productId) + '" onclick="app.openProductDetails(\'' + esc(p.productId) + '\')" style="cursor:pointer">' +
-          '<td onclick="event.stopPropagation()"><input type="checkbox" class="product-cb" data-id="' + esc(p.productId) + '"' + isChecked + ' onchange="app.toggleProductSelect(\'' + esc(p.productId) + '\', event)" style="cursor:pointer;width:16px;height:16px"></td>' +
+          '<tr class="product-row' + stockClass + '" data-product-id="' + pid + '" onclick="app.openProductDetails(\'' + pid + '\')" style="cursor:pointer">' +
+          '<td onclick="event.stopPropagation()"><input type="checkbox" class="product-cb" data-id="' + pid + '"' + isChecked + ' onchange="app.toggleProductSelect(\'' + pid + '\', event)" style="cursor:pointer;width:16px;height:16px"></td>' +
           "<td>" + esc(p.name || p.title || t("products.unnamed", "Sans nom")) + "</td>" +
-          '<td class="cell-categories" onclick="event.stopPropagation();app.showAssignCategoriesModal(\'' + esc(p.productId) + '\')">' + catChips + '</td>' +
-          "<td>" + formatWeight(s) + "</td>" +
-          "<td>" + formatPricePerUnit(cost) + "</td>" +
-          "<td>" + formatCurrency(s * cost) + "</td>" +
+          '<td class="cell-categories" onclick="event.stopPropagation();app.showAssignCategoriesModal(\'' + pid + '\')">' + catChips + '</td>' +
+          '<td class="u-num">' + formatWeight(s) + _stockGaugeHtml(p) + '</td>' +
+          '<td class="u-num">' + formatPricePerUnit(cost) + '</td>' +
+          '<td class="u-num">' + formatCurrency(s * cost) + '</td>' +
           '<td><span class="stock-badge ' + st.c + '">' + st.i + " " + st.l + "</span></td>" +
           '<td class="cell-actions" onclick="event.stopPropagation()">' +
-          '<button class="btn btn-ghost btn-xs" onclick="app.showRestockModal(\'' + esc(p.productId) + '\')">+</button>' +
-          '<button class="btn btn-ghost btn-xs" onclick="app.showAdjustModal(\'' + esc(p.productId) + '\')">' + t("action.edit", "Edit") + '</button>' +
-          '<button class="btn btn-ghost btn-xs" onclick="app.openProductDetails(\'' + esc(p.productId) + '\')">' + t("action.details", "Details") + '</button>' +
-          '<button class="btn btn-ghost btn-xs" onclick="app.archiveProduct(\'' + esc(p.productId) + '\')" title="' + t("products.archive", "Mettre hors catalogue") + '"><i data-lucide="archive" style="width:12px;height:12px"></i></button>' +
-          '<button class="btn btn-ghost btn-xs text-danger" onclick="app.deleteProduct(\'' + esc(p.productId) + '\')" title="' + t("action.delete", "Supprimer") + '"><i data-lucide="trash-2" style="width:12px;height:12px"></i></button></td></tr>'
+            '<span class="row-actions">' +
+              '<button class="btn btn-ghost btn-xs" onclick="app.showRestockModal(\'' + pid + '\')" title="' + t("action.restock", "Réappro") + '"><i data-lucide="package-plus" style="width:14px;height:14px"></i></button>' +
+              '<button class="btn btn-ghost btn-xs" onclick="app.showAdjustModal(\'' + pid + '\')" title="' + t("products.adjustStock", "Ajuster") + '"><i data-lucide="sliders" style="width:14px;height:14px"></i></button>' +
+            '</span>' +
+            '<span class="row-menu-wrap">' +
+              '<button class="btn btn-ghost btn-xs" onclick="app.toggleRowMenu(\'' + pid + '\', event)" aria-haspopup="true" title="' + t("action.more", "Plus d'actions") + '"><i data-lucide="more-horizontal" style="width:14px;height:14px"></i></button>' +
+              '<span class="row-menu" id="rowmenu-' + pid + '" role="menu">' +
+                '<button class="row-menu__item" onclick="app.openProductDetails(\'' + pid + '\')"><i data-lucide="eye"></i> ' + t("action.details", "Détails") + '</button>' +
+                '<button class="row-menu__item" onclick="app.showAssignCategoriesModal(\'' + pid + '\')"><i data-lucide="tags"></i> ' + t("categories.title", "Catégories") + '</button>' +
+                '<button class="row-menu__item" onclick="app.archiveProduct(\'' + pid + '\')"><i data-lucide="archive"></i> ' + t("products.archive", "Mettre hors catalogue") + '</button>' +
+                '<button class="row-menu__item is-danger" onclick="app.deleteProduct(\'' + pid + '\')"><i data-lucide="trash-2"></i> ' + t("action.delete", "Supprimer") + '</button>' +
+              '</span>' +
+            '</span>' +
+          '</td></tr>'
         );
       })
       .join("");
@@ -6173,7 +6212,7 @@
       var arrow = "";
       var isActive = pair.indexOf(cs) !== -1;
       if (isActive) {
-        arrow = cs === pair[0] ? ' <span style="opacity:0.7">▲</span>' : ' <span style="opacity:0.7">▼</span>';
+        arrow = cs === pair[0] ? ' <i data-lucide="chevron-up" style="width:12px;height:12px;vertical-align:-1px"></i>' : ' <i data-lucide="chevron-down" style="width:12px;height:12px;vertical-align:-1px"></i>';
       }
       return '<th style="cursor:pointer;user-select:none;white-space:nowrap" onclick="app.sortByColumn(\'' + col + '\')">' + label + arrow + '</th>';
     }
@@ -12728,6 +12767,7 @@
     onCategoryChange: onCategoryChange,
     onSortChange: onSortChange,
     sortByColumn: sortByColumn,
+    toggleRowMenu: toggleRowMenu,
     // Categories
     showCategoriesModal: showCategoriesModal,
     createCategory: createCategory,
