@@ -1628,6 +1628,7 @@ router.post("/api/products/:productId/adjust-total", (req, res) => {
       return apiError(res, 500, "stock.restockProduct introuvable");
     }
 
+    const cmpBefore = stock.getProductCMPSnapshot ? stock.getProductCMPSnapshot(shop, productId) : 0;
     const updated = await stock.restockProduct(shop, productId, gramsDelta, purchasePricePerGram);
     if (!updated) return apiError(res, 404, "Produit introuvable");
 
@@ -1645,6 +1646,7 @@ router.post("/api/products/:productId/adjust-total", (req, res) => {
           productName: updated.name,
           gramsDelta,
           purchasePricePerGram: gramsDelta > 0 && purchasePricePerGram > 0 ? purchasePricePerGram : undefined,
+          cmpBefore: gramsDelta > 0 && purchasePricePerGram > 0 ? cmpBefore : undefined,
           totalAfter: updated.totalGrams,
           profileId,
           profileName,
@@ -3132,6 +3134,7 @@ router.post("/api/restock", (req, res) => {
       return apiError(res, 500, "stock.restockProduct introuvable");
     }
 
+    const cmpBefore = stock.getProductCMPSnapshot ? stock.getProductCMPSnapshot(shop, productId) : 0;
     const updated = await stock.restockProduct(shop, productId, grams, purchasePricePerGram);
     if (!updated) return apiError(res, 404, "Produit introuvable");
 
@@ -3149,6 +3152,7 @@ router.post("/api/restock", (req, res) => {
           productName: updated.name,
           gramsDelta: Math.abs(grams),
           purchasePricePerGram: purchasePricePerGram > 0 ? purchasePricePerGram : undefined,
+          cmpBefore: purchasePricePerGram > 0 ? cmpBefore : undefined,
           totalAfter: updated.totalGrams,
           profileId,
           profileName,
@@ -3185,6 +3189,7 @@ router.post("/api/products/:productId/restock", (req, res) => {
       return apiError(res, 500, "stock.restockProduct introuvable");
     }
 
+    const cmpBefore = stock.getProductCMPSnapshot ? stock.getProductCMPSnapshot(shop, productId) : 0;
     const updated = await stock.restockProduct(shop, productId, grams, purchasePricePerGram);
     if (!updated) return apiError(res, 404, "Produit introuvable");
 
@@ -3202,6 +3207,7 @@ router.post("/api/products/:productId/restock", (req, res) => {
           productName: updated.name,
           gramsDelta: Math.abs(grams),
           purchasePricePerGram: purchasePricePerGram > 0 ? purchasePricePerGram : undefined,
+          cmpBefore: purchasePricePerGram > 0 ? cmpBefore : undefined,
           totalAfter: updated.totalGrams,
           profileId,
           profileName,
@@ -3601,6 +3607,10 @@ router.post("/api/discovery-pack/commit", (req, res) => {
     const rawLines = Array.isArray(req.body?.lines) ? req.body.lines : [];
     if (rawLines.length === 0) return apiError(res, 400, "Aucune ligne à préparer");
 
+    // Identifiant commun à toutes les lignes de ce pack -> permet d'annuler
+    // le pack entier d'un coup (voir POST /api/movements/undo).
+    const batchId = "dp_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8);
+
     const prepared = [];
     const skipped = [];
     let totalGramsDeducted = 0;
@@ -3650,6 +3660,7 @@ router.post("/api/discovery-pack/commit", (req, res) => {
             productName,
             gramsDelta: -Math.abs(grams),
             totalAfter,
+            batchId,
             shop,
           }, shop);
         } catch (e) {
