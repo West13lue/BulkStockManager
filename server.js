@@ -3589,6 +3589,104 @@ router.post("/api/sales/gift", (req, res) => {
   });
 });
 
+// Préparation "pack découverte" : déduit un poids (1,5 g) par produit sélectionné
+// (les plus gros stocks, sélection faite côté client). Enregistre un mouvement par
+// ligne + push Shopify. AUCUNE écriture analytics (préparation, pas une vente).
+// Calqué sur /api/sales/gift sans la partie analytics.
+router.post("/api/discovery-pack/commit", (req, res) => {
+  safeJson(req, res, async () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+
+    const rawLines = Array.isArray(req.body?.lines) ? req.body.lines : [];
+    if (rawLines.length === 0) return apiError(res, 400, "Aucune ligne à préparer");
+
+    const prepared = [];
+    const skipped = [];
+    let totalGramsDeducted = 0;
+
+    for (const line of rawLines) {
+      const productId = String(line?.productId || "").trim();
+      const grams = Number(line?.grams || 0);
+
+      if (!productId || !Number.isFinite(grams) || grams <= 0) {
+        skipped.push({ productId, productName: "", reason: "ligne invalide" });
+        continue;
+      }
+
+      const snapshot = stock.getProductSnapshot ? stock.getProductSnapshot(shop, productId) : null;
+      if (!snapshot) {
+        skipped.push({ productId, productName: "", reason: "produit introuvable" });
+        continue;
+      }
+
+      const productName = snapshot.name || productId;
+      const currentGrams = Number(snapshot.totalGrams || 0);
+      if (currentGrams < grams) {
+        skipped.push({ productId, productName, reason: "stock insuffisant" });
+        continue;
+      }
+
+      // 1. Décrémenter le stock
+      try {
+        if (typeof stock.applyOrderToProduct === "function") {
+          await stock.applyOrderToProduct(shop, productId, grams);
+        }
+      } catch (e) {
+        skipped.push({ productId, productName, reason: "erreur déduction: " + e.message });
+        continue;
+      }
+
+      const updated = stock.getProductSnapshot ? stock.getProductSnapshot(shop, productId) : null;
+      const totalAfter = updated ? Number(updated.totalGrams || 0) : currentGrams - grams;
+
+      // 2. Mouvement (source: discovery_pack) — distinct des ventes pour filtrage
+      if (movementStore && movementStore.addMovement) {
+        try {
+          movementStore.addMovement({
+            source: "discovery_pack",
+            type: "discovery_pack_prep",
+            productId,
+            productName,
+            gramsDelta: -Math.abs(grams),
+            totalAfter,
+            shop,
+          }, shop);
+        } catch (e) {
+          logEvent("discovery_pack_movement_error", { shop, productId, error: e.message }, "error");
+        }
+      }
+
+      // 3. Sync Shopify (best-effort)
+      if (updated) {
+        try {
+          await pushProductInventoryToShopify(shop, updated);
+        } catch (e) {
+          logEvent("inventory_push_error", { shop, productId, error: e.message }, "error");
+        }
+      }
+
+      prepared.push({ productId, productName, grams, totalAfter });
+      totalGramsDeducted += grams;
+    }
+
+    logEvent("discovery_pack_prepared", {
+      shop,
+      prepared: prepared.length,
+      skipped: skipped.length,
+      totalGramsDeducted,
+    }, "info");
+
+    res.json({
+      success: true,
+      prepared: prepared.length,
+      totalGramsDeducted: Math.round(totalGramsDeducted * 100) / 100,
+      preparedLines: prepared,
+      skipped,
+    });
+  });
+});
+
 router.post("/api/test-order", (req, res) => {
   safeJson(req, res, async () => {
     const shop = getShop(req);
