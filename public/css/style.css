@@ -6748,3 +6748,8 @@ table.analytics-table td.col-num.danger  { color: var(--danger); }
 /* --- Card compacte (ex: étiquette dernière commande, reléguée en bas du dashboard) --- */
 .card-compact .card-header { padding-top: 10px; padding-bottom: 10px; }
 .card-compact .card-body { max-height: 200px; overflow: auto; }
+
+/* --- dashboard-grid : si la card Lots qui expirent est absente (plan non-PRO),
+   la card Activité récente reste seule dans la grille — l'étirer pleine largeur
+   plutôt que de la laisser à moitié de la grille. --- */
+.dashboard-grid > .card:only-child { grid-column: 1 / -1; }
