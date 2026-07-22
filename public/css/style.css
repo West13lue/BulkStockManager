@@ -6744,3 +6744,7 @@ table.analytics-table td.col-num.danger  { color: var(--danger); }
 /* --- Actions rapides (restock/ajuster) dans la recherche globale --- */
 .search-result-actions { display: none; gap: 2px; margin-left: auto; }
 .search-result-item:hover .search-result-actions { display: inline-flex; }
+
+/* --- Card compacte (ex: étiquette dernière commande, reléguée en bas du dashboard) --- */
+.card-compact .card-header { padding-top: 10px; padding-bottom: 10px; }
+.card-compact .card-body { max-height: 200px; overflow: auto; }

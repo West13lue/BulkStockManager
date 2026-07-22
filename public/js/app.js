@@ -1552,14 +1552,16 @@
           '<span class="kpi-strip__label">' + t("dashboard.products", "Produits") + '</span>' +
           '<span class="kpi-strip__value">' + totalProducts + '</span>' +
         '</button>' +
-        '<div class="kpi-strip__item">' +
+        '<button type="button" class="kpi-strip__item is-link" onclick="app.navigateTo(\'products\')" ' +
+        'data-tooltip="' + t("tooltip.kpiStock", "Ouvrir le catalogue trié par stock") + '" data-tooltip-pos="bottom">' +
           '<span class="kpi-strip__label">' + t("dashboard.totalStock", "Stock total") + '</span>' +
           '<span class="kpi-strip__value">' + formatWeight(totalStock) + '</span>' +
-        '</div>' +
-        '<div class="kpi-strip__item">' +
+        '</button>' +
+        '<button type="button" class="kpi-strip__item is-link" onclick="app.navigateTo(\'products\', {sort:\'value_desc\'})" ' +
+        'data-tooltip="' + t("tooltip.kpiValue", "Ouvrir le catalogue trié par valeur") + '" data-tooltip-pos="bottom">' +
           '<span class="kpi-strip__label">' + t("dashboard.value", "Valeur") + '</span>' +
           '<span class="kpi-strip__value">' + formatCurrency(totalValue) + '</span>' +
-        '</div>' +
+        '</button>' +
         // Solde Qonto (compte principal) - rendu async, masque si non configure
         '<a class="kpi-strip__item is-link" id="kpiQonto" href="https://app.qonto.com" target="_blank" rel="noopener noreferrer" ' +
           'data-tooltip="' + t("tooltip.kpiQonto", "Solde du compte courant Qonto - cliquer pour ouvrir Qonto") + '" data-tooltip-pos="bottom" ' +
@@ -1588,13 +1590,15 @@
         ) +
       '</div>';
 
-    // ----- CTA principal du header : Réappro rapide (action #1 du matin) -----
-    var primaryCta = isEmpty
-      ? ''
-      : '<button class="btn btn-primary btn-sm" onclick="app.showQuickRestockModal()" ' +
-          'data-tooltip="' + t("tooltip.quickRestock", "Ajouter du stock et mettre a jour le CMP du produit") + '" data-tooltip-pos="bottom">' +
-          '<i data-lucide="package-plus" aria-hidden="true"></i> ' + t("dashboard.quickRestock", "Réappro rapide") +
-        '</button>';
+    // ----- Actions rapides du header (fusion de l'ancienne quick-actions-bar) -----
+    var headerActions = isEmpty ? '' :
+      '<button class="btn btn-primary btn-sm" onclick="app.showQuickRestockModal()" data-tooltip="' + t("tooltip.quickRestock", "Ajouter du stock et mettre a jour le CMP du produit") + '" data-tooltip-pos="bottom">' +
+        '<i data-lucide="package-plus" aria-hidden="true"></i> ' + t("dashboard.quickRestock", "Réappro rapide") + '</button>' +
+      '<button class="btn btn-ghost btn-sm" onclick="app.showQuickAdjustModal()" data-tooltip="' + t("tooltip.quickAdjust", "Corriger le stock (vol, casse, comptage) sans toucher au CMP") + '" data-tooltip-pos="bottom"><i data-lucide="sliders" aria-hidden="true"></i></button>' +
+      '<button class="btn btn-ghost btn-sm" onclick="app.showManualSaleModal()" data-tooltip="' + t("tooltip.manualSale", "Enregistrer une vente effectuee hors Shopify (boutique physique, etc.)") + '" data-tooltip-pos="bottom"><i data-lucide="shopping-cart" aria-hidden="true"></i></button>' +
+      '<button class="btn btn-ghost btn-sm" onclick="app.showScannerModal()" data-tooltip="' + t("tooltip.scanner", "Scanner un code-barre pour acceder rapidement au produit") + '" data-tooltip-pos="bottom"><i data-lucide="scan-barcode" aria-hidden="true"></i></button>' +
+      (hasFeature("hasInventoryCount") ? '<button class="btn btn-ghost btn-sm" onclick="app.navigateTo(\'inventory\')" data-tooltip="' + t("tooltip.inventory", "Lancer une session d\'inventaire physique") + '" data-tooltip-pos="bottom"><i data-lucide="clipboard-check" aria-hidden="true"></i></button>' : '') +
+      '<button class="btn btn-ghost btn-sm" onclick="app.showAddProductModal()" data-tooltip="' + t("tooltip.addProduct", "Creer un nouveau produit dans le catalogue") + '" data-tooltip-pos="bottom"><i data-lucide="plus" aria-hidden="true"></i></button>';
 
     // ----- Watchlist : produits sous seuil uniquement (pas "les 5 plus bas" arbitraires) -----
     var watchlistHtml;
@@ -1633,35 +1637,24 @@
             '<span>' + esc(sync.label) + '</span>' +
           '</button>' +
         '</div>' +
-        '<div class="dashboard-today__actions">' + primaryCta + '</div>' +
+        '<div class="dashboard-today__actions">' + headerActions + '</div>' +
       '</header>' +
 
       urgencyHtml +
       kpiStrip +
 
-      // Card Etiquette derniere commande Shopify (auto-update via webhook)
-      '<div class="card card-full-row" id="dashboardLatestOrderLabels">' +
+      // Card Watchlist en pleine largeur, juste sous les KPIs (max de visibilite)
+      '<div class="card card-full-row">' +
         '<div class="card-header">' +
-          '<h3 class="card-title"><i data-lucide="tag" aria-hidden="true"></i> ' + t("dashboard.latestOrderLabels", "Etiquette derniere commande") + '</h3>' +
-          '<button class="btn btn-ghost btn-sm" onclick="app.loadLatestOrderLabels()" data-tooltip="' + t("tooltip.refreshLatestOrder", "Recharger la derniere commande Shopify") + '" data-tooltip-pos="left" aria-label="' + t("action.refresh", "Actualiser") + '"><i data-lucide="refresh-cw" aria-hidden="true"></i></button>' +
+          '<h3 class="card-title"><i data-lucide="boxes" aria-hidden="true"></i> ' + t("dashboard.watchlistTitle", "Stocks à surveiller") +
+            (watchlistProducts.length ? ' <span class="badge-count" style="margin-left:6px">' + watchlistProducts.length + '</span>' : '') +
+          '</h3>' +
+          '<button class="btn btn-ghost btn-sm" onclick="app.navigateTo(\'products\')" data-tooltip="' + t("tooltip.viewAllProducts", "Ouvrir le catalogue complet trie par stock croissant") + '" data-tooltip-pos="left">' + t("dashboard.viewAll", "Voir tout") + '</button>' +
         '</div>' +
-        '<div class="card-body" id="dashboardLatestOrderLabelsBody"><div class="text-center py-lg"><div class="spinner"></div></div></div>' +
+        '<div class="card-body" style="padding:0">' + watchlistHtml + '</div>' +
       '</div>' +
 
-      // Quick actions (existing)
-      '<div class="quick-actions-bar">' +
-        '<div class="quick-actions-title"><i data-lucide="zap" aria-hidden="true"></i> ' + t("dashboard.quickActions", "Actions rapides") + '</div>' +
-        '<div class="quick-actions-buttons">' +
-          '<button class="btn btn-ghost btn-sm" onclick="app.showQuickRestockModal()" data-tooltip="' + t("tooltip.quickRestock", "Ajouter du stock et mettre a jour le CMP du produit") + '"><i data-lucide="package-plus" aria-hidden="true"></i> ' + t("dashboard.quickRestock", "Réappro rapide") + '</button>' +
-          '<button class="btn btn-ghost btn-sm" onclick="app.showScannerModal()" data-tooltip="' + t("tooltip.scanner", "Scanner un code-barre pour acceder rapidement au produit") + '"><i data-lucide="scan-barcode" aria-hidden="true"></i> ' + t("dashboard.scanBarcode", "Scanner") + '</button>' +
-          '<button class="btn btn-ghost btn-sm" onclick="app.showQuickAdjustModal()" data-tooltip="' + t("tooltip.quickAdjust", "Corriger le stock (vol, casse, comptage) sans toucher au CMP") + '"><i data-lucide="sliders" aria-hidden="true"></i> ' + t("dashboard.quickAdjust", "Ajustement") + '</button>' +
-          '<button class="btn btn-ghost btn-sm" onclick="app.showManualSaleModal()" data-tooltip="' + t("tooltip.manualSale", "Enregistrer une vente effectuee hors Shopify (boutique physique, etc.)") + '"><i data-lucide="shopping-cart" aria-hidden="true"></i> ' + t("dashboard.manualSale", "Vente manuelle") + '</button>' +
-          (hasFeature("hasInventoryCount") ? '<button class="btn btn-ghost btn-sm" onclick="app.navigateTo(\'inventory\')" data-tooltip="' + t("tooltip.inventory", "Lancer une session d\'inventaire physique") + '"><i data-lucide="clipboard-check" aria-hidden="true"></i> ' + t("dashboard.inventory", "Inventaire") + '</button>' : '') +
-          '<button class="btn btn-ghost btn-sm" onclick="app.showAddProductModal()" data-tooltip="' + t("tooltip.addProduct", "Creer un nouveau produit dans le catalogue") + '"><i data-lucide="plus" aria-hidden="true"></i> ' + t("dashboard.addProduct", "Produit") + '</button>' +
-        '</div>' +
-      '</div>' +
-
-      // Card unifiée Activité (Tout / Ventes / Restocks / Ajustements)
+      // Card unifiée Activité (Tout / Ventes / Restocks / Ajustements) + Lots qui expirent
       '<div class="dashboard-grid">' +
         '<div class="card card-activity activity-card">' +
           '<div class="card-header">' +
@@ -1681,17 +1674,15 @@
         '</div>' +
 
         batchesCardHtml +
+      '</div>' +
 
-        // Card Watchlist en full-row (sous Activite + Lots qui expirent)
-        '<div class="card card-full-row">' +
-          '<div class="card-header">' +
-            '<h3 class="card-title"><i data-lucide="boxes" aria-hidden="true"></i> ' + t("dashboard.watchlistTitle", "Stocks à surveiller") +
-              (watchlistProducts.length ? ' <span class="badge-count" style="margin-left:6px">' + watchlistProducts.length + '</span>' : '') +
-            '</h3>' +
-            '<button class="btn btn-ghost btn-sm" onclick="app.navigateTo(\'products\')" data-tooltip="' + t("tooltip.viewAllProducts", "Ouvrir le catalogue complet trie par stock croissant") + '" data-tooltip-pos="left">' + t("dashboard.viewAll", "Voir tout") + '</button>' +
-          '</div>' +
-          '<div class="card-body" style="padding:0">' + watchlistHtml + '</div>' +
+      // Card Etiquette derniere commande Shopify (auto-update via webhook) - version compacte, tout en bas
+      '<div class="card card-full-row card-compact" id="dashboardLatestOrderLabels">' +
+        '<div class="card-header">' +
+          '<h3 class="card-title"><i data-lucide="tag" aria-hidden="true"></i> ' + t("dashboard.latestOrderLabels", "Etiquette derniere commande") + '</h3>' +
+          '<button class="btn btn-ghost btn-sm" onclick="app.loadLatestOrderLabels()" data-tooltip="' + t("tooltip.refreshLatestOrder", "Recharger la derniere commande Shopify") + '" data-tooltip-pos="left" aria-label="' + t("action.refresh", "Actualiser") + '"><i data-lucide="refresh-cw" aria-hidden="true"></i></button>' +
         '</div>' +
+        '<div class="card-body" id="dashboardLatestOrderLabelsBody"><div class="text-center py-lg"><div class="spinner"></div></div></div>' +
       '</div>';
 
     // Async loaders
