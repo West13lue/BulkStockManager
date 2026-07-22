@@ -57,6 +57,7 @@
     'deactivateBatch', 'deleteBatch', 'markExpiredBatches',
     'showLabelsModal', 'loadLabelLots', 'previewLabels', 'printLabels',
     'switchLabelTab', 'addLabelConfig', 'addGiftLabelConfig', 'removeLabelConfig',
+    'startDiscoveryPack',
     'onLabelProductChange', 'onLabelLotChange', 'onLabelFieldChange',
     'onBatchProductChange', 'onBatchStatusChange', 'onBatchExpiringChange',
     'loadInventorySessions', 'showCreateInventorySessionModal', 'createInventorySession',
@@ -3871,14 +3872,15 @@
 
     var html = labelConfigs.map(function(cfg, i) {
       var isGift = !!cfg.isGift;
-      var activeColor = isGift ? "#f59e0b" : "var(--primary,#6366f1)";
+      var isDiscovery = !!cfg.isDiscoveryPack;
+      var activeColor = isGift ? "#f59e0b" : (isDiscovery ? "#14b8a6" : "var(--primary,#6366f1)");
       var active = i === activeLabelTab
         ? "background:" + activeColor + ";color:#fff;border-color:" + activeColor
         : "background:var(--bg-secondary);color:var(--text-primary)";
       var product = (state.products || []).find(function(p) { return p.productId === cfg.productId; });
       var label = product ? product.name : t("labels.labelNum", "Etiquette") + " " + (i + 1);
       if (label.length > 20) label = label.substring(0, 18) + "...";
-      var giftPrefix = isGift ? '🎁 ' : ''; // 🎁
+      var giftPrefix = isGift ? '🎁 ' : (isDiscovery ? '🧪 ' : '');
       return '<div style="display:flex;align-items:center;gap:0">' +
         '<button onclick="app.switchLabelTab(' + i + ')" style="padding:6px 14px;border:1px solid var(--border-color);border-radius:6px 0 0 6px;cursor:pointer;font-size:12px;font-weight:500;' + active + '">' +
         giftPrefix + label + ' <span style="opacity:0.7">x' + cfg.qty + '</span></button>' +
@@ -3887,6 +3889,12 @@
     }).join("");
 
     html += '<button onclick="app.addLabelConfig()" style="padding:6px 14px;border:1px dashed var(--border-color);border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;background:transparent;color:var(--primary,#6366f1)">+ ' + t("labels.addLabel", "Ajouter") + '</button>';
+
+    var dpDefault = parseInt(localStorage.getItem("discoveryPackCount"), 10) || 6;
+    html += '<span style="display:inline-flex;align-items:center;gap:6px;padding:0 4px 0 10px;border:1px dashed #14b8a6;border-radius:6px">' +
+      '<button onclick="app.startDiscoveryPack()" style="padding:6px 6px 6px 0;border:none;background:transparent;color:#14b8a6;cursor:pointer;font-size:13px;font-weight:600" title="' + t("labels.discoveryPackHint", "Sélectionne les N produits au plus gros stock, une étiquette 1,5 g chacun. 1,5 g déduit du stock à l\'impression.") + '">🧪 ' + t("labels.discoveryPack", "Pack découverte") + '</button>' +
+      '<input type="number" id="discoveryPackN" min="1" max="50" value="' + dpDefault + '" title="' + t("labels.discoveryPackCountLabel", "Nombre de produits") + '" style="width:46px;padding:4px;border:1px solid var(--border-color);border-radius:4px;font-size:13px">' +
+      '</span>';
 
     if (labelsOrderContext && labelsOrderContext.orderId) {
       html += '<button onclick="app.addGiftLabelConfig()" style="padding:6px 14px;border:1px dashed #f59e0b;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;background:transparent;color:#f59e0b" title="' + t("labels.giftHint", "Pochon offert : decremente le stock et compte le cout dans la marge de la commande, sans CA.") + '">🎁 + ' + t("labels.giftAdd", "Pochon cadeau") + '</button>';
@@ -3917,8 +3925,16 @@
         '</div>'
       : '';
 
+    var discoveryBanner = cfg.isDiscoveryPack
+      ? '<div style="margin-bottom:12px;padding:10px 12px;background:rgba(20,184,166,0.08);border-left:3px solid #14b8a6;border-radius:6px;font-size:12px;line-height:1.4">' +
+          '<strong style="color:#0f766e">🧪 ' + t("labels.discoveryBadge", "Pack découverte") + '</strong> &middot; ' +
+          t("labels.discoveryHint", "Produit sélectionné parmi les plus gros stocks. 1,5 g sera déduit du stock à l\'impression.") +
+        '</div>'
+      : '';
+
     container.innerHTML =
       giftBanner +
+      discoveryBanner +
       '<div class="form-row-mobile">' +
       '<div class="form-group" style="flex:2"><label class="form-label">' + t("labels.product", "Produit") + ' *</label>' +
       '<select class="form-select" id="labelProduct" onchange="app.onLabelProductChange()">' +
@@ -3965,6 +3981,58 @@
     activeLabelTab = labelConfigs.length - 1;
     renderLabelTabs();
     renderLabelConfig();
+  }
+
+  // Pack découverte : sélectionne automatiquement les N produits au plus gros
+  // stock (suivis au gramme, non archivés, stock >= 1,5 g) et pré-remplit la
+  // fenêtre avec une étiquette 1,5 g par produit. La déduction stock se fait à
+  // l'impression (voir commitDiscoveryPack, appelé depuis printLabels).
+  async function startDiscoveryPack() {
+    var GRAMS = 1.5;
+    var nInput = document.getElementById("discoveryPackN");
+    var n = parseInt(nInput ? nInput.value : "", 10);
+    if (!Number.isFinite(n) || n <= 0) {
+      showToast(t("labels.discoveryPackInvalidN", "Nombre de produits invalide"), "warning");
+      return;
+    }
+    try { localStorage.setItem("discoveryPackCount", String(n)); } catch (e) {}
+
+    // Recharger les produits pour un stock à jour. loadProducts() peuple
+    // state.products depuis /api/stock (la vraie route de liste), sans filtre
+    // recherche/catégorie. La fenêtre reste ouverte (updateUI ne touche pas la modale).
+    try {
+      await loadProducts();
+    } catch (e) {
+      console.warn("startDiscoveryPack: rechargement produits échoué", e);
+    }
+    var products = state.products || [];
+
+    // Éligibilité : suivi au gramme (pas trackByUnit), non archivé, stock >= 1,5 g.
+    var eligible = products.filter(function (p) {
+      return !p.trackByUnit && !p.archived && Number(p.totalGrams || 0) >= GRAMS;
+    });
+    eligible.sort(function (a, b) { return Number(b.totalGrams || 0) - Number(a.totalGrams || 0); });
+
+    if (eligible.length === 0) {
+      showToast(t("labels.discoveryPackNone", "Aucun produit éligible (stock suffisant introuvable)"), "warning");
+      return;
+    }
+
+    var selected = eligible.slice(0, n);
+
+    labelConfigs = selected.map(function (p) {
+      return { productId: p.productId, lotId: "", qty: 1, weight: GRAMS, price: "", lotData: null, isGift: false, isDiscoveryPack: true };
+    });
+    activeLabelTab = 0;
+    renderLabelTabs();
+    renderLabelConfig();
+    labelConfigs.forEach(function (cfg, idx) { if (cfg.productId) loadLabelLots(idx); });
+
+    if (selected.length < n) {
+      showToast(t("labels.discoveryPackFewer", "Seulement {count} produit(s) éligible(s)").replace("{count}", selected.length), "info");
+    } else {
+      showToast(t("labels.discoveryPackReady", "{count} produit(s) prêt(s) — vérifiez puis imprimez").replace("{count}", selected.length), "success");
+    }
   }
 
   function removeLabelConfig(idx) {
@@ -12556,6 +12624,7 @@
     addLabelConfig: addLabelConfig,
     addGiftLabelConfig: addGiftLabelConfig,
     removeLabelConfig: removeLabelConfig,
+    startDiscoveryPack: startDiscoveryPack,
     onLabelProductChange: onLabelProductChange,
     onLabelLotChange: onLabelLotChange,
     onLabelFieldChange: onLabelFieldChange,
