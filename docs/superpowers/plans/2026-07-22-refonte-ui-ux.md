@@ -793,11 +793,11 @@ Supprimer le bloc `quick-actions-bar` (~1565-1575). Remplacer `primaryCta` (~150
     var headerActions = isEmpty ? '' :
       '<button class="btn btn-primary btn-sm" onclick="app.showQuickRestockModal()" data-tooltip="' + t("tooltip.quickRestock", "Ajouter du stock et mettre a jour le CMP du produit") + '" data-tooltip-pos="bottom">' +
         '<i data-lucide="package-plus" aria-hidden="true"></i> ' + t("dashboard.quickRestock", "Réappro rapide") + '</button>' +
-      '<button class="btn btn-ghost btn-sm" onclick="app.showQuickAdjustModal()" data-tooltip="' + t("tooltip.quickAdjust", "Corriger le stock (vol, casse, comptage) sans toucher au CMP") + '" data-tooltip-pos="bottom"><i data-lucide="sliders" aria-hidden="true"></i></button>' +
-      '<button class="btn btn-ghost btn-sm" onclick="app.showManualSaleModal()" data-tooltip="' + t("tooltip.manualSale", "Enregistrer une vente effectuee hors Shopify (boutique physique, etc.)") + '" data-tooltip-pos="bottom"><i data-lucide="shopping-cart" aria-hidden="true"></i></button>' +
-      '<button class="btn btn-ghost btn-sm" onclick="app.showScannerModal()" data-tooltip="' + t("tooltip.scanner", "Scanner un code-barre pour acceder rapidement au produit") + '" data-tooltip-pos="bottom"><i data-lucide="scan-barcode" aria-hidden="true"></i></button>' +
-      (hasFeature("hasInventoryCount") ? '<button class="btn btn-ghost btn-sm" onclick="app.navigateTo(\'inventory\')" data-tooltip="' + t("tooltip.inventory", "Lancer une session d\'inventaire physique") + '" data-tooltip-pos="bottom"><i data-lucide="clipboard-check" aria-hidden="true"></i></button>' : '') +
-      '<button class="btn btn-ghost btn-sm" onclick="app.showAddProductModal()" data-tooltip="' + t("tooltip.addProduct", "Creer un nouveau produit dans le catalogue") + '" data-tooltip-pos="bottom"><i data-lucide="plus" aria-hidden="true"></i></button>';
+      '<button class="btn btn-ghost btn-sm" onclick="app.showQuickAdjustModal()" aria-label="' + t("dashboard.quickAdjust", "Ajustement") + '" data-tooltip="' + t("tooltip.quickAdjust", "Corriger le stock (vol, casse, comptage) sans toucher au CMP") + '" data-tooltip-pos="bottom"><i data-lucide="sliders" aria-hidden="true"></i></button>' +
+      '<button class="btn btn-ghost btn-sm" onclick="app.showManualSaleModal()" aria-label="' + t("dashboard.manualSale", "Vente manuelle") + '" data-tooltip="' + t("tooltip.manualSale", "Enregistrer une vente effectuee hors Shopify (boutique physique, etc.)") + '" data-tooltip-pos="bottom"><i data-lucide="shopping-cart" aria-hidden="true"></i></button>' +
+      '<button class="btn btn-ghost btn-sm" onclick="app.showScannerModal()" aria-label="' + t("dashboard.scanBarcode", "Scanner") + '" data-tooltip="' + t("tooltip.scanner", "Scanner un code-barre pour acceder rapidement au produit") + '" data-tooltip-pos="bottom"><i data-lucide="scan-barcode" aria-hidden="true"></i></button>' +
+      (hasFeature("hasInventoryCount") ? '<button class="btn btn-ghost btn-sm" onclick="app.navigateTo(\'inventory\')" aria-label="' + t("dashboard.inventory", "Inventaire") + '" data-tooltip="' + t("tooltip.inventory", "Lancer une session d\'inventaire physique") + '" data-tooltip-pos="bottom"><i data-lucide="clipboard-check" aria-hidden="true"></i></button>' : '') +
+      '<button class="btn btn-ghost btn-sm" onclick="app.showAddProductModal()" aria-label="' + t("dashboard.addProduct", "Produit") + '" data-tooltip="' + t("tooltip.addProduct", "Creer un nouveau produit dans le catalogue") + '" data-tooltip-pos="bottom"><i data-lucide="plus" aria-hidden="true"></i></button>';
 ```
 
 et utiliser `headerActions` dans `dashboard-today__actions`.
@@ -818,6 +818,9 @@ Ajouter au CSS refonte (`style.css`) :
 ```css
 .card-compact .card-header { padding-top: 10px; padding-bottom: 10px; }
 .card-compact .card-body { max-height: 200px; overflow: auto; }
+/* Watchlist sortie de la grille : si les lots (PRO) sont absents, la card
+   activité reste seule dans dashboard-grid — elle doit occuper toute la ligne. */
+.dashboard-grid > .card:only-child { grid-column: 1 / -1; }
 ```
 
 - [ ] **Step 3: Rendre les KPIs Stock total et Valeur cliquables**
