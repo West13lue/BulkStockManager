@@ -319,7 +319,8 @@
     filters: {
       search: "",
       category: "",
-      sort: "stock_asc"
+      sort: "stock_asc",
+      status: ""
     }
   };
 
@@ -419,6 +420,7 @@
     console.log("[Init] Session OK, loading app...");
     
     setupNavigation();
+    _loadCatalogFilters();
     await ensureOAuthInstalled();
     await loadPlanInfo();
     await loadSettingsDataSilent();
@@ -3321,23 +3323,6 @@
       catOptions += '<option value="' + esc(cat.id) + '"' + (state.filters.category === cat.id ? " selected" : "") + '>' + esc(cat.name) + ' (' + count + ')</option>';
     });
 
-    // Options tri
-    var sortOptions = [
-      { value: "alpha", label: t("sort.nameAZ", "Nom A-Z") },
-      { value: "alpha_desc", label: t("sort.nameZA", "Nom Z-A") },
-      { value: "stock_asc", label: t("sort.stockAsc", "Stock croissant") },
-      { value: "stock_desc", label: t("sort.stockDesc", "Stock decroissant") },
-      { value: "cmp_asc", label: t("sort.cmpAsc", "CMP croissant") },
-      { value: "cmp_desc", label: t("sort.cmpDesc", "CMP decroissant") },
-      { value: "value_asc", label: t("sort.valueAsc", "Valeur croissante") },
-      { value: "value_desc", label: t("sort.valueDesc", "Valeur decroissante") },
-      { value: "status_asc", label: t("sort.statusAsc", "Statut critique d'abord") },
-      { value: "status_desc", label: t("sort.statusDesc", "Statut OK d'abord") }
-    ];
-    var sortOptionsHtml = sortOptions.map(function(opt) {
-      return '<option value="' + opt.value + '"' + (state.filters.sort === opt.value ? " selected" : "") + '>' + opt.label + '</option>';
-    }).join("");
-
     c.innerHTML =
       '<div class="page-header"><div><h1 class="page-title">' + t("products.title", "Produits") + '</h1><p class="page-subtitle">' +
       state.products.length + " " + t("products.productCount", "produit(s)") + "</p></div>" +
@@ -3359,28 +3344,46 @@
       '<select class="form-select" id="categoryFilter" onchange="app.onCategoryChange(this.value)">' + catOptions + '</select>' +
       '</div>' +
       '<div class="filter-group">' +
-      '<select class="form-select" id="sortFilter" onchange="app.onSortChange(this.value)">' + sortOptionsHtml + '</select>' +
+      '<select class="form-select" id="statusFilter" onchange="app.onStatusChange(this.value)">' +
+        '<option value=""' + (state.filters.status === "" ? " selected" : "") + '>' + t("filter.allStatuses", "Tous les statuts") + '</option>' +
+        '<option value="critical"' + (state.filters.status === "critical" ? " selected" : "") + '>' + t("filter.statusCritical", "Rupture / critique") + '</option>' +
+        '<option value="low"' + (state.filters.status === "low" ? " selected" : "") + '>' + t("filter.statusLow", "Stock bas") + '</option>' +
+        '<option value="ok"' + (state.filters.status === "ok" ? " selected" : "") + '>' + t("filter.statusOk", "Stock OK") + '</option>' +
+      '</select>' +
       '</div>' +
       '</div>';
 
-    // Split en deux sections : produits au gramme + accessoires (suivi a l'unite)
-    var weightProducts = state.products.filter(function(p) { return !p.trackByUnit; });
+    // Split en deux sections : produits au gramme (filtres par statut) + accessoires (suivi a l'unite, non filtres par statut)
+    var statusF = state.filters.status;
+    var byStatus = function(p) { return !statusF || _statusOf(p) === statusF; };
+    var filteredWeight = state.products.filter(function(p) { return !p.trackByUnit && byStatus(p); });
     var accessoryProducts = state.products.filter(function(p) { return p.trackByUnit; });
+
+    var activeChips = "";
+    if (state.filters.search)   activeChips += '<span class="filter-chip">' + esc(state.filters.search) + ' <button class="filter-chip__clear" onclick="app.onSearchClear()" aria-label="Retirer">&times;</button></span>';
+    if (state.filters.category) activeChips += '<span class="filter-chip">' + t("filter.category", "Catégorie") + ' <button class="filter-chip__clear" onclick="app.onCategoryChange(\'\')" aria-label="Retirer">&times;</button></span>';
+    if (state.filters.status)   activeChips += '<span class="filter-chip">' + t("filter.status", "Statut") + ' <button class="filter-chip__clear" onclick="app.onStatusChange(\'\')" aria-label="Retirer">&times;</button></span>';
+    if (activeChips) {
+      activeChips = '<div class="filter-chips">' + activeChips +
+        '<button class="btn btn-ghost btn-xs" onclick="app.resetCatalogFilters()">' + t("filter.reset", "Réinitialiser") + '</button>' +
+        '<span class="results-count">' + filteredWeight.length + ' ' + t("products.productCount", "produit(s)") + '</span></div>';
+    }
+    c.innerHTML += activeChips;
 
     var sectionsHtml = "";
     if (state.products.length === 0) {
       sectionsHtml = '<div class="card"><div class="card-body" style="padding:0">' + renderEmpty() + '</div></div>';
     } else {
-      if (weightProducts.length > 0) {
+      if (filteredWeight.length > 0) {
         sectionsHtml +=
           '<div class="catalog-section">' +
             '<div class="catalog-section-header">' +
               '<h3 class="catalog-section-title"><i data-lucide="scale" aria-hidden="true"></i> ' +
                 t("products.weightSection", "Produits au gramme") +
               '</h3>' +
-              '<span class="catalog-section-count">' + weightProducts.length + '</span>' +
+              '<span class="catalog-section-count">' + filteredWeight.length + '</span>' +
             '</div>' +
-            '<div class="card"><div class="card-body" style="padding:0">' + renderTable(weightProducts) + '</div></div>' +
+            '<div class="card"><div class="card-body" style="padding:0">' + renderTable(filteredWeight) + '</div></div>' +
           '</div>';
       }
       if (accessoryProducts.length > 0) {
@@ -12485,22 +12488,63 @@
   // FILTRES ET TRI
   // ============================================
   var searchTimeout = null;
-  
+
+  var CATALOG_FILTERS_KEY = function() { return "sm_filters_products_" + (state.shop || ""); };
+
+  function _saveCatalogFilters() {
+    try { localStorage.setItem(CATALOG_FILTERS_KEY(), JSON.stringify(state.filters)); } catch (e) {}
+  }
+
+  function _loadCatalogFilters() {
+    try {
+      var raw = localStorage.getItem(CATALOG_FILTERS_KEY());
+      if (!raw) return;
+      var f = JSON.parse(raw);
+      if (f && typeof f === "object") {
+        state.filters.search = f.search || "";
+        state.filters.category = f.category || "";
+        state.filters.sort = f.sort || "stock_asc";
+        state.filters.status = f.status || "";
+      }
+    } catch (e) {}
+  }
+
+  function onStatusChange(value) {
+    state.filters.status = value;
+    _saveCatalogFilters();
+    applyFilters();
+  }
+
+  function resetCatalogFilters() {
+    state.filters = { search: "", category: "", sort: "stock_asc", status: "" };
+    _saveCatalogFilters();
+    applyFilters();
+  }
+
+  function onSearchClear() {
+    state.filters.search = "";
+    _saveCatalogFilters();
+    applyFilters();
+  }
+
   function onSearchChange(event) {
     clearTimeout(searchTimeout);
     searchTimeout = setTimeout(function() {
       state.filters.search = event.target.value;
+      _saveCatalogFilters();
       applyFilters();
     }, 300);
   }
-  
+
   function onCategoryChange(value) {
     state.filters.category = value;
+    _saveCatalogFilters();
     applyFilters();
   }
-  
+
   function onSortChange(value) {
     state.filters.sort = value;
+    _saveCatalogFilters();
     applyFilters();
   }
 
@@ -12527,6 +12571,7 @@
     var sel = document.getElementById("sortFilter");
     if (sel) sel.value = state.filters.sort;
 
+    _saveCatalogFilters();
     applyFilters();
   }
 
@@ -12764,8 +12809,11 @@
     refreshShopifyLocations: refreshShopifyLocations,
     // Filtres
     onSearchChange: onSearchChange,
+    onSearchClear: onSearchClear,
     onCategoryChange: onCategoryChange,
     onSortChange: onSortChange,
+    onStatusChange: onStatusChange,
+    resetCatalogFilters: resetCatalogFilters,
     sortByColumn: sortByColumn,
     toggleRowMenu: toggleRowMenu,
     // Categories
