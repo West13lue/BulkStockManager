@@ -3698,6 +3698,123 @@ router.post("/api/discovery-pack/commit", (req, res) => {
   });
 });
 
+// Retour en arrière (contre-passation) d'une opération de stock manuelle récente.
+// Append-only : on n'efface pas le mouvement d'origine, on applique l'inverse + on
+// écrit un mouvement "reversal". v1 : discovery_pack, adjust_total, restock.
+router.post("/api/movements/undo", (req, res) => {
+  safeJson(req, res, async () => {
+    const shop = getShop(req);
+    if (!shop) return apiError(res, 400, "Shop introuvable");
+
+    const UNDOABLE = new Set(["discovery_pack", "adjust_total", "restock"]);
+    const movementId = String(req.body?.movementId || "").trim();
+    const batchId = String(req.body?.batchId || "").trim();
+    if (!movementId && !batchId) return apiError(res, 400, "movementId ou batchId requis");
+
+    const all = movementStore.listMovements ? movementStore.listMovements({ shop, days: 90, limit: 10000 }) : [];
+    const reversedIds = new Set(all.filter((m) => m.reversalOf).map((m) => String(m.reversalOf)));
+
+    let targets;
+    if (batchId) {
+      targets = all.filter((m) => m.batchId === batchId && m.source === "discovery_pack");
+    } else {
+      targets = all.filter((m) => String(m.id) === movementId);
+    }
+
+    // Uniquement les cibles annulables et non déjà annulées.
+    targets = targets.filter((m) =>
+      UNDOABLE.has(m.source) && !m.reversalOf && m.source !== "reversal" && !reversedIds.has(String(m.id))
+    );
+
+    if (targets.length === 0) {
+      return apiError(res, 400, "Rien à annuler (déjà annulé ou non annulable)");
+    }
+
+    const undoneLines = [];
+    const skipped = [];
+    const touched = new Set();
+    let netStockDelta = 0;
+    let cmpRestored = false;
+
+    for (const m of targets) {
+      const productId = String(m.productId || "");
+      const delta = Number(m.gramsDelta || 0);
+      if (!productId || !Number.isFinite(delta) || delta === 0) {
+        skipped.push({ id: m.id, reason: "mouvement sans effet stock" });
+        continue;
+      }
+
+      try {
+        if (delta < 0) {
+          // L'opération avait déduit -> on restocke (CMP neutre : pas de prix).
+          await stock.restockProduct(shop, productId, Math.abs(delta));
+        } else {
+          // L'opération avait ajouté -> on déduit.
+          await stock.applyOrderToProduct(shop, productId, delta);
+        }
+      } catch (e) {
+        skipped.push({ id: m.id, reason: "stock: " + e.message });
+        continue;
+      }
+
+      // Restaurer le CMP si l'opération d'origine l'avait changé.
+      if (m.cmpBefore !== undefined && m.cmpBefore !== null && typeof stock.setAverageCostPerGram === "function") {
+        try {
+          stock.setAverageCostPerGram(shop, productId, Number(m.cmpBefore));
+          cmpRestored = true;
+        } catch (e) {
+          logEvent("undo_cmp_restore_error", { shop, productId, error: e.message }, "error");
+        }
+      }
+
+      const snap = stock.getProductSnapshot ? stock.getProductSnapshot(shop, productId) : null;
+      const totalAfter = snap ? Number(snap.totalGrams || 0) : undefined;
+
+      if (movementStore && movementStore.addMovement) {
+        movementStore.addMovement({
+          source: "reversal",
+          type: "undo",
+          productId,
+          productName: m.productName || productId,
+          gramsDelta: -delta,
+          totalAfter,
+          reversalOf: m.id,
+          batchId: m.batchId || undefined,
+          note: "Annulation de " + (m.source || "?"),
+          shop,
+        }, shop);
+      }
+
+      touched.add(productId);
+      netStockDelta += -delta;
+      undoneLines.push({ id: m.id, productId, productName: m.productName || productId, gramsRestored: -delta });
+    }
+
+    // Sync Shopify 1x par produit touché (best-effort).
+    for (const pid of touched) {
+      const snap = stock.getProductSnapshot ? stock.getProductSnapshot(shop, pid) : null;
+      if (snap) {
+        try {
+          await pushProductInventoryToShopify(shop, snap);
+        } catch (e) {
+          logEvent("inventory_push_error", { shop, productId: pid, error: e.message }, "error");
+        }
+      }
+    }
+
+    logEvent("movement_undone", { shop, undone: undoneLines.length, batchId: batchId || undefined }, "info");
+
+    res.json({
+      success: true,
+      undone: undoneLines.length,
+      netStockDelta: Math.round(netStockDelta * 100) / 100,
+      cmpRestored,
+      undoneLines,
+      skipped,
+    });
+  });
+});
+
 router.post("/api/test-order", (req, res) => {
   safeJson(req, res, async () => {
     const shop = getShop(req);
