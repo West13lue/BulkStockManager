@@ -93,6 +93,7 @@
     'goAnalyticsProductsPage', 'viewProductInCatalog', 'showProductOrders',
     // Dashboard refonte
     'switchDashboardActivity',
+    'undoMovement', 'undoMovementConfirmed', 'undoDiscoveryBatch', 'undoBatchConfirmed',
     // Etiquettes derniere commande Shopify
     'loadLatestOrderLabels', 'printLatestOrderLabels',
     // Solde Qonto
@@ -2934,9 +2935,26 @@
       return;
     }
 
+    var UNDOABLE = { discovery_pack: 1, adjust_total: 1, restock: 1 };
+    var reversedIds = {};
+    (dashboardActivityCache || []).forEach(function(x) { if (x.reversalOf) reversedIds[String(x.reversalOf)] = 1; });
+
     var html = '<div class="activity-list" style="max-height:280px;overflow-y:auto">';
     movements.forEach(function(m) {
       var mType = m.type || m.source || 'adjustment';
+      var mid = m.id ? String(m.id) : '';
+      var isReversal = m.source === 'reversal' || !!m.reversalOf;
+      var alreadyUndone = mid && reversedIds[mid];
+      var canUndo = !isReversal && UNDOABLE[m.source] && mid && !alreadyUndone;
+      var undoBtn = canUndo
+        ? '<button class="btn btn-ghost btn-sm" style="flex-shrink:0" title="' + t("activity.undo", "Annuler") + '" onclick="app.' +
+            (m.source === 'discovery_pack' && m.batchId
+              ? 'undoDiscoveryBatch(\'' + esc(String(m.batchId)) + '\',\'' + esc(mid) + '\')'
+              : 'undoMovement(\'' + esc(mid) + '\')') +
+          '"><i data-lucide="undo-2"></i></button>'
+        : (alreadyUndone
+            ? '<span class="badge" style="flex-shrink:0;opacity:0.6;font-size:10px">' + t("activity.undone", "Annulé") + '</span>'
+            : '');
       var typeClass = getMovementClass(mType);
       var typeLabel = getMovementLabel(mType);
       var delta = m.delta || m.gramsDelta || 0;
@@ -2960,11 +2978,78 @@
         '<span style="color:var(--text-tertiary);font-size:12px">' + dateStr + '</span>' +
         '</div>' +
         '</div>' +
+        undoBtn +
         '</div>';
     });
     html += '</div>';
 
     container.innerHTML = html;
+  }
+
+  // ---- Retour en arrière (undo) d'une activité récente ----
+  function undoMovement(movementId) {
+    showModal({
+      title: '<i data-lucide="undo-2"></i> ' + t("activity.undoTitle", "Annuler l'operation"),
+      size: "sm",
+      content: '<p>' + t("activity.undoConfirm", "Le stock de cette operation sera restaure. Confirmer ?") + '</p>',
+      footer:
+        '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.cancel", "Annuler") + '</button>' +
+        '<button class="btn btn-primary" onclick="app.undoMovementConfirmed(\'' + esc(String(movementId)) + '\')"><i data-lucide="undo-2"></i> ' + t("activity.undoConfirmBtn", "Oui, annuler") + '</button>'
+    });
+    if (typeof lucide !== "undefined") lucide.createIcons();
+  }
+
+  function undoDiscoveryBatch(batchId, lineId) {
+    showModal({
+      title: '<i data-lucide="undo-2"></i> ' + t("activity.undoTitle", "Annuler l'operation"),
+      size: "sm",
+      content: '<p>' + t("activity.undoBatchQ", "Annuler tout le pack decouverte, ou seulement cette ligne ?") + '</p>',
+      footer:
+        '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.cancel", "Annuler") + '</button>' +
+        '<button class="btn btn-secondary" onclick="app.undoMovementConfirmed(\'' + esc(String(lineId)) + '\')">' + t("activity.undoLineBtn", "Cette ligne") + '</button>' +
+        '<button class="btn btn-primary" onclick="app.undoBatchConfirmed(\'' + esc(String(batchId)) + '\')">' + t("activity.undoBatchBtn", "Tout le pack") + '</button>'
+    });
+    if (typeof lucide !== "undefined") lucide.createIcons();
+  }
+
+  function undoMovementConfirmed(movementId) {
+    closeModal();
+    _postUndo({ movementId: movementId });
+  }
+
+  function undoBatchConfirmed(batchId) {
+    closeModal();
+    _postUndo({ batchId: batchId });
+  }
+
+  async function _postUndo(body) {
+    try {
+      var res = await authFetch(apiUrl("/movements/undo"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+      });
+      var data = await res.json().catch(function() { return null; });
+      if (!res.ok || !data || !data.success) {
+        showToast((data && data.error) || t("activity.undoError", "Erreur lors de l'annulation"), "error");
+        return;
+      }
+      var g = Number(data.netStockDelta) || 0;
+      var msg = g >= 0
+        ? t("activity.undoneRestored", "Annule — {g} g remis en stock").replace("{g}", g)
+        : t("activity.undoneRemoved", "Annule — {g} g retires").replace("{g}", Math.abs(g));
+      showToast(msg, "success");
+      if (data.cmpRestored === false) {
+        showToast(t("activity.undoCmpWarn", "Stock remis, mais le cout moyen n'a pas pu etre restaure (operation ancienne)."), "warning");
+      }
+      // Recalcul : recharger produits + re-rendre l'onglet courant + le journal si ouvert.
+      if (typeof loadProducts === "function") await loadProducts();
+      if (typeof renderTab === "function" && state.currentTab) renderTab(state.currentTab);
+      if (document.getElementById("fullActivityContent") && typeof loadFullActivityLog === "function") loadFullActivityLog();
+    } catch (e) {
+      console.warn("undo error", e);
+      showToast(t("activity.undoError", "Erreur lors de l'annulation"), "error");
+    }
   }
 
   function getActivityVerb(type) {
@@ -3019,6 +3104,10 @@
         groupedByDate[dateKey].push(m);
       });
 
+      var UNDOABLE = { discovery_pack: 1, adjust_total: 1, restock: 1 };
+      var reversedIds = {};
+      movements.forEach(function(x) { if (x.reversalOf) reversedIds[String(x.reversalOf)] = 1; });
+
       var html = '';
       Object.keys(groupedByDate).sort().reverse().forEach(function(dateKey) {
         var dateLabel = formatDateLabel(dateKey);
@@ -3046,6 +3135,20 @@
             '</div>' +
             '<span class="badge badge-' + typeClass + '" style="font-size:10px">' + typeLabel + '</span>' +
             '<span style="font-weight:600;color:var(--' + (delta >= 0 ? 'success' : 'danger') + ');min-width:70px;text-align:right">' + deltaStr + '</span>' +
+            (function() {
+              var mid = m.id ? String(m.id) : '';
+              var isReversal = m.source === 'reversal' || !!m.reversalOf;
+              var alreadyUndone = mid && reversedIds[mid];
+              if (!isReversal && UNDOABLE[m.source] && mid && !alreadyUndone) {
+                return '<button class="btn btn-ghost btn-sm" title="' + t("activity.undo", "Annuler") + '" onclick="app.' +
+                  (m.source === 'discovery_pack' && m.batchId
+                    ? 'undoDiscoveryBatch(\'' + esc(String(m.batchId)) + '\',\'' + esc(mid) + '\')'
+                    : 'undoMovement(\'' + esc(mid) + '\')') +
+                  '"><i data-lucide="undo-2"></i></button>';
+              }
+              if (alreadyUndone) return '<span class="badge" style="opacity:0.6;font-size:10px">' + t("activity.undone", "Annule") + '</span>';
+              return '';
+            })() +
             '</div>';
         });
         
@@ -12820,6 +12923,10 @@
     showProductOrders:       showProductOrders,
     // Dashboard refonte
     switchDashboardActivity: switchDashboardActivity,
+    undoMovement: undoMovement,
+    undoMovementConfirmed: undoMovementConfirmed,
+    undoDiscoveryBatch: undoDiscoveryBatch,
+    undoBatchConfirmed: undoBatchConfirmed,
     // Etiquettes derniere commande Shopify
     loadLatestOrderLabels: loadLatestOrderLabels,
     printLatestOrderLabels: printLatestOrderLabels,
