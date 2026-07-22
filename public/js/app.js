@@ -1066,7 +1066,11 @@
     });
     closeSidebarOnMobile();
     _setHash(tab, sub || null, params || null);
-    renderTab(tab);
+    if (params && typeof params.sort === "string" && tab === "products") {
+      applyFilters(); // le tri est serveur : re-fetch puis re-render
+    } else {
+      renderTab(tab);
+    }
   }
 
   function toggleSidebar() {
@@ -3496,6 +3500,14 @@
             '</div>' +
             '<div class="card"><div class="card-body" style="padding:0">' + renderTable(filteredWeight) + '</div></div>' +
           '</div>';
+      } else if (statusF && state.products.some(function(p){ return !p.trackByUnit; })) {
+        // Filtre de statut actif mais aucun produit au gramme ne matche : etat vide explicite
+        // plutot que de laisser la section disparaitre silencieusement.
+        sectionsHtml +=
+          '<div class="card"><div class="card-body" style="text-align:center;padding:32px">' +
+            '<p class="text-secondary" style="margin:0 0 12px">' + t("filter.noMatch", "Aucun produit ne correspond aux filtres actifs.") + '</p>' +
+            '<button class="btn btn-ghost btn-sm" onclick="app.resetCatalogFilters()">' + t("filter.reset", "Réinitialiser") + '</button>' +
+          '</div></div>';
       }
       if (accessoryProducts.length > 0) {
         sectionsHtml +=
