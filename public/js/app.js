@@ -1686,7 +1686,16 @@
       urgencyHtml +
       kpiStrip +
 
-      // Card Watchlist en pleine largeur, juste sous les KPIs (max de visibilite)
+      // Card Etiquette derniere commande Shopify (auto-update via webhook) - remontee au-dessus de la watchlist
+      '<div class="card card-full-row card-compact" id="dashboardLatestOrderLabels">' +
+        '<div class="card-header">' +
+          '<h3 class="card-title"><i data-lucide="tag" aria-hidden="true"></i> ' + t("dashboard.latestOrderLabels", "Etiquette derniere commande") + '</h3>' +
+          '<button class="btn btn-ghost btn-sm" onclick="app.loadLatestOrderLabels()" data-tooltip="' + t("tooltip.refreshLatestOrder", "Recharger la derniere commande Shopify") + '" data-tooltip-pos="left" aria-label="' + t("action.refresh", "Actualiser") + '"><i data-lucide="refresh-cw" aria-hidden="true"></i></button>' +
+        '</div>' +
+        '<div class="card-body" id="dashboardLatestOrderLabelsBody"><div class="text-center py-lg"><div class="spinner"></div></div></div>' +
+      '</div>' +
+
+      // Card Watchlist en pleine largeur, sous l'etiquette
       '<div class="card card-full-row">' +
         '<div class="card-header">' +
           '<h3 class="card-title"><i data-lucide="boxes" aria-hidden="true"></i> ' + t("dashboard.watchlistTitle", "Stocks à surveiller") +
@@ -1717,15 +1726,6 @@
         '</div>' +
 
         batchesCardHtml +
-      '</div>' +
-
-      // Card Etiquette derniere commande Shopify (auto-update via webhook) - version compacte, tout en bas
-      '<div class="card card-full-row card-compact" id="dashboardLatestOrderLabels">' +
-        '<div class="card-header">' +
-          '<h3 class="card-title"><i data-lucide="tag" aria-hidden="true"></i> ' + t("dashboard.latestOrderLabels", "Etiquette derniere commande") + '</h3>' +
-          '<button class="btn btn-ghost btn-sm" onclick="app.loadLatestOrderLabels()" data-tooltip="' + t("tooltip.refreshLatestOrder", "Recharger la derniere commande Shopify") + '" data-tooltip-pos="left" aria-label="' + t("action.refresh", "Actualiser") + '"><i data-lucide="refresh-cw" aria-hidden="true"></i></button>' +
-        '</div>' +
-        '<div class="card-body" id="dashboardLatestOrderLabelsBody"><div class="text-center py-lg"><div class="spinner"></div></div></div>' +
       '</div>';
 
     // Async loaders
