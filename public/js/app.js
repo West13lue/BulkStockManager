@@ -8422,66 +8422,100 @@
     if (err) showToast(err + " erreur(s)", "error");
   }
 
+  var QTY_PRESETS = [10, 25, 50, 100];
+
+  function _lastQtyKey() { return "sm_last_qty_" + (state.shop || ""); }
+
+  function _saveLastQty(qty) {
+    try { if (qty > 0) localStorage.setItem(_lastQtyKey(), String(qty)); } catch (e) {}
+  }
+
+  function _qtyPresetsHtml(inputId) {
+    var last = 0;
+    try { last = Number(localStorage.getItem(_lastQtyKey())) || 0; } catch (e) {}
+    var vals = QTY_PRESETS.slice();
+    if (last > 0 && vals.indexOf(last) === -1) vals.push(last);
+    return '<div class="qty-presets">' + vals.map(function(v) {
+      return '<button type="button" class="qty-preset" onclick="app.setQtyPreset(\'' + inputId + '\', ' + v + ')">' + v + ' g</button>';
+    }).join("") + '</div>';
+  }
+
+  function setQtyPreset(inputId, val) {
+    var inp = document.getElementById(inputId);
+    if (!inp) return;
+    inp.value = val;
+    inp.focus();
+  }
+
+  function _productContextHtml(p, hiddenInputId) {
+    return '<div class="modal-product-context">' +
+      '<i data-lucide="package" aria-hidden="true"></i>' +
+      '<div><div class="modal-product-context__name">' + esc(p.name || p.title) + '</div>' +
+      '<div class="modal-product-context__meta">' + formatWeight(p.totalGrams || 0) + ' · CMP ' + formatPricePerUnit(p.averageCostPerGram || 0) + '</div></div>' +
+      '</div>' +
+      '<input type="hidden" id="' + hiddenInputId + '" value="' + esc(p.productId) + '">';
+  }
+
   function showRestockModal(pid) {
-    var opts = state.products
-      .map(function (p) {
-        return (
-          '<option value="' +
-          p.productId +
-          '"' +
-          (p.productId === pid ? " selected" : "") +
-          ">" +
-          esc(p.name || p.title) +
-          "</option>"
-        );
-      })
-      .join("");
     var weightUnit = getWeightUnit();
     var currSymbol = getCurrencySymbol();
+    var prod = pid ? state.products.find(function(p) { return p.productId === pid || p.id === pid; }) : null;
+
+    var productBlock;
+    if (prod) {
+      productBlock = _productContextHtml(prod, "rProd");
+    } else {
+      var opts = state.products.map(function (p) {
+        return '<option value="' + p.productId + '">' + esc(p.name || p.title) + "</option>";
+      }).join("");
+      productBlock = '<div class="form-group"><label class="form-label">' + t("products.product", "Produit") + '</label><select class="form-select" id="rProd">' + opts + '</select></div>';
+    }
+
     showModal({
       title: t("products.restock", "Restock"),
       content:
-        '<div class="form-group"><label class="form-label">' + t("products.product", "Product") + '</label><select class="form-select" id="rProd">' +
-        opts +
-        '</select></div>' +
+        productBlock +
         '<div class="form-row-mobile">' +
-        '<div class="form-group" style="flex:1"><label class="form-label">' + t("products.quantity", "Quantity") + ' (' + weightUnit + ')</label><input type="number" class="form-input" id="rQty" placeholder="500"></div>' +
-        '<div class="form-group" style="flex:1"><label class="form-label">' + t("products.price", "Price") + ' (' + currSymbol + '/' + weightUnit + ')</label><input type="number" class="form-input" id="rPrice" placeholder="4.50" step="0.01"></div></div>',
+        '<div class="form-group" style="flex:1"><label class="form-label">' + t("products.quantity", "Quantité") + ' (' + weightUnit + ')</label>' +
+          _qtyPresetsHtml("rQty") +
+          '<input type="number" class="form-input" id="rQty" placeholder="500" autofocus onkeydown="if(event.key===\'Enter\')app.saveRestock()"></div>' +
+        '<div class="form-group" style="flex:1"><label class="form-label">' + t("products.price", "Prix") + ' (' + currSymbol + '/' + weightUnit + ')</label><input type="number" class="form-input" id="rPrice" placeholder="4.50" step="0.01" onkeydown="if(event.key===\'Enter\')app.saveRestock()"></div></div>',
       footer:
-        '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.cancel", "Cancel") + '</button><button class="btn btn-primary" onclick="app.saveRestock()">' + t("action.validate", "Validate") + '</button>',
+        '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.cancel", "Annuler") + '</button><button class="btn btn-primary" onclick="app.saveRestock()">' + t("action.validate", "Valider") + '</button>',
     });
+    if (typeof lucide !== "undefined") lucide.createIcons();
+    setTimeout(function() { var i = document.getElementById("rQty"); if (i) i.focus(); }, 100);
   }
 
   function showAdjustModal(pid) {
-    var opts = state.products
-      .map(function (p) {
-        return (
-          '<option value="' +
-          p.productId +
-          '"' +
-          (p.productId === pid ? " selected" : "") +
-          ">" +
-          esc(p.name || p.title) +
-          " (" +
-          formatWeight(p.totalGrams || 0) +
-          ")</option>"
-        );
-      })
-      .join("");
     var weightUnit = getWeightUnit();
+    var prod = pid ? state.products.find(function(p) { return p.productId === pid || p.id === pid; }) : null;
+
+    var productBlock;
+    if (prod) {
+      productBlock = _productContextHtml(prod, "aProd");
+    } else {
+      var opts = state.products.map(function (p) {
+        return '<option value="' + p.productId + '">' + esc(p.name || p.title) + " (" + formatWeight(p.totalGrams || 0) + ")</option>";
+      }).join("");
+      productBlock = '<div class="form-group"><label class="form-label">' + t("products.product", "Produit") + '</label><select class="form-select" id="aProd">' + opts + '</select></div>';
+    }
+
     showModal({
-      title: t("products.adjustStock", "Adjust stock"),
+      title: t("products.adjustStock", "Ajuster le stock"),
       content:
-        '<div class="form-group"><label class="form-label">' + t("products.product", "Product") + '</label><select class="form-select" id="aProd">' +
-        opts +
-        '</select></div>' +
+        productBlock +
         '<div class="form-group"><label class="form-label">' + t("products.type", "Type") + '</label><div style="display:flex;gap:16px">' +
-        '<label><input type="radio" name="aType" value="add" checked> ' + t("action.add", "Add") + '</label>' +
-        '<label><input type="radio" name="aType" value="remove"> ' + t("action.remove", "Remove") + '</label></div></div>' +
-        '<div class="form-group"><label class="form-label">' + t("products.quantity", "Quantity") + ' (' + weightUnit + ')</label><input type="number" class="form-input" id="aQty" placeholder="100"></div>',
+        '<label><input type="radio" name="aType" value="add" checked> ' + t("action.add", "Ajouter") + '</label>' +
+        '<label><input type="radio" name="aType" value="remove"> ' + t("action.remove", "Retirer") + '</label></div></div>' +
+        '<div class="form-group"><label class="form-label">' + t("products.quantity", "Quantité") + ' (' + weightUnit + ')</label>' +
+          _qtyPresetsHtml("aQty") +
+          '<input type="number" class="form-input" id="aQty" placeholder="100" autofocus onkeydown="if(event.key===\'Enter\')app.saveAdjust()"></div>',
       footer:
-        '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.cancel", "Cancel") + '</button><button class="btn btn-primary" onclick="app.saveAdjust()">' + t("action.apply", "Apply") + '</button>',
+        '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.cancel", "Annuler") + '</button><button class="btn btn-primary" onclick="app.saveAdjust()">' + t("action.apply", "Appliquer") + '</button>',
     });
+    if (typeof lucide !== "undefined") lucide.createIcons();
+    setTimeout(function() { var i = document.getElementById("aQty"); if (i) i.focus(); }, 100);
   }
 
   function showUpgradeModal() {
@@ -8760,6 +8794,7 @@
         body: JSON.stringify({ productId: pid, grams: qtyInGrams, purchasePricePerGram: pricePerGram }),
       });
       if (res.ok) {
+        _saveLastQty(qty);
         showToast("Stock mis a jour", "success");
         closeModal();
         await loadProducts();
@@ -8800,6 +8835,7 @@
         body: JSON.stringify({ gramsDelta: delta, ...profileData }),
       });
       if (res.ok) {
+        _saveLastQty(qty);
         showToast("Ajustement OK", "success");
         closeModal();
         await loadProducts();
@@ -12764,6 +12800,7 @@
     doImport: doImport,
     showRestockModal: showRestockModal,
     showAdjustModal: showAdjustModal,
+    setQtyPreset: setQtyPreset,
     showUpgradeModal: showUpgradeModal,
     showLockedModal: showLockedModal,
     saveProduct: saveProduct,
