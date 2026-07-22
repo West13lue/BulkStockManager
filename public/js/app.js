@@ -423,6 +423,7 @@
     _loadCatalogFilters();
     await ensureOAuthInstalled();
     await loadPlanInfo();
+    injectSidebarSubnav(); // recalcule les cadenas maintenant que state.limits est le vrai plan
     await loadSettingsDataSilent();
     await loadProducts();
     renderTab("dashboard");
@@ -963,7 +964,11 @@
   function injectSidebarSubnav() {
     Object.keys(TAB_SUBVIEWS).forEach(function(parentId) {
       var navItem = document.querySelector('.nav-item[data-tab="' + parentId + '"]');
-      if (!navItem || navItem.parentElement.querySelector('.nav-subitems[data-parent="' + parentId + '"]')) return;
+      if (!navItem) return;
+      // Rebuild from scratch on every call (re-invoked after loadPlanInfo() so
+      // lock states reflect the real plan) — fresh nodes avoid stale listeners/duplicates.
+      var existing = navItem.parentElement.querySelector('.nav-subitems[data-parent="' + parentId + '"]');
+      if (existing) existing.remove();
       var subs = TAB_SUBVIEWS[parentId];
       var html = subs.map(function(s) {
         var locked = !!(s.feature && !hasFeature(s.feature));
