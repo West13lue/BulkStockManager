@@ -5547,26 +5547,59 @@ function buildPatrimoineTimeline({
     } catch (_) {}
   }
 
-  // 2. Restocks -> entree de valeur en stock
+  // 2. Restocks -> entree de valeur en stock, ET contre-passations (undo).
+  //
+  // /!\ Un restock annule via /api/movements/undo ecrit un mouvement
+  // source:"reversal" (gramsDelta negatif) SANS supprimer le restock d'origine
+  // (movementStore est append-only). Si on comptait le restock a sa valeur
+  // faciale sans tenir compte de l'annulation, on injectait un delta stock
+  // fantome positif -> le walk-back reconstruisait tout l'historique ANTERIEUR
+  // en negatif (bug du plateau a -10 000 EUR puis saut vertical le dernier jour).
+  //
+  // On indexe donc la valeur de CHAQUE restock (historique large, pour resoudre
+  // aussi l'annulation d'un restock anterieur a la fenetre), puis :
+  //   - +valeur le jour du restock (s'il tombe dans la fenetre) ;
+  //   - -valeur le jour de l'annulation (idem), ce qui retablit la "bosse"
+  //     restock->undo et neutralise le delta fantome.
   if (movementStore && typeof movementStore.listMovements === "function") {
     try {
-      // listMovements prend "days" en parametre, on couvre la periode + 1 jour de marge
-      const movs = movementStore.listMovements({ shop, days: days + 1, limit: 10000 });
-      for (const m of movs || []) {
+      const lookbackDays = Math.max(days + 1, 400);
+      const movs = movementStore.listMovements({ shop, days: lookbackDays, limit: 20000 }) || [];
+
+      const windowFrom = fromDate.toISOString().slice(0, 10);
+      const windowTo = toDate.toISOString().slice(0, 10);
+      const inWindow = (d) => d && d >= windowFrom && d <= windowTo;
+
+      // Passe 1 : valeur de tous les restocks, indexee par id (fenetre large).
+      const restockValueById = new Map();
+      for (const m of movs) {
         if (!m || m.source !== "restock") continue;
-        const day = String(m.ts || "").slice(0, 10);
-        if (!day) continue;
         const grams = Math.abs(Number(m.gramsDelta) || 0);
         if (grams <= 0) continue;
         let pricePerGram = Number(m.purchasePricePerGram) || 0;
-        if (pricePerGram === 0) {
-          // Fallback : CMP courant du produit
-          pricePerGram = cmpByProduct.get(String(m.productId || "")) || 0;
-        }
+        if (pricePerGram === 0) pricePerGram = cmpByProduct.get(String(m.productId || "")) || 0;
         const value = grams * pricePerGram;
-        if (value > 0) {
-          stockDeltaByDay.set(day, (stockDeltaByDay.get(day) || 0) + value);
-        }
+        if (value > 0 && m.id != null) restockValueById.set(String(m.id), value);
+      }
+
+      // Passe 2 : +valeur pour les restocks dont le jour tombe dans la fenetre.
+      for (const m of movs) {
+        if (!m || m.source !== "restock") continue;
+        const day = String(m.ts || "").slice(0, 10);
+        if (!inWindow(day)) continue;
+        const value = restockValueById.get(String(m.id)) || 0;
+        if (value > 0) stockDeltaByDay.set(day, (stockDeltaByDay.get(day) || 0) + value);
+      }
+
+      // Passe 3 : -valeur le jour de l'annulation d'un restock (source reversal).
+      // Les reversals d'autres operations (adjust_total, discovery_pack) n'ont
+      // pas de valeur indexee -> correctement ignores.
+      for (const m of movs) {
+        if (!m || m.source !== "reversal") continue;
+        const day = String(m.ts || "").slice(0, 10);
+        if (!inWindow(day)) continue;
+        const value = restockValueById.get(String(m.reversalOf || "")) || 0;
+        if (value > 0) stockDeltaByDay.set(day, (stockDeltaByDay.get(day) || 0) - value);
       }
     } catch (_) {}
   }
