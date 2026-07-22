@@ -3673,17 +3673,19 @@
       return '<tr class="batch-row" onclick="app.openBatchDetails(\'' + esc(lot.productId) + '\',\'' + esc(lot.id) + '\')" style="cursor:pointer">' +
         '<td><span class="batch-id">' + esc(lot.id) + '</span></td>' +
         '<td>' + esc(lot.productName || "Produit") + '</td>' +
-        '<td>' + formatWeight(lot.currentGrams) + ' / ' + formatWeight(lot.initialGrams) + '</td>' +
+        '<td class="u-num">' + formatWeight(lot.currentGrams) + ' / ' + formatWeight(lot.initialGrams) + '</td>' +
         '<td>' + (lot.expiryDate ? lot.expiryDate : '-') + '</td>' +
-        '<td>' + dlcBadge + '</td>' +
-        '<td>' + formatPricePerUnit(lot.purchasePricePerGram || 0) + '</td>' +
-        '<td>' + formatCurrency(lot.valueRemaining || 0) + '</td>' +
+        '<td class="u-num">' + dlcBadge + '</td>' +
+        '<td class="u-num">' + formatPricePerUnit(lot.purchasePricePerGram || 0) + '</td>' +
+        '<td class="u-num">' + formatCurrency(lot.valueRemaining || 0) + '</td>' +
         '<td>' + statusBadge + '</td>' +
         '<td class="cell-actions" onclick="event.stopPropagation()" style="white-space:nowrap">' +
+        '<span class="row-actions">' +
         '<button class="btn btn-ghost btn-xs" onclick="app.openBatchDetails(\'' + esc(lot.productId) + '\',\'' + esc(lot.id) + '\')" title="' + t("action.details", "Details") + '"><i data-lucide="eye" style="width:12px;height:12px"></i></button>' +
         '<button class="btn btn-ghost btn-xs" onclick="app.showAdjustBatchModal(\'' + esc(lot.productId) + '\',\'' + esc(lot.id) + '\')" title="' + t("batches.adjust", "Ajuster") + '"><i data-lucide="sliders" style="width:12px;height:12px"></i></button>' +
         (lot.status === "active" ? '<button class="btn btn-ghost btn-xs text-warning" onclick="app.deactivateBatch(\'' + esc(lot.productId) + '\',\'' + esc(lot.id) + '\')" title="' + t("batches.deactivate", "Desactiver") + '"><i data-lucide="pause-circle" style="width:12px;height:12px"></i></button>' : '') +
         '<button class="btn btn-ghost btn-xs text-danger" onclick="app.deleteBatch(\'' + esc(lot.productId) + '\',\'' + esc(lot.id) + '\')" title="' + t("action.delete", "Supprimer") + '"><i data-lucide="trash-2" style="width:12px;height:12px"></i></button>' +
+        '</span>' +
         '</td>' +
         '</tr>';
     }).join("");
@@ -4737,14 +4739,16 @@
         '<td><div class="supplier-name-cell"><strong>' + esc(sup.name) + '</strong>' + (sup.code ? '<span class="supplier-code">' + esc(sup.code) + '</span>' : '') + '</div></td>' +
         '<td>' + typeBadge + '</td>' +
         '<td>' + (sup.contact ? esc(sup.contact.email || '-') : '-') + '</td>' +
-        '<td>' + (sup.productsCount || 0) + '</td>' +
-        '<td>' + (sup.lotsCount || 0) + '</td>' +
-        '<td>' + formatWeight(sup.totalPurchased || 0) + '</td>' +
+        '<td class="u-num">' + (sup.productsCount || 0) + '</td>' +
+        '<td class="u-num">' + (sup.lotsCount || 0) + '</td>' +
+        '<td class="u-num">' + formatWeight(sup.totalPurchased || 0) + '</td>' +
         '<td>' + statusBadge + '</td>' +
         '<td class="cell-actions" onclick="event.stopPropagation()">' +
+        '<span class="row-actions">' +
         '<button class="btn btn-ghost btn-xs" onclick="app.openSupplierDetails(\'' + esc(sup.id) + '\')" title="' + t("action.details", "Details") + '"><i data-lucide="eye" style="width:12px;height:12px"></i></button>' +
         '<button class="btn btn-ghost btn-xs" onclick="app.showEditSupplierModal(\'' + esc(sup.id) + '\')" title="' + t("action.edit", "Modifier") + '"><i data-lucide="edit" style="width:12px;height:12px"></i></button>' +
         '<button class="btn btn-ghost btn-xs text-danger" onclick="app.deleteSupplier(\'' + esc(sup.id) + '\')" title="' + t("action.delete", "Supprimer") + '"><i data-lucide="trash-2" style="width:12px;height:12px"></i></button>' +
+        '</span>' +
         '</td>' +
         '</tr>';
     }).join("");
@@ -5266,8 +5270,8 @@
       return '<tr class="order-row" onclick="app.openPODetails(\'' + esc(po.id) + '\')">' +
         '<td><span class="order-number">' + esc(po.number) + '</span></td>' +
         '<td>' + esc(po.supplierName || '-') + '</td>' +
-        '<td>' + (po.lines?.length || 0) + ' ' + t("orders.items", "articles") + '</td>' +
-        '<td>' + formatCurrency(po.total || 0) + '</td>' +
+        '<td class="u-num">' + (po.lines?.length || 0) + ' ' + t("orders.items", "articles") + '</td>' +
+        '<td class="u-num">' + formatCurrency(po.total || 0) + '</td>' +
         '<td>' + (po.createdAt || '').slice(0, 10) + '</td>' +
         '<td>' + statusBadge + '</td>' +
         '</tr>';
@@ -5935,10 +5939,10 @@
       return '<tr class="order-row" onclick="app.openSODetails(\'' + esc(so.id) + '\')">' +
         '<td><span class="order-number">' + esc(so.number) + '</span></td>' +
         '<td>' + sourceBadge + '</td>' +
-        '<td>' + formatCurrency(so.total || 0) + '</td>' +
-        '<td>' + formatCurrency(so.totalCost || 0) + '</td>' +
-        '<td class="' + marginClass + '">' + formatCurrency(so.grossMargin || 0) + '</td>' +
-        '<td class="' + marginClass + '">' + (so.marginPercent || 0) + '%</td>' +
+        '<td class="u-num">' + formatCurrency(so.total || 0) + '</td>' +
+        '<td class="u-num">' + formatCurrency(so.totalCost || 0) + '</td>' +
+        '<td class="u-num ' + marginClass + '">' + formatCurrency(so.grossMargin || 0) + '</td>' +
+        '<td class="u-num ' + marginClass + '">' + (so.marginPercent || 0) + '%</td>' +
         '<td>' + (so.createdAt || '').slice(0, 10) + '</td>' +
         '</tr>';
     }).join("");
