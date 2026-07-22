@@ -962,10 +962,14 @@ Dans `switchAnalyticsTab` (~10732), au début :
 Ajouter une fonction appelée depuis `setupNavigation()` après `translateNavigationLabels()` :
 
 ```javascript
+  // Ré-exécutable : rappelée après loadPlanInfo() pour recalculer les cadenas
+  // (au boot, state.limits est vide → tout paraîtrait verrouillé sinon).
   function injectSidebarSubnav() {
     Object.keys(TAB_SUBVIEWS).forEach(function(parentId) {
       var navItem = document.querySelector('.nav-item[data-tab="' + parentId + '"]');
-      if (!navItem || navItem.parentElement.querySelector('.nav-subitems[data-parent="' + parentId + '"]')) return;
+      if (!navItem) return;
+      var existing = navItem.parentElement.querySelector('.nav-subitems[data-parent="' + parentId + '"]');
+      if (existing) existing.remove();
       var subs = TAB_SUBVIEWS[parentId];
       var html = subs.map(function(s) {
         var locked = !!(s.feature && !hasFeature(s.feature));
@@ -1014,6 +1018,11 @@ CSS (section refonte de `style.css`) :
 ```
 
 Les sous-items ne s'affichent que quand le parent est actif (`nav-item.active + .nav-subitems`) — pas de chevron à gérer, l'état suit la navigation.
+
+⚠️ Dans `init()`, rappeler `injectSidebarSubnav()` juste après `await loadPlanInfo()` :
+au boot, `setupNavigation()` tourne avant le chargement du plan (`state.limits` vide),
+donc la première injection marque tout PRO/Business comme verrouillé — le re-appel
+recalcule les cadenas avec le vrai plan.
 
 - [ ] **Step 3: Vérifier en navigateur**
 
