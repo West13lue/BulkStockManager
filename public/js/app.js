@@ -978,18 +978,22 @@
   }
 
   function _parseHash() {
-    var h = (location.hash || "").replace(/^#/, "");
-    if (!h) return null;
-    var parts = h.split("?");
-    var path = parts[0].split("/");
-    var params = {};
-    if (parts[1]) {
-      parts[1].split("&").forEach(function(kv) {
-        var p = kv.split("=");
-        if (p[0]) params[decodeURIComponent(p[0])] = decodeURIComponent(p[1] || "");
-      });
+    try {
+      var h = (location.hash || "").replace(/^#/, "");
+      if (!h) return null;
+      var parts = h.split("?");
+      var path = parts[0].split("/");
+      var params = {};
+      if (parts[1]) {
+        parts[1].split("&").forEach(function(kv) {
+          var p = kv.split("=");
+          if (p[0]) params[decodeURIComponent(p[0])] = decodeURIComponent(p[1] || "");
+        });
+      }
+      return { tab: path[0], sub: path[1] || null, params: params };
+    } catch (e) {
+      return null;
     }
-    return { tab: path[0], sub: path[1] || null, params: params };
   }
 
   function _applyHash() {
