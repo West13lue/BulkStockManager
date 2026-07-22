@@ -51,7 +51,7 @@ Ajouter à la toute fin du fichier :
 .u-num .unit { color: var(--text-tertiary); font-size: 0.85em; margin-left: 2px; }
 
 /* --- Densité tableaux (style Linear) --- */
-.data-table th { position: sticky; top: 0; z-index: 2; background: var(--bg-secondary); }
+.data-table th { position: sticky; top: 0; z-index: 2; background: var(--bg-tertiary); }
 .data-table td { padding-top: 8px; padding-bottom: 8px; }
 .table-sticky { max-height: calc(100vh - var(--topbar-height) - 220px); overflow: auto; }
 
@@ -168,7 +168,7 @@ git commit -m "feat(refonte): socle CSS tableaux, jauge stock, actions hover, pr
   function _stockGaugeHtml(p) {
     var g = p.totalGrams || 0;
     var lowT = (settingsData && settingsData.stock && Number(settingsData.stock.lowStockThreshold)) || 0;
-    var pct = lowT > 0 ? Math.min(100, Math.round((g / (lowT * 2)) * 100)) : (g > 0 ? 100 : 0);
+    var pct = lowT > 0 ? Math.max(0, Math.min(100, Math.round((g / (lowT * 2)) * 100))) : (g > 0 ? 100 : 0);
     return '<span class="stock-gauge is-' + _statusOf(p) + '" aria-hidden="true"><span class="stock-gauge__fill" style="width:' + pct + '%"></span></span>';
   }
 
