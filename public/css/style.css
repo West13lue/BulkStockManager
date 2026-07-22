@@ -6740,3 +6740,7 @@ table.analytics-table td.col-num.danger  { color: var(--danger); }
 }
 .filter-chip__clear { background: none; border: 0; cursor: pointer; color: inherit; padding: 0; line-height: 1; }
 .results-count { font-size: 12px; color: var(--text-tertiary); }
+
+/* --- Actions rapides (restock/ajuster) dans la recherche globale --- */
+.search-result-actions { display: none; gap: 2px; margin-left: auto; }
+.search-result-item:hover .search-result-actions { display: inline-flex; }

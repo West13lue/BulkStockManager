@@ -87,7 +87,7 @@
     'showCreatePOModal', 'savePO', 'openPODetails', 'confirmPO', 'sendPO',
     'addPOLine', 'removePOLine', 'updatePOTotal', 'onPOSupplierChange', 'onPOFileSelected',
     'updateQuickRestockCMP', 'updateQuickRestockTotal',
-    'selectSearchResultByIndex', 'toggleSection',
+    'selectSearchResultByIndex', 'toggleSection', 'searchQuickAction',
     // Analytics ventes refonte
     'switchSalesChartMetric', 'sortAnalyticsProducts', 'searchAnalyticsProducts',
     'goAnalyticsProductsPage', 'viewProductInCatalog', 'showProductOrders',
@@ -622,12 +622,20 @@
       
       group.items.forEach(function(item) {
         var highlighted = highlightMatch(item.title, query);
+        var actionsHtml = "";
+        if (group.category === "products" && item.id) {
+          actionsHtml = '<div class="search-result-actions" onclick="event.stopPropagation()">' +
+            '<button class="btn btn-ghost btn-xs" title="' + t("action.restock", "Réappro") + '" onclick="app.searchQuickAction(\'restock\', \'' + esc(item.id) + '\')"><i data-lucide="package-plus" style="width:13px;height:13px"></i></button>' +
+            '<button class="btn btn-ghost btn-xs" title="' + t("products.adjustStock", "Ajuster") + '" onclick="app.searchQuickAction(\'adjust\', \'' + esc(item.id) + '\')"><i data-lucide="sliders" style="width:13px;height:13px"></i></button>' +
+            '</div>';
+        }
         html += '<div class="search-result-item" data-index="' + globalIndex + '" onclick="app.selectSearchResultByIndex(' + globalIndex + ')">' +
           '<div class="search-result-icon ' + item.type + '"><i data-lucide="' + item.icon + '"></i></div>' +
           '<div class="search-result-info">' +
           '<div class="search-result-title">' + highlighted + '</div>' +
           '<div class="search-result-meta">' + esc(item.meta) + '</div>' +
           '</div>' +
+          actionsHtml +
           '</div>';
         globalIndex++;
       });
@@ -661,6 +669,14 @@
     if (dropdown) dropdown.style.display = "none";
     globalSearchResults = [];
     selectedSearchIndex = -1;
+  }
+
+  function searchQuickAction(kind, pid) {
+    hideSearchDropdown();
+    var input = document.getElementById("globalSearch");
+    if (input) input.value = "";
+    if (kind === "restock") showRestockModal(pid);
+    else showAdjustModal(pid);
   }
   
   function navigateSearchResults(direction) {
@@ -13035,6 +13051,7 @@
     // Raccourcis
     showKeyboardShortcutsHelp: showKeyboardShortcutsHelp,
     selectSearchResultByIndex: selectSearchResultByIndex,
+    searchQuickAction: searchQuickAction,
     // Tutoriels
     closeTutorial: closeTutorial,
     showAllTutorials: showAllTutorials,
