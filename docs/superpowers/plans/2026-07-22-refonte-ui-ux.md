@@ -541,16 +541,27 @@ git commit -m "feat(refonte): modales restock/ajust v2 - contexte verrouille, pr
 **Vérification préalable :** ouvrir `_renderActivityFiltered` (~1654) et confirmer les noms de champs du mouvement utilisés par le bouton Annuler existant (`m.id`, `m.productId`). Utiliser exactement les mêmes ici :
 
 ```javascript
-  async function _fetchLastMovementId(productId) {
+  // type: "restock" | "adjustment" — filtre anti-course : un mouvement webhook
+  // (vente) sur le même produit entre le save et ce fetch ne doit jamais
+  // devenir la cible de l'undo.
+  async function _fetchLastMovementId(productId, type) {
     try {
-      var res = await authFetch(apiUrl("/movements?limit=1"));
+      var res = await authFetch(apiUrl("/movements?limit=5"));
       if (!res.ok) return null;
       var data = await res.json();
-      var m = (data.movements || [])[0];
-      return (m && m.productId === productId && m.id) ? m.id : null;
+      var list = data.movements || [];
+      for (var i = 0; i < list.length; i++) {
+        var m = list[i];
+        if (m && m.productId === productId && (!type || m.type === type) && m.id) return m.id;
+      }
+      return null;
     } catch (e) { return null; }
   }
 ```
+
+Les savers passent le type : `_fetchLastMovementId(pid, "restock")` dans `saveRestock`,
+`_fetchLastMovementId(pid, "adjustment")` dans `saveAdjust` (vérifier les valeurs réelles
+de `m.type` dans `_updateActivityCounts`/`_renderActivityFiltered` et les utiliser).
 
 - [ ] **Step 3: Brancher dans `saveRestock` et `saveAdjust`**
 
