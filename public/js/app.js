@@ -771,6 +771,7 @@
   function setupNavigation() {
     // Traduire les labels de navigation
     translateNavigationLabels();
+    injectSidebarSubnav();
 
     document.querySelectorAll(".nav-item[data-tab]").forEach(function (el) {
       el.addEventListener("click", function (e) {
@@ -955,6 +956,39 @@
              '</button>';
     });
     return '<nav class="subtab-rail" role="tablist" aria-label="' + parentId + '">' + parts.join('') + '</nav>';
+  }
+
+  // Sous-items dépliables dans la sidebar (Task 10) : un bloc par section
+  // parent (catalogue/achats/analyse), affiché sous l'entrée quand elle est active.
+  function injectSidebarSubnav() {
+    Object.keys(TAB_SUBVIEWS).forEach(function(parentId) {
+      var navItem = document.querySelector('.nav-item[data-tab="' + parentId + '"]');
+      if (!navItem || navItem.parentElement.querySelector('.nav-subitems[data-parent="' + parentId + '"]')) return;
+      var subs = TAB_SUBVIEWS[parentId];
+      var html = subs.map(function(s) {
+        var locked = !!(s.feature && !hasFeature(s.feature));
+        return '<a href="#" class="nav-subitem' + (locked ? ' is-locked' : '') + '" data-subtab="' + s.id + '">' +
+          '<i data-lucide="' + s.icon + '" class="icon" aria-hidden="true"></i>' +
+          '<span>' + t(s.labelKey, s.labelFr) + '</span>' +
+          (locked ? '<i data-lucide="lock" class="icon nav-subitem__lock" aria-hidden="true"></i>' : '') +
+          '</a>';
+      }).join("");
+      var wrap = document.createElement("div");
+      wrap.className = "nav-subitems";
+      wrap.setAttribute("data-parent", parentId);
+      wrap.innerHTML = html;
+      navItem.insertAdjacentElement("afterend", wrap);
+      wrap.querySelectorAll(".nav-subitem").forEach(function(el) {
+        el.addEventListener("click", function(e) {
+          e.preventDefault();
+          var sid = el.dataset.subtab;
+          var sub = subs.find(function(s) { return s.id === sid; });
+          if (sub && sub.feature && !hasFeature(sub.feature)) { showLockedModal(sub.feature); return; }
+          navigateTo(sid);
+        });
+      });
+    });
+    if (typeof lucide !== "undefined") lucide.createIcons();
   }
 
   // ============================================
@@ -10896,8 +10930,17 @@
       '</div>' +
       '<div id="analyticsContent" role="tabpanel"><div class="text-center" style="padding:60px"><div class="spinner"></div><p class="text-secondary mt-md">' + t("analytics.loading", "Loading analytics...") + '</p></div></div>';
 
-    analyticsTab = "sales";
-    loadAnalyticsSales();
+    var initialTab = _pendingAnalyticsTab;
+    _pendingAnalyticsTab = null;
+    if (!initialTab) {
+      try { initialTab = localStorage.getItem("sm_lasttab_analytics_" + (state.shop || "")); } catch (e) {}
+    }
+    if (initialTab && ["sales", "stock", "manual", "orders", "treasury"].indexOf(initialTab) !== -1 && initialTab !== "sales") {
+      switchAnalyticsTab(initialTab);
+    } else {
+      analyticsTab = "sales";
+      loadAnalyticsSales();
+    }
   }
 
   var analyticsTab = "sales";
@@ -10905,6 +10948,8 @@
   var _pendingAnalyticsTab = null; // deep-link #analytics/<sub> (Task 7) — consommé par renderAnalytics (Task 10)
 
   function switchAnalyticsTab(tab) {
+    try { localStorage.setItem("sm_lasttab_analytics_" + (state.shop || ""), tab); } catch (e) {}
+    _setHash("analytics", tab, null);
     analyticsTab = tab;
     // Couvre l'ancien sélecteur ET le nouveau .analytics-tabs-row
     document.querySelectorAll(".analytics-tabs .tab-btn, .analytics-tabs-row .tab-btn").forEach(function(btn) {
