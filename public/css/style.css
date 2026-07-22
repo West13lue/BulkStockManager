@@ -2194,7 +2194,7 @@ input, select, textarea {
   padding: var(--space-md) var(--space-lg);
   background: var(--bg-tertiary);
   border-radius: var(--radius-lg);
-  margin-bottom: var(--space-lg);
+  margin-bottom: var(--space-md);
   flex-wrap: wrap;
 }
 
@@ -4123,18 +4123,7 @@ html, body {
   }
 }
 
-/* Toolbar filters */
-.toolbar-filters {
-  display: flex;
-  gap: var(--space-md);
-  flex-wrap: wrap;
-  margin-bottom: var(--space-md);
-}
-
-.filter-group {
-  min-width: 150px;
-}
-
+/* Toolbar filters — voir definition unique plus haut (~2191) */
 @media (max-width: 768px) {
   .filter-group {
     flex: 1;
@@ -6755,7 +6744,7 @@ table.analytics-table td.col-num.danger  { color: var(--danger); }
 .dashboard-grid > .card:only-child { grid-column: 1 / -1; }
 
 /* --- Onglets unifiés : tous alignés sur le style underline (.tab-btn) --- */
-.detail-tab,
+.detail-tabs .detail-tab,
 .activity-tabs [role="tab"] {
   background: transparent;
   border: 0;
@@ -6767,19 +6756,41 @@ table.analytics-table td.col-num.danger  { color: var(--danger); }
   cursor: pointer;
   transition: color var(--transition-fast), border-color var(--transition-fast);
 }
-.detail-tab:hover,
+.detail-tabs .detail-tab:hover,
 .activity-tabs [role="tab"]:hover { color: var(--text-primary); }
-.detail-tab.active,
+.detail-tabs .detail-tab.active,
 .activity-tabs [role="tab"].active {
   color: var(--text-primary);
   border-bottom-color: var(--accent-primary);
   background: transparent;
 }
 
+/* --- .detail-tabs : aplatir le wrapper pill pour laisser les boutons underline affleurer --- */
+.detail-tabs {
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
+}
+
+/* --- Badge de comptage dans les onglets analytics, aligné sur .activity-tabs --- */
+.analytics-tabs-row .tab-btn .badge-count {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: var(--bg-tertiary);
+  color: var(--text-tertiary);
+}
+.analytics-tabs-row .tab-btn.active .badge-count,
+.analytics-tabs-row .tab-btn[aria-selected="true"] .badge-count {
+  background: var(--accent-primary);
+  color: white;
+}
+
 /* --- Sous-items sidebar --- */
 .nav-subitems { display: none; flex-direction: column; padding-left: 28px; }
-.nav-item.active + .nav-subitems,
-.nav-subitems.is-open { display: flex; }
+.nav-item.active + .nav-subitems { display: flex; }
 .nav-subitem {
   display: flex; align-items: center; gap: 8px;
   padding: 6px 12px; font-size: 12.5px;
