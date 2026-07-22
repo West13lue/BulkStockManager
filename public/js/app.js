@@ -4127,7 +4127,8 @@
         showQR: showQR,
         showPrice: showPrice && !cfg.isGift,
         showSupplier: showSupplier,
-        isGift: !!cfg.isGift
+        isGift: !!cfg.isGift,
+        isDiscoveryPack: !!cfg.isDiscoveryPack
       };
     }).filter(function(d) { return d.productName; });
   }
@@ -4275,6 +4276,12 @@
       showToast(t("labels.giftNoOrder", "Pochon cadeau ignore (commande inconnue)."), "warning");
     }
 
+    // Préparation pack découverte : déduit le poids (1,5 g x qté) de chaque produit.
+    var discoveryLines = allData.filter(function(d) { return d.isDiscoveryPack && d.productId && d.weight > 0; });
+    if (discoveryLines.length > 0) {
+      commitDiscoveryPack(discoveryLines);
+    }
+
     printWindow.document.write(
       '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>' + t("labels.printTitle", "Etiquettes") + '</title>' +
       '<style>' +
@@ -4335,6 +4342,43 @@
         t("labels.giftFailed", "{count} ligne(s) cadeau non enregistree(s)").replace("{count}", failed),
         "error"
       );
+    }
+  }
+
+  // POST la liste des pochons du pack découverte : le backend déduit le stock
+  // (grams = 1,5 g x qté par produit), enregistre un mouvement et pousse vers
+  // Shopify. Aucune écriture analytics. Calqué sur recordGiftLines.
+  async function commitDiscoveryPack(discoveryLines) {
+    var payload = discoveryLines.map(function (d) {
+      return { productId: d.productId, grams: (Number(d.weight) || 0) * (Number(d.qty) || 1) };
+    });
+    try {
+      var res = await authFetch(apiUrl("/discovery-pack/commit"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lines: payload })
+      });
+      if (!res.ok) {
+        showToast(t("labels.discoveryPackError", "Erreur préparation pack découverte"), "error");
+        return;
+      }
+      var data = await res.json();
+      showToast(
+        t("labels.discoveryPackDone", "{count} pochon(s) préparé(s), {grams} g déduits")
+          .replace("{count}", data.prepared || 0)
+          .replace("{grams}", data.totalGramsDeducted || 0),
+        "success"
+      );
+      if (data.skipped && data.skipped.length > 0) {
+        showToast(
+          t("labels.discoveryPackSkipped", "{count} produit(s) ignoré(s) (stock insuffisant)").replace("{count}", data.skipped.length),
+          "warning"
+        );
+      }
+      if (typeof loadLatestOrderLabels === "function") loadLatestOrderLabels();
+    } catch (e) {
+      console.warn("commitDiscoveryPack error", e);
+      showToast(t("labels.discoveryPackError", "Erreur préparation pack découverte"), "error");
     }
   }
 
