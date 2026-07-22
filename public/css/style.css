@@ -6662,7 +6662,7 @@ table.analytics-table td.col-num.danger  { color: var(--danger); }
 .u-num .unit { color: var(--text-tertiary); font-size: 0.85em; margin-left: 2px; }
 
 /* --- Densité tableaux (style Linear) --- */
-.data-table th { position: sticky; top: 0; z-index: 2; background: var(--bg-secondary); }
+.data-table th { position: sticky; top: 0; z-index: 2; background: var(--bg-tertiary); }
 .data-table td { padding-top: 8px; padding-bottom: 8px; }
 .table-sticky { max-height: calc(100vh - var(--topbar-height) - 220px); overflow: auto; }
 
