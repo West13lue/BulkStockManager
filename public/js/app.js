@@ -8622,20 +8622,25 @@
     if (typeof lucide !== "undefined") lucide.createIcons();
   }
 
-  function showToast(msg, type, dur) {
+  function showToast(msg, type, dur, action) {
     var ct = document.getElementById("toastContainer");
     if (!ct) return;
-    var t = document.createElement("div");
-    t.className = "toast " + (type || "info");
+    var el = document.createElement("div");
+    el.className = "toast " + (type || "info");
     var iconName = { success: "check", error: "x", warning: "alert-triangle", info: "info" }[type] || "info";
-    t.innerHTML =
+    el.innerHTML =
       '<span class="toast-icon"><i data-lucide="' + iconName + '"></i></span>' +
       '<div class="toast-message">' + esc(msg) + '</div>' +
+      (action && action.label ? '<button class="toast-action" type="button">' + esc(action.label) + '</button>' : '') +
       '<button class="toast-close" onclick="this.parentElement.remove()"><i data-lucide="x"></i></button>';
-    ct.appendChild(t);
+    if (action && typeof action.onClick === "function") {
+      var btn = el.querySelector(".toast-action");
+      if (btn) btn.addEventListener("click", function() { el.remove(); action.onClick(); });
+    }
+    ct.appendChild(el);
     if (typeof lucide !== "undefined") lucide.createIcons();
-    setTimeout(function () { t.classList.add("visible"); }, 10);
-    setTimeout(function () { t.remove(); }, dur || 4000);
+    setTimeout(function () { el.classList.add("visible"); }, 10);
+    setTimeout(function () { el.remove(); }, dur || 4000);
   }
 
   async function ensureOAuthInstalled() {
@@ -8775,6 +8780,16 @@
     }
   }
 
+  async function _fetchLastMovementId(productId) {
+    try {
+      var res = await authFetch(apiUrl("/movements?limit=1"));
+      if (!res.ok) return null;
+      var data = await res.json();
+      var m = (data.movements || [])[0];
+      return (m && m.productId === productId && m.id) ? m.id : null;
+    } catch (e) { return null; }
+  }
+
   async function saveRestock() {
     var pid = (document.getElementById("rProd") || {}).value;
     var qty = parseFloat((document.getElementById("rQty") || {}).value);
@@ -8795,10 +8810,12 @@
       });
       if (res.ok) {
         _saveLastQty(qty);
-        showToast("Stock mis a jour", "success");
         closeModal();
         await loadProducts();
         renderTab(state.currentTab);
+        var undoId = await _fetchLastMovementId(pid);
+        showToast(t("msg.stockUpdated", "Stock mis à jour"), "success", 6000,
+          undoId ? { label: t("activity.undo", "Annuler"), onClick: function() { undoMovementConfirmed(undoId); } } : null);
       } else {
         var e = await res.json();
         showToast(e.error || "Erreur", "error");
@@ -8836,10 +8853,12 @@
       });
       if (res.ok) {
         _saveLastQty(qty);
-        showToast("Ajustement OK", "success");
         closeModal();
         await loadProducts();
         renderTab(state.currentTab);
+        var undoId = await _fetchLastMovementId(pid);
+        showToast(t("msg.adjustOk", "Ajustement OK"), "success", 6000,
+          undoId ? { label: t("activity.undo", "Annuler"), onClick: function() { undoMovementConfirmed(undoId); } } : null);
       } else {
         var e = await res.json();
         showToast(e.error || "Erreur", "error");
