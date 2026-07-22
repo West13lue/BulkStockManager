@@ -8780,13 +8780,18 @@
     }
   }
 
-  async function _fetchLastMovementId(productId) {
+  async function _fetchLastMovementId(productId, type) {
     try {
-      var res = await authFetch(apiUrl("/movements?limit=1"));
+      var res = await authFetch(apiUrl("/movements?limit=5"));
       if (!res.ok) return null;
       var data = await res.json();
-      var m = (data.movements || [])[0];
-      return (m && m.productId === productId && m.id) ? m.id : null;
+      var list = data.movements || [];
+      for (var i = 0; i < list.length; i++) {
+        var m = list[i];
+        var mType = m.type || m.source;
+        if (m && m.productId === productId && (!type || mType === type) && m.id) return m.id;
+      }
+      return null;
     } catch (e) { return null; }
   }
 
@@ -8813,7 +8818,7 @@
         closeModal();
         await loadProducts();
         renderTab(state.currentTab);
-        var undoId = await _fetchLastMovementId(pid);
+        var undoId = await _fetchLastMovementId(pid, "restock");
         showToast(t("msg.stockUpdated", "Stock mis à jour"), "success", 6000,
           undoId ? { label: t("activity.undo", "Annuler"), onClick: function() { undoMovementConfirmed(undoId); } } : null);
       } else {
@@ -8856,7 +8861,7 @@
         closeModal();
         await loadProducts();
         renderTab(state.currentTab);
-        var undoId = await _fetchLastMovementId(pid);
+        var undoId = await _fetchLastMovementId(pid, "adjust_total");
         showToast(t("msg.adjustOk", "Ajustement OK"), "success", 6000,
           undoId ? { label: t("activity.undo", "Annuler"), onClick: function() { undoMovementConfirmed(undoId); } } : null);
       } else {
