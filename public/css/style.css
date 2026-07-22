@@ -6753,3 +6753,25 @@ table.analytics-table td.col-num.danger  { color: var(--danger); }
    la card Activité récente reste seule dans la grille — l'étirer pleine largeur
    plutôt que de la laisser à moitié de la grille. --- */
 .dashboard-grid > .card:only-child { grid-column: 1 / -1; }
+
+/* --- Onglets unifiés : tous alignés sur le style underline (.tab-btn) --- */
+.detail-tab,
+.activity-tabs [role="tab"] {
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: color var(--transition-fast), border-color var(--transition-fast);
+}
+.detail-tab:hover,
+.activity-tabs [role="tab"]:hover { color: var(--text-primary); }
+.detail-tab.active,
+.activity-tabs [role="tab"].active {
+  color: var(--text-primary);
+  border-bottom-color: var(--accent-primary);
+  background: transparent;
+}

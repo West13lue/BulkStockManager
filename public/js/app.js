@@ -11166,6 +11166,18 @@
       if (!res.ok) throw new Error("Erreur chargement");
       var data = await res.json();
       renderOrdersDebugContent(data);
+
+      var ordersTabBtn = document.querySelector('.analytics-tabs-row .tab-btn[data-tab="orders"]');
+      if (ordersTabBtn && data && Array.isArray(data.orders)) {
+        var badge = ordersTabBtn.querySelector(".badge-count");
+        if (!badge) {
+          badge = document.createElement("span");
+          badge.className = "badge-count";
+          badge.style.marginLeft = "6px";
+          ordersTabBtn.appendChild(badge);
+        }
+        badge.textContent = String(data.orders.length);
+      }
     } catch (e) {
       container.innerHTML = '<div class="card"><div class="card-body"><p class="text-danger">Erreur: ' + esc(e.message) + '</p></div></div>';
     }
