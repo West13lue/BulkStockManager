@@ -572,6 +572,22 @@ function getProductSnapshot(shop, productId) {
   };
 }
 
+/**
+ * Pose directement le CMP (cout moyen pondere) d'un produit et persiste.
+ * Utilise par l'undo pour restaurer le cmpBefore d'un restock/adjust_total.
+ * Renvoie false si le produit n'existe pas.
+ */
+function setAverageCostPerGram(shop, productId, cmp) {
+  const sh = String(shop || "default");
+  const pid = String(productId || "");
+  const store = getStore(sh);
+  const cfg = store[pid];
+  if (!cfg) return false;
+  cfg.averageCostPerGram = clampMin0(Number(cmp) || 0);
+  persistState(sh);
+  return true;
+}
+
 module.exports = {
   PRODUCT_CONFIG_BY_SHOP,
   applyOrderToProduct,
@@ -591,4 +607,5 @@ module.exports = {
   // a... NOUVEAU pour Analytics
   getProductCMPSnapshot,
   getProductSnapshot,
+  setAverageCostPerGram,
 };
