@@ -3675,7 +3675,7 @@
         '<td>' + esc(lot.productName || "Produit") + '</td>' +
         '<td class="u-num">' + formatWeight(lot.currentGrams) + ' / ' + formatWeight(lot.initialGrams) + '</td>' +
         '<td>' + (lot.expiryDate ? lot.expiryDate : '-') + '</td>' +
-        '<td class="u-num">' + dlcBadge + '</td>' +
+        '<td>' + dlcBadge + '</td>' +
         '<td class="u-num">' + formatPricePerUnit(lot.purchasePricePerGram || 0) + '</td>' +
         '<td class="u-num">' + formatCurrency(lot.valueRemaining || 0) + '</td>' +
         '<td>' + statusBadge + '</td>' +
@@ -5941,8 +5941,8 @@
         '<td>' + sourceBadge + '</td>' +
         '<td class="u-num">' + formatCurrency(so.total || 0) + '</td>' +
         '<td class="u-num">' + formatCurrency(so.totalCost || 0) + '</td>' +
-        '<td class="u-num ' + marginClass + '">' + formatCurrency(so.grossMargin || 0) + '</td>' +
-        '<td class="u-num ' + marginClass + '">' + (so.marginPercent || 0) + '%</td>' +
+        '<td class="' + ("u-num" + (marginClass ? " " + marginClass : "")) + '">' + formatCurrency(so.grossMargin || 0) + '</td>' +
+        '<td class="' + ("u-num" + (marginClass ? " " + marginClass : "")) + '">' + (so.marginPercent || 0) + '%</td>' +
         '<td>' + (so.createdAt || '').slice(0, 10) + '</td>' +
         '</tr>';
     }).join("");
