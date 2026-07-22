@@ -351,7 +351,7 @@ Après la toolbar, injecter chips + compteur. ⚠️ Ce bloc référence `filter
     if (activeChips) {
       activeChips = '<div class="filter-chips">' + activeChips +
         '<button class="btn btn-ghost btn-xs" onclick="app.resetCatalogFilters()">' + t("filter.reset", "Réinitialiser") + '</button>' +
-        '<span class="results-count">' + filteredWeight.length + ' ' + t("products.productCount", "produit(s)") + '</span></div>';
+        '<span class="results-count">' + (filteredWeight.length + accessoryProducts.length) + ' ' + t("products.productCount", "produit(s)") + '</span></div>';
     }
 ```
 
