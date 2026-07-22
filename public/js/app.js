@@ -427,8 +427,13 @@
     await loadProducts();
     renderTab("dashboard");
     updateUI();
+
+    // Deep-linking hash (#tab / #parent/sub / #products?status=critical)
+    window.addEventListener("hashchange", _applyHash);
+    if (location.hash) _applyHash();
+
     console.log("[Init] Ready - Plan:", state.planId);
-    
+
     initKeyboardShortcuts();
     loadProfiles();
     refreshHealthBadge(); // non-blocking
@@ -952,11 +957,64 @@
     return '<nav class="subtab-rail" role="tablist" aria-label="' + parentId + '">' + parts.join('') + '</nav>';
   }
 
-  function navigateTo(tab) {
+  // ============================================
+  // DEEP-LINKING HASH (#tab / #parent/sub / #products?status=critical)
+  // ============================================
+  var _hashNavigating = false;
+
+  function _setHash(tab, sub, params) {
+    var h = "#" + tab + (sub ? "/" + sub : "");
+    var qs = [];
+    if (params) {
+      Object.keys(params).forEach(function(k) {
+        if (params[k]) qs.push(encodeURIComponent(k) + "=" + encodeURIComponent(params[k]));
+      });
+    }
+    if (qs.length) h += "?" + qs.join("&");
+    if (location.hash === h) return;
+    _hashNavigating = true;
+    location.hash = h;
+    setTimeout(function() { _hashNavigating = false; }, 0);
+  }
+
+  function _parseHash() {
+    var h = (location.hash || "").replace(/^#/, "");
+    if (!h) return null;
+    var parts = h.split("?");
+    var path = parts[0].split("/");
+    var params = {};
+    if (parts[1]) {
+      parts[1].split("&").forEach(function(kv) {
+        var p = kv.split("=");
+        if (p[0]) params[decodeURIComponent(p[0])] = decodeURIComponent(p[1] || "");
+      });
+    }
+    return { tab: path[0], sub: path[1] || null, params: params };
+  }
+
+  function _applyHash() {
+    if (_hashNavigating) return;
+    var parsed = _parseHash();
+    if (!parsed || !parsed.tab) return;
+    navigateTo(parsed.tab, parsed.params, parsed.sub);
+  }
+
+  function navigateTo(tab, params, sub) {
     // If user clicked a parent in the sidebar, redirect to the first available sub.
     if (isParentTab(tab)) {
       var first = firstAvailableSub(tab);
       tab = first ? first.id : tab;
+    }
+    // Paramètres de pré-filtrage (ex. status depuis le bloc urgence dashboard,
+    // sort depuis les KPIs cliquables)
+    if (params && tab === "products") {
+      var dirty = false;
+      if (typeof params.status === "string") { state.filters.status = params.status; dirty = true; }
+      if (typeof params.sort === "string")   { state.filters.sort = params.sort; dirty = true; }
+      if (dirty) _saveCatalogFilters();
+    }
+    if (tab === "analytics" && sub) {
+      _pendingAnalyticsTab = sub; // consommé par renderAnalytics (Task 10)
     }
     state.currentTab = tab;
     var sidebarKey = sidebarKeyFor(tab);
@@ -964,6 +1022,7 @@
       el.classList.toggle("active", el.dataset.tab === sidebarKey);
     });
     closeSidebarOnMobile();
+    _setHash(tab, sub || null, params || null);
     renderTab(tab);
   }
 
@@ -1447,7 +1506,7 @@
       var items = '';
       if (outOfStockProducts.length) {
         items +=
-          '<button type="button" class="urgency-block__item" onclick="app.showOutOfStockModal()" ' +
+          '<button type="button" class="urgency-block__item" onclick="app.navigateTo(\'products\', {status:\'critical\'})" ' +
           'aria-label="' + outOfStockProducts.length + ' produits en rupture, ouvrir la liste">' +
             '<i data-lucide="x-circle" class="urgency-block__item-icon" aria-hidden="true"></i>' +
             '<span class="urgency-block__item-count" style="color:var(--danger)">' + outOfStockProducts.length + '</span>' +
@@ -1460,7 +1519,7 @@
       }
       if (lowStockProducts.length) {
         items +=
-          '<button type="button" class="urgency-block__item" onclick="app.showLowStockModal()" ' +
+          '<button type="button" class="urgency-block__item" onclick="app.navigateTo(\'products\', {status:\'low\'})" ' +
           'aria-label="' + lowStockProducts.length + ' produits en stock bas, ouvrir la liste">' +
             '<i data-lucide="alert-triangle" class="urgency-block__item-icon" aria-hidden="true"></i>' +
             '<span class="urgency-block__item-count" style="color:var(--warning)">' + lowStockProducts.length + '</span>' +
@@ -1984,6 +2043,7 @@
   }
 
   // Modal produits stock bas (utilise les seuils Parametres > Gestion du stock)
+  // Depuis la refonte 2026-07 : plus appelé par le dashboard (flux remplacé par catalogue filtré).
   function showLowStockModal() {
     var critT = (settingsData && settingsData.stock && Number(settingsData.stock.criticalThreshold)) || 0;
     var lowT = (settingsData && settingsData.stock && Number(settingsData.stock.lowStockThreshold)) || 100;
@@ -2023,6 +2083,7 @@
   //  - exclut les accessoires (trackByUnit) et les produits archives
   //  - inclut les produits sous le seuil critique configure dans Parametres,
   //    pas seulement ceux strictement a 0g
+  // Depuis la refonte 2026-07 : plus appelé par le dashboard (flux remplacé par catalogue filtré).
   function showOutOfStockModal() {
     var critT = (settingsData && settingsData.stock && Number(settingsData.stock.criticalThreshold)) || 0;
     var outOfStockProducts = (state.products || [])
@@ -10846,6 +10907,7 @@
 
   var analyticsTab = "sales";
   var analyticsSalesData = null;
+  var _pendingAnalyticsTab = null; // deep-link #analytics/<sub> (Task 7) — consommé par renderAnalytics (Task 10)
 
   function switchAnalyticsTab(tab) {
     analyticsTab = tab;
