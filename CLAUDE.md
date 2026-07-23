@@ -39,7 +39,7 @@ Pipeline de middlewares **dans cet ordre** sur `/api` :
 4. **`enforceAuthShopMatch`** — refuse une requête si le shop demandé par le client (query/header) ne correspond pas à celui du JWT (anti cross-shop).
 5. Handlers `/api/*` (~150 routes : stock, products, categories, movements, batches, suppliers, orders, kits, forecast, settings, billing, etc.).
 
-Les **webhooks** sont enregistrés *avant* le router applicatif et utilisent `express.raw({ type: "application/json" })` pour préserver le body brut nécessaire à la vérification HMAC. Topics : `app/uninstalled`, `orders/create`, `customers/data_request`, `customers/redact`, `shop/redact`, `app_subscriptions/update`. La config canonique est dans `shopify.app.bulk-stock-manager.toml`.
+Les **webhooks** sont enregistrés *avant* le router applicatif et utilisent `express.raw({ type: "application/json" })` pour préserver le body brut nécessaire à la vérification HMAC. Topics : `app/uninstalled`, `orders/create`, `refunds/create`, `customers/data_request`, `customers/redact`, `shop/redact`, `app_subscriptions/update`. La config canonique est dans `shopify.app.bulk-stock-manager.toml`. ⚠️ Ajouter un topic au TOML ne l'enregistre chez Shopify qu'après un `shopify app deploy` (les webhooks ne sont PAS enregistrés programmatiquement) — un push Render seul laisse le handler inerte.
 
 Une **dédup webhook** in-memory (`processedWebhooks` Map, TTL 24h) protège contre les retries Shopify sur `orders/create`.
 

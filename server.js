@@ -8654,6 +8654,138 @@ app.post("/webhooks/orders/create", express.raw({ type: "application/json" }), a
   }
 });
 
+// Remboursement Shopify : inverse la vente (CA/marge) et, selon le restock_type
+// Shopify, remet les grammes en stock. Ecritures analytics NEGATIVES append-only
+// (les agregats et la timeline patrimoine se nettent) + mouvement d'audit.
+// /!\ Necessite le webhook refunds/create declare dans le TOML : actif seulement
+// apres `shopify app deploy`. Le scope read_orders (deja present) suffit.
+// Dedup au niveau du remboursement via isWebhookDuplicate (in-memory, meme limite
+// que orders/create : un retry apres redemarrage process pourrait re-restocker).
+app.post("/webhooks/refunds/create", express.raw({ type: "application/json" }), async (req, res) => {
+  try {
+    if (!requireVerifiedWebhook(req, res)) return res.sendStatus(401);
+
+    const payload = JSON.parse(req.body.toString("utf8") || "{}");
+    const shop = getShopFromWebhook(req, payload);
+    if (!shop) return res.sendStatus(200);
+
+    const refundId = String(payload?.id || "");
+    const origOrderId = String(payload?.order_id || "");
+    if (refundId && isWebhookDuplicate("refund_" + refundId)) {
+      logEvent("refund_duplicate_skipped", { shop, refundId }, "info");
+      return res.sendStatus(200);
+    }
+
+    const lines = Array.isArray(payload?.refund_line_items) ? payload.refund_line_items : [];
+    if (!lines.length) return res.sendStatus(200);
+
+    const refundOrderId = origOrderId + "_refund_" + refundId;
+
+    for (const rli of lines) {
+      const li = rli?.line_item || {};
+      const productId = String(li?.product_id || "");
+      const variantId = String(li?.variant_id || "");
+      const refundQty = Number(rli?.quantity || 0);
+      if (!productId || refundQty <= 0) continue;
+
+      // restock_type Shopify : "return"/"cancel"/"legacy_restock" -> biens de retour
+      // en stock ; "no_restock" -> biens non recuperes (seul le CA s'inverse).
+      const rt = String(rli?.restock_type || "").toLowerCase();
+      const restocks = rt === "return" || rt === "cancel" || rt === "legacy_restock";
+
+      // Retrouver la vente d'origine (elle porte grammes / CMP / CA reels).
+      let origSale = null;
+      try {
+        const candidates = analyticsStore.listSales
+          ? analyticsStore.listSales({ shop, productId, limit: 5000 })
+          : [];
+        origSale = (candidates || []).find((s) =>
+          String(s.orderId || "") === origOrderId &&
+          String(s.variantId || "") === variantId
+        ) || null;
+      } catch (_) {}
+
+      let gramsRefunded = 0;
+      let revenueReversed = 0;
+      let costReversed = 0;
+      let productName = productId;
+      let gramsPerUnit = 0;
+      let costPerGram = 0;
+
+      if (origSale) {
+        const origQty = Number(origSale.quantity) || 0;
+        const prop = origQty > 0 ? Math.min(1, refundQty / origQty) : 1; // remboursement partiel
+        gramsRefunded = (Number(origSale.totalGrams) || 0) * prop;
+        revenueReversed = (Number(origSale.netRevenue) || 0) * prop;
+        // Le cout ne se "de-consomme" que si les biens reviennent en stock.
+        costReversed = restocks ? (Number(origSale.totalCost) || 0) * prop : 0;
+        productName = origSale.productName || productId;
+        gramsPerUnit = Number(origSale.gramsPerUnit) || 0;
+        costPerGram = Number(origSale.costPerGram) || 0;
+      } else {
+        // Vente d'origine absente de l'analytics (commande ancienne/manuelle) :
+        // on inverse au moins le CA d'apres le montant Shopify, sans toucher au stock.
+        revenueReversed = Number(rli?.subtotal || 0);
+      }
+
+      // 1. Ecriture analytics negative (CA/marge/quantite ; grammes+cout si retour).
+      if (analyticsStore && analyticsStore.addSale && (revenueReversed > 0 || gramsRefunded > 0)) {
+        analyticsStore.addSale({
+          orderId: refundOrderId,
+          orderNumber: (origSale && origSale.orderNumber) || payload?.order_id || null,
+          productId,
+          productName,
+          variantId: variantId || null,
+          variantTitle: (origSale && origSale.variantTitle) || null,
+          categoryIds: (origSale && origSale.categoryIds) || [],
+          quantity: -refundQty,
+          gramsPerUnit,
+          totalGrams: restocks ? -gramsRefunded : 0,
+          netRevenue: -revenueReversed,
+          currency: (origSale && origSale.currency) || "EUR",
+          costPerGram,
+          totalCost: -costReversed,
+          margin: -(revenueReversed - costReversed),
+          source: "refund",
+          shop,
+        }, shop);
+      }
+
+      // 2. Remise en stock si Shopify indique un retour en inventaire (CMP neutre).
+      if (restocks && gramsRefunded > 0 && typeof stock.restockProduct === "function") {
+        try {
+          const updated = await stock.restockProduct(shop, productId, gramsRefunded);
+          if (updated) {
+            try { await pushProductInventoryToShopify(shop, updated); }
+            catch (e) { logEvent("inventory_push_error", { shop, productId, message: e?.message }, "error"); }
+            if (movementStore.addMovement) {
+              movementStore.addMovement({
+                source: "refund_restock",
+                productId,
+                productName,
+                gramsDelta: Math.abs(gramsRefunded),
+                totalAfter: updated.totalGrams,
+                orderId: origOrderId,
+                note: "Remboursement Shopify (retour stock)",
+                meta: { refundId, restockType: rt },
+                shop,
+              }, shop);
+            }
+          }
+        } catch (e) {
+          logEvent("refund_restock_error", { shop, productId, error: e.message }, "error");
+        }
+      }
+    }
+
+    logEvent("refund_processed", { shop, refundId, orderId: origOrderId, lines: lines.length }, "info");
+    return res.sendStatus(200);
+  } catch (e) {
+    logEvent("webhook_refund_error", extractShopifyError(e), "error");
+    return res.sendStatus(500);
+  }
+});
+
 // Mount router en "prefix-safe"
 app.use("/", router);
 app.use("/apps/:appSlug", router);
