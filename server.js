@@ -1638,8 +1638,9 @@ router.post("/api/products/:productId/adjust-total", (req, res) => {
       logEvent("inventory_push_error", { shop, productId, ...extractShopifyError(e) }, "error");
     }
 
+    let mv = null;
     if (movementStore.addMovement) {
-      movementStore.addMovement(
+      mv = movementStore.addMovement(
         {
           source: "adjust_total",
           productId,
@@ -1661,6 +1662,7 @@ router.post("/api/products/:productId/adjust-total", (req, res) => {
       success: true,
       product: updated,
       cmpUpdated: gramsDelta > 0 && purchasePricePerGram > 0,
+      movementId: mv ? mv.id : null,
     });
   });
 });
@@ -3144,8 +3146,9 @@ router.post("/api/restock", (req, res) => {
       logEvent("inventory_push_error", { shop, productId, ...extractShopifyError(e) }, "error");
     }
 
+    let mv = null;
     if (movementStore.addMovement) {
-      movementStore.addMovement(
+      mv = movementStore.addMovement(
         {
           source: "restock",
           productId,
@@ -3163,7 +3166,7 @@ router.post("/api/restock", (req, res) => {
       );
     }
 
-    res.json({ success: true, product: updated, cmpUpdated: purchasePricePerGram > 0 });
+    res.json({ success: true, product: updated, cmpUpdated: purchasePricePerGram > 0, movementId: mv ? mv.id : null });
   });
 });
 
@@ -3199,8 +3202,9 @@ router.post("/api/products/:productId/restock", (req, res) => {
       logEvent("inventory_push_error", { shop, productId, ...extractShopifyError(e) }, "error");
     }
 
+    let mv = null;
     if (movementStore.addMovement) {
-      movementStore.addMovement(
+      mv = movementStore.addMovement(
         {
           source: "restock",
           productId,
@@ -3218,7 +3222,7 @@ router.post("/api/products/:productId/restock", (req, res) => {
       );
     }
 
-    res.json({ success: true, product: updated, cmpUpdated: purchasePricePerGram > 0 });
+    res.json({ success: true, product: updated, cmpUpdated: purchasePricePerGram > 0, movementId: mv ? mv.id : null });
   });
 });
 

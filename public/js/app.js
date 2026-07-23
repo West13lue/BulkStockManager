@@ -8913,21 +8913,6 @@
     }
   }
 
-  async function _fetchLastMovementId(productId, type) {
-    try {
-      var res = await authFetch(apiUrl("/movements?limit=5"));
-      if (!res.ok) return null;
-      var data = await res.json();
-      var list = data.movements || [];
-      for (var i = 0; i < list.length; i++) {
-        var m = list[i];
-        var mType = m.type || m.source;
-        if (m && m.productId === productId && (!type || mType === type) && m.id) return m.id;
-      }
-      return null;
-    } catch (e) { return null; }
-  }
-
   async function saveRestock() {
     var pid = (document.getElementById("rProd") || {}).value;
     var qty = parseFloat((document.getElementById("rQty") || {}).value);
@@ -8947,11 +8932,14 @@
         body: JSON.stringify({ productId: pid, grams: qtyInGrams, purchasePricePerGram: pricePerGram }),
       });
       if (res.ok) {
+        // Le backend renvoie l'id du mouvement cree -> l'undo le vise directement
+        // (plus de re-fetch "dernier mouvement", donc plus de course avec un webhook).
+        var data = await res.json().catch(function() { return null; });
         _saveLastQty(qty);
         closeModal();
         await loadProducts();
         renderTab(state.currentTab);
-        var undoId = await _fetchLastMovementId(pid, "restock");
+        var undoId = data && data.movementId;
         showToast(t("msg.stockUpdated", "Stock mis à jour"), "success", 6000,
           undoId ? { label: t("activity.undo", "Annuler"), onClick: function() { undoMovementConfirmed(undoId); } } : null);
       } else {
@@ -8990,11 +8978,12 @@
         body: JSON.stringify({ gramsDelta: delta, ...profileData }),
       });
       if (res.ok) {
+        var data = await res.json().catch(function() { return null; });
         _saveLastQty(qty);
         closeModal();
         await loadProducts();
         renderTab(state.currentTab);
-        var undoId = await _fetchLastMovementId(pid, "adjust_total");
+        var undoId = data && data.movementId;
         showToast(t("msg.adjustOk", "Ajustement OK"), "success", 6000,
           undoId ? { label: t("activity.undo", "Annuler"), onClick: function() { undoMovementConfirmed(undoId); } } : null);
       } else {
