@@ -2203,8 +2203,14 @@
     if (cmpDisplay) {
       cmpDisplay.textContent = cmp > 0 ? formatPricePerUnit(cmp) : '-';
     }
-    if (priceInput && !priceInput.value && cmp > 0) {
-      priceInput.value = cmp.toFixed(2);
+    // Le CMP est proposé comme SUGGESTION (placeholder grisé), jamais pré-rempli
+    // dans le champ. Sinon : (1) l'utilisateur qui ne touche pas la case envoie
+    // quand même une valeur et croit "n'avoir rien saisi" ; (2) en changeant de
+    // produit, l'ancien prix restait "collé" (condition !priceInput.value), et le
+    // CMP d'un autre produit contaminait le calcul. Le champ reste vide ->
+    // doQuickRestock() bloque tant qu'aucun prix d'achat n'est saisi explicitement.
+    if (priceInput) {
+      priceInput.placeholder = cmp > 0 ? cmp.toFixed(2) : '0.00';
     }
     updateQuickRestockTotal();
   }
