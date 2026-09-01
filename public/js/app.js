@@ -1507,133 +1507,12 @@
     }
     var sync = _formatLastSync();
 
-    // ----- Build urgency block HTML -----
-    var urgencyHtml;
-    if (isEmpty) {
-      urgencyHtml =
-        '<section class="urgency-block is-empty" aria-labelledby="urgencyTitle">' +
-          '<div class="urgency-block__header"><h2 id="urgencyTitle" class="urgency-block__title">' +
-            t("dashboard.empty.title", "Bienvenue dans Stock Manager.") +
-          '</h2></div>' +
-          '<p class="urgency-block__detail">' +
-            t("dashboard.empty.detail", "Importe ton catalogue depuis Shopify pour démarrer. Ça prend 30 secondes.") +
-          '</p>' +
-          '<div style="margin-top:var(--space-sm)">' +
-            '<button class="btn btn-primary" onclick="app.syncShopify()">' +
-              '<i data-lucide="download" aria-hidden="true"></i> ' +
-              t("dashboard.empty.cta", "Importer depuis Shopify") +
-            '</button>' +
-          '</div>' +
-        '</section>';
-    } else if (isClear) {
-      urgencyHtml =
-        '<section class="urgency-block is-clear" aria-labelledby="urgencyTitle">' +
-          '<div class="urgency-block__header"><h2 id="urgencyTitle" class="urgency-block__title">' +
-            t("dashboard.clear.title", "Tout est sous contrôle.") +
-          '</h2></div>' +
-          '<p class="urgency-block__detail">' +
-            totalProducts + ' ' + t("dashboard.clear.activeProducts", "produits actifs") +
-            ' · ' + t("dashboard.clear.zeroAlert", "0 alerte") +
-          '</p>' +
-        '</section>';
-    } else {
-      var stateClass = isCritical ? "is-critical" : "is-warning";
-      var titleParts = [];
-      if (outOfStockProducts.length) {
-        var outLbl = outOfStockProducts.length === 1
-          ? t("dashboard.urgency.outOfStockOne", "produit en rupture/critique")
-          : t("dashboard.urgency.outOfStockMany", "produits en rupture/critique");
-        titleParts.push(outOfStockProducts.length + ' ' + outLbl);
-      }
-      if (lowStockProducts.length) {
-        titleParts.push(lowStockProducts.length + ' ' + t("dashboard.urgency.lowStock", "en stock bas"));
-      }
-      var title = titleParts.join(' · ') + '.';
+    // ----- Le relevé d'ouverture -----
+    // Contrat de direction en tête de public/index.html (seed 0d0d84de).
+    // Le dashboard se lit comme un relevé : lignes, filets, quantités tabulaires,
+    // delta signé. Pas de grille de cartes égales, pas de gabarit gros-chiffre.
 
-      var items = '';
-      if (outOfStockProducts.length) {
-        items +=
-          '<button type="button" class="urgency-block__item" onclick="app.navigateTo(\'products\', {status:\'critical\'})" ' +
-          'aria-label="' + outOfStockProducts.length + ' produits en rupture, ouvrir la liste">' +
-            '<i data-lucide="x-circle" class="urgency-block__item-icon" aria-hidden="true"></i>' +
-            '<span class="urgency-block__item-count" style="color:var(--danger)">' + outOfStockProducts.length + '</span>' +
-            '<span class="urgency-block__item-label">' +
-              t("dashboard.urgency.outOfStockLabel", "à réapprovisionner immédiatement") +
-              (criticalThreshold > 0 ? ' <span style="opacity:0.6;font-size:11px">(stock < ' + criticalThreshold + ' g)</span>' : '') +
-            '</span>' +
-            '<i data-lucide="chevron-right" class="urgency-block__item-arrow" aria-hidden="true"></i>' +
-          '</button>';
-      }
-      if (lowStockProducts.length) {
-        items +=
-          '<button type="button" class="urgency-block__item" onclick="app.navigateTo(\'products\', {status:\'low\'})" ' +
-          'aria-label="' + lowStockProducts.length + ' produits en stock bas, ouvrir la liste">' +
-            '<i data-lucide="alert-triangle" class="urgency-block__item-icon" aria-hidden="true"></i>' +
-            '<span class="urgency-block__item-count" style="color:var(--warning)">' + lowStockProducts.length + '</span>' +
-            '<span class="urgency-block__item-label">' +
-              t("dashboard.urgency.lowStockLabel", "à anticiper avant rupture") +
-              (lowThreshold > 0 ? ' <span style="opacity:0.6;font-size:11px">(stock < ' + lowThreshold + ' g)</span>' : '') +
-            '</span>' +
-            '<i data-lucide="chevron-right" class="urgency-block__item-arrow" aria-hidden="true"></i>' +
-          '</button>';
-      }
-
-      urgencyHtml =
-        '<section class="urgency-block ' + stateClass + '" aria-labelledby="urgencyTitle">' +
-          '<div class="urgency-block__header"><h2 id="urgencyTitle" class="urgency-block__title">' + title + '</h2></div>' +
-          '<div class="urgency-block__items">' + items + '</div>' +
-        '</section>';
-    }
-
-    // ----- KPI strip enrichi -----
-    // 3 KPI universels + 2 KPI ventes (si plan PRO+) avec sparkline placeholder
-    var kpiStrip =
-      '<div class="kpi-strip" role="group" aria-label="' + t("dashboard.kpis", "Indicateurs") + '">' +
-        '<button type="button" class="kpi-strip__item is-link" onclick="app.navigateTo(\'products\')" ' +
-        'data-tooltip="' + t("tooltip.kpiProducts", "Ouvrir le catalogue complet") + '" data-tooltip-pos="bottom" ' +
-        'aria-label="' + totalProducts + ' ' + t("dashboard.products", "Produits") + ', ouvrir la liste">' +
-          '<span class="kpi-strip__label">' + t("dashboard.products", "Produits") + '</span>' +
-          '<span class="kpi-strip__value">' + totalProducts + '</span>' +
-        '</button>' +
-        '<button type="button" class="kpi-strip__item is-link" onclick="app.navigateTo(\'products\')" ' +
-        'data-tooltip="' + t("tooltip.kpiStock", "Ouvrir le catalogue trié par stock") + '" data-tooltip-pos="bottom">' +
-          '<span class="kpi-strip__label">' + t("dashboard.totalStock", "Stock total") + '</span>' +
-          '<span class="kpi-strip__value">' + formatWeight(totalStock) + '</span>' +
-        '</button>' +
-        '<button type="button" class="kpi-strip__item is-link" onclick="app.navigateTo(\'products\', {sort:\'value_desc\'})" ' +
-        'data-tooltip="' + t("tooltip.kpiValue", "Ouvrir le catalogue trié par valeur") + '" data-tooltip-pos="bottom">' +
-          '<span class="kpi-strip__label">' + t("dashboard.value", "Valeur") + '</span>' +
-          '<span class="kpi-strip__value">' + formatCurrency(totalValue) + '</span>' +
-        '</button>' +
-        // Solde Qonto (compte principal) - rendu async, masque si non configure
-        '<a class="kpi-strip__item is-link" id="kpiQonto" href="https://app.qonto.com" target="_blank" rel="noopener noreferrer" ' +
-          'data-tooltip="' + t("tooltip.kpiQonto", "Solde du compte courant Qonto - cliquer pour ouvrir Qonto") + '" data-tooltip-pos="bottom" ' +
-          'style="display:none;text-decoration:none">' +
-          '<span class="kpi-strip__label"><i data-lucide="wallet" aria-hidden="true"></i> ' + t("dashboard.qontoBalance", "Solde Qonto") + '</span>' +
-          '<span class="kpi-strip__value" id="kpiQontoValue">—</span>' +
-          '<span class="kpi-strip__sub" id="kpiQontoSub" style="display:block;font-size:11px;color:var(--text-tertiary);margin-top:2px"></span>' +
-        '</a>' +
-        // Slots ventes 7j et commandes 7j (rendus async si plan PRO+)
-        (hasFeature("hasAnalytics")
-          ? '<div class="kpi-strip__item is-link" id="kpiSales7" role="button" tabindex="0" onclick="app.navigateTo(\'analytics\')" data-tooltip="' + t("tooltip.kpiSales7", "Chiffre d\'affaires net des 7 derniers jours - cliquer pour ouvrir Analytics") + '" data-tooltip-pos="bottom" aria-label="' + t("dashboard.sales7d", "Ventes 7j") + '">' +
-              '<span class="kpi-strip__label"><i data-lucide="trending-up" aria-hidden="true"></i> ' + t("dashboard.sales7d", "Ventes 7j") + '</span>' +
-              '<span class="kpi-strip__value" id="kpiSales7Value">—</span>' +
-              '<div class="kpi-strip__sparkline" id="kpiSales7Spark"></div>' +
-            '</div>' +
-            '<div class="kpi-strip__item is-link" id="kpiOrders7" role="button" tabindex="0" onclick="app.navigateTo(\'analytics\')" data-tooltip="' + t("tooltip.kpiOrders7", "Nombre de commandes des 7 derniers jours - cliquer pour ouvrir Analytics") + '" data-tooltip-pos="bottom" aria-label="' + t("dashboard.orders7d", "Commandes 7j") + '">' +
-              '<span class="kpi-strip__label"><i data-lucide="shopping-bag" aria-hidden="true"></i> ' + t("dashboard.orders7d", "Commandes 7j") + '</span>' +
-              '<span class="kpi-strip__value" id="kpiOrders7Value">—</span>' +
-              '<div class="kpi-strip__sparkline" id="kpiOrders7Spark"></div>' +
-            '</div>'
-          : '<button type="button" class="kpi-strip__item is-locked" onclick="app.showUpgradeModal()" aria-label="' + t("dashboard.unlockSales", "Debloquer ventes PRO") + '">' +
-              '<i data-lucide="lock" class="kpi-strip__lock" aria-hidden="true"></i>' +
-              '<span class="kpi-strip__label">' + t("dashboard.sales7d", "Ventes 7j") + '</span>' +
-              '<span class="kpi-strip__value" style="opacity:0.5">PRO</span>' +
-            '</button>'
-        ) +
-      '</div>';
-
-    // ----- Actions rapides du header (fusion de l'ancienne quick-actions-bar) -----
+    // ----- Actions rapides (barre de tête) -----
     var headerActions = isEmpty ? '' :
       '<button class="btn btn-primary btn-sm" onclick="app.showQuickRestockModal()" data-tooltip="' + t("tooltip.quickRestock", "Ajouter du stock et mettre a jour le CMP du produit") + '" data-tooltip-pos="bottom">' +
         '<i data-lucide="package-plus" aria-hidden="true"></i> ' + t("dashboard.quickRestock", "Réappro rapide") + '</button>' +
@@ -1643,91 +1522,178 @@
       (hasFeature("hasInventoryCount") ? '<button class="btn btn-ghost btn-sm" onclick="app.navigateTo(\'inventory\')" data-tooltip="' + t("tooltip.inventory", "Lancer une session d\'inventaire physique") + '" data-tooltip-pos="bottom" aria-label="' + t("dashboard.inventory", "Inventaire") + '"><i data-lucide="clipboard-check" aria-hidden="true"></i></button>' : '') +
       '<button class="btn btn-ghost btn-sm" onclick="app.showAddProductModal()" data-tooltip="' + t("tooltip.addProduct", "Creer un nouveau produit dans le catalogue") + '" data-tooltip-pos="bottom" aria-label="' + t("dashboard.addProduct", "Produit") + '"><i data-lucide="plus" aria-hidden="true"></i></button>';
 
-    // ----- Watchlist : produits sous seuil uniquement (pas "les 5 plus bas" arbitraires) -----
-    var watchlistHtml;
-    if (watchlistProducts.length === 0) {
-      watchlistHtml =
-        '<div class="dashboard-watchlist-empty">' +
-          '<i data-lucide="check-circle" aria-hidden="true"></i>' +
-          '<p style="margin:4px 0">' + t("dashboard.watchlistEmpty", "Aucun produit sous seuil") + '</p>' +
-          '<p class="text-tertiary" style="font-size:12px;margin:0">' + t("dashboard.watchlistEmptyHint", "Tous les stocks sont au-dessus du seuil bas configure dans Parametres.") + '</p>' +
-        '</div>';
-    } else {
-      watchlistHtml = renderTable(watchlistProducts.slice(0, 8));
+    // ----- Section « À traiter » : une ligne par produit, action au bout de la ligne -----
+    var standingSummary = '';
+    if (outOfStockProducts.length) {
+      standingSummary += outOfStockProducts.length + ' ' + t("ledger.outCount", "en rupture");
+    }
+    if (lowStockProducts.length) {
+      standingSummary += (standingSummary ? ' · ' : '') + lowStockProducts.length + ' ' + t("ledger.lowCount", "en stock bas");
     }
 
-    // ----- Card Lots qui expirent (PRO uniquement) -----
-    var batchesCardHtml = '';
+    var standingRows = '';
+    if (isEmpty) {
+      standingRows =
+        '<div class="ledger-note">' +
+          '<p class="ledger-note__title">' + t("dashboard.empty.title", "Bienvenue dans Stock Manager.") + '</p>' +
+          '<p class="ledger-note__detail">' + t("dashboard.empty.detail", "Importe ton catalogue depuis Shopify pour démarrer. Ça prend 30 secondes.") + '</p>' +
+          '<button class="btn btn-primary btn-sm" onclick="app.syncShopify()">' +
+            '<i data-lucide="download" aria-hidden="true"></i> ' + t("dashboard.empty.cta", "Importer depuis Shopify") +
+          '</button>' +
+        '</div>';
+    } else if (!watchlistProducts.length) {
+      standingRows =
+        '<div class="ledger-note is-clear">' +
+          '<p class="ledger-note__title">' + t("ledger.nothingTodo", "Rien à traiter.") + '</p>' +
+          '<p class="ledger-note__detail">' +
+            totalProducts + ' ' + t("dashboard.clear.activeProducts", "produits actifs") + ' · ' +
+            t("ledger.nothingTodoHint", "tous au-dessus du seuil bas.") +
+          '</p>' +
+        '</div>';
+    } else {
+      watchlistProducts.slice(0, 10).forEach(function (p) {
+        var g = p.totalGrams || 0;
+        var isOut = g === 0 || (criticalThreshold > 0 && g < criticalThreshold);
+        var pid = String(p.id || '');
+        var pname = esc(p.title || p.name || t("product.untitled", "Produit"));
+        standingRows +=
+          '<div class="ledger-row ' + (isOut ? 'is-out' : 'is-low') + '">' +
+            '<span class="ledger-row__mark" aria-hidden="true"></span>' +
+            '<button type="button" class="ledger-row__label" onclick="app.openProductDetails(\'' + esc(pid) + '\')">' +
+              pname +
+            '</button>' +
+            '<span class="ledger-row__state">' + (isOut ? t("ledger.out", "rupture") : t("ledger.low", "stock bas")) + '</span>' +
+            '<span class="ledger-row__qty">' + formatWeight(g) + '</span>' +
+            '<button type="button" class="ledger-row__act" onclick="app.showQuickRestockModal(\'' + esc(pid) + '\')" ' +
+              'aria-label="' + t("ledger.restockAria", "Réapprovisionner") + ' ' + pname + '">' +
+              t("ledger.restockNow", "Réappro") +
+            '</button>' +
+          '</div>';
+      });
+      if (watchlistProducts.length > 10) {
+        standingRows +=
+          '<button type="button" class="ledger-more" onclick="app.navigateTo(\'products\')">' +
+            (watchlistProducts.length - 10) + ' ' + t("ledger.moreBelow", "autres sous seuil") +
+          '</button>';
+      }
+    }
+
+    // ----- Chiffres du relevé (colonne droite) -----
+    var figures =
+      '<a class="ledger-figure is-link" href="#" onclick="event.preventDefault();app.navigateTo(\'products\')">' +
+        '<span class="ledger-figure__label">' + t("dashboard.products", "Produits") + '</span>' +
+        '<span class="ledger-figure__value">' + totalProducts + '</span>' +
+      '</a>' +
+      '<a class="ledger-figure is-link" href="#" onclick="event.preventDefault();app.navigateTo(\'products\')">' +
+        '<span class="ledger-figure__label">' + t("dashboard.totalStock", "Stock total") + '</span>' +
+        '<span class="ledger-figure__value">' + formatWeight(totalStock) + '</span>' +
+      '</a>' +
+      '<a class="ledger-figure is-link" href="#" onclick="event.preventDefault();app.navigateTo(\'products\', {sort:\'value_desc\'})">' +
+        '<span class="ledger-figure__label">' + t("dashboard.value", "Valeur") + '</span>' +
+        '<span class="ledger-figure__value">' + formatCurrency(totalValue) + '</span>' +
+      '</a>' +
+      '<a class="ledger-figure is-link" id="kpiQonto" href="https://app.qonto.com" target="_blank" rel="noopener noreferrer" ' +
+        'data-tooltip="' + t("tooltip.kpiQonto", "Solde du compte courant Qonto - cliquer pour ouvrir Qonto") + '" data-tooltip-pos="left" style="display:none">' +
+        '<span class="ledger-figure__label">' + t("dashboard.qontoBalance", "Solde Qonto") + '</span>' +
+        '<span class="ledger-figure__value" id="kpiQontoValue">—</span>' +
+        '<span class="ledger-figure__sub" id="kpiQontoSub"></span>' +
+      '</a>' +
+      (hasFeature("hasAnalytics")
+        ? '<div class="ledger-figure is-link" id="kpiSales7" role="button" tabindex="0" onclick="app.navigateTo(\'analytics\')" aria-label="' + t("dashboard.sales7d", "Ventes 7j") + '">' +
+            '<span class="ledger-figure__label">' + t("dashboard.sales7d", "Ventes 7j") + '</span>' +
+            '<span class="ledger-figure__value" id="kpiSales7Value">—</span>' +
+          '</div>' +
+          '<div class="ledger-figure is-link" id="kpiOrders7" role="button" tabindex="0" onclick="app.navigateTo(\'analytics\')" aria-label="' + t("dashboard.orders7d", "Commandes 7j") + '">' +
+            '<span class="ledger-figure__label">' + t("dashboard.orders7d", "Commandes 7j") + '</span>' +
+            '<span class="ledger-figure__value" id="kpiOrders7Value">—</span>' +
+          '</div>'
+        : '<button type="button" class="ledger-figure is-locked" onclick="app.showUpgradeModal()" aria-label="' + t("dashboard.unlockSales", "Debloquer ventes PRO") + '">' +
+            '<span class="ledger-figure__label"><i data-lucide="lock" aria-hidden="true"></i> ' + t("dashboard.sales7d", "Ventes 7j") + '</span>' +
+            '<span class="ledger-figure__value is-muted">PRO</span>' +
+          '</button>');
+
+    // ----- Panneau lots / DLC (PRO) -----
+    var batchesPanel = '';
     if (hasFeature("hasBatchTracking")) {
-      batchesCardHtml =
-        '<div class="card">' +
-          '<div class="card-header">' +
-            '<h3 class="card-title"><i data-lucide="calendar-clock" aria-hidden="true"></i> ' + t("dashboard.expiringBatches", "Lots qui expirent < 30j") + '</h3>' +
+      batchesPanel =
+        '<section class="ledger-panel">' +
+          '<div class="ledger-panel__head">' +
+            '<h3 class="ledger-panel__title">' + t("dashboard.expiringBatches", "Lots qui expirent < 30j") + '</h3>' +
             '<button class="btn btn-ghost btn-sm" onclick="app.navigateTo(\'batches\')" data-tooltip="' + t("tooltip.viewAllBatches", "Voir tous les lots avec leurs DLC/DLUO") + '" data-tooltip-pos="left">' + t("dashboard.viewAll", "Voir tout") + '</button>' +
           '</div>' +
-          '<div class="card-body" id="dashboardExpiringBatches"><div class="text-center py-lg"><div class="spinner"></div></div></div>' +
-        '</div>';
+          '<div class="ledger-panel__body" id="dashboardExpiringBatches"><div class="text-center py-lg"><div class="spinner"></div></div></div>' +
+        '</section>';
     }
 
     // ----- Compose final -----
     c.innerHTML =
-      '<header class="dashboard-today">' +
-        '<div class="dashboard-today__meta">' +
-          '<p style="margin:0"><strong>' + t("dashboard.today", "Aujourd'hui") + '</strong> · ' + dateStr + '</p>' +
-          '<button type="button" class="dashboard-today__sync' + (sync.stale ? ' is-stale' : '') + '" onclick="app.syncShopifyProducts()" ' +
+      '<header class="ledger-bar">' +
+        '<div class="ledger-bar__stamp">' +
+          '<span class="ledger-bar__date">' + esc(dateStr) + '</span>' +
+          '<button type="button" class="ledger-bar__sync' + (sync.stale ? ' is-stale' : '') + '" onclick="app.syncShopifyProducts()" ' +
             'data-tooltip="' + t("tooltip.syncShopify", "Synchroniser produits, stocks et variantes depuis Shopify") + '" data-tooltip-pos="bottom" aria-label="' + esc(sync.label) + '">' +
             '<i data-lucide="refresh-cw" aria-hidden="true"></i>' +
             '<span>' + esc(sync.label) + '</span>' +
           '</button>' +
         '</div>' +
-        '<div class="dashboard-today__actions">' + headerActions + '</div>' +
+        '<div class="ledger-bar__actions">' + headerActions + '</div>' +
       '</header>' +
 
-      urgencyHtml +
-      kpiStrip +
+      '<p class="ledger-delta" id="ledgerDelta">' +
+        '<span class="ledger-delta__label" id="ledgerDeltaLabel">' + t("ledger.sinceLast", "Depuis ta dernière session") + '</span>' +
+        '<span class="ledger-delta__body" id="ledgerDeltaBody"></span>' +
+      '</p>' +
 
-      // Card Etiquette derniere commande Shopify (auto-update via webhook) - remontee au-dessus de la watchlist
-      '<div class="card card-full-row card-compact" id="dashboardLatestOrderLabels">' +
-        '<div class="card-header">' +
-          '<h3 class="card-title"><i data-lucide="tag" aria-hidden="true"></i> ' + t("dashboard.latestOrderLabels", "Etiquette derniere commande") + '</h3>' +
-          '<button class="btn btn-ghost btn-sm" onclick="app.loadLatestOrderLabels()" data-tooltip="' + t("tooltip.refreshLatestOrder", "Recharger la derniere commande Shopify") + '" data-tooltip-pos="left" aria-label="' + t("action.refresh", "Actualiser") + '"><i data-lucide="refresh-cw" aria-hidden="true"></i></button>' +
-        '</div>' +
-        '<div class="card-body" id="dashboardLatestOrderLabelsBody"><div class="text-center py-lg"><div class="spinner"></div></div></div>' +
-      '</div>' +
+      '<div class="ledger-layout">' +
+        '<section class="ledger" aria-labelledby="ledgerTodoTitle">' +
+          '<div class="ledger__head">' +
+            '<h2 class="ledger__title" id="ledgerTodoTitle">' + t("ledger.todo", "À traiter") + '</h2>' +
+            (standingSummary ? '<span class="ledger__summary">' + standingSummary + '</span>' : '') +
+            (watchlistProducts.length
+              ? '<button class="btn btn-ghost btn-sm" onclick="app.navigateTo(\'products\')" data-tooltip="' + t("tooltip.viewAllProducts", "Ouvrir le catalogue complet trie par stock croissant") + '" data-tooltip-pos="left">' + t("dashboard.viewAll", "Voir tout") + '</button>'
+              : '') +
+          '</div>' +
+          '<div class="ledger__rows">' + standingRows + '</div>' +
 
-      // Card Watchlist en pleine largeur, sous l'etiquette
-      '<div class="card card-full-row">' +
-        '<div class="card-header">' +
-          '<h3 class="card-title"><i data-lucide="boxes" aria-hidden="true"></i> ' + t("dashboard.watchlistTitle", "Stocks à surveiller") +
-            (watchlistProducts.length ? ' <span class="badge-count" style="margin-left:6px">' + watchlistProducts.length + '</span>' : '') +
-          '</h3>' +
-          '<button class="btn btn-ghost btn-sm" onclick="app.navigateTo(\'products\')" data-tooltip="' + t("tooltip.viewAllProducts", "Ouvrir le catalogue complet trie par stock croissant") + '" data-tooltip-pos="left">' + t("dashboard.viewAll", "Voir tout") + '</button>' +
-        '</div>' +
-        '<div class="card-body" style="padding:0">' + watchlistHtml + '</div>' +
-      '</div>' +
-
-      // Card unifiée Activité (Tout / Ventes / Restocks / Ajustements) + Lots qui expirent
-      '<div class="dashboard-grid">' +
-        '<div class="card card-activity activity-card">' +
-          '<div class="card-header">' +
-            '<h3 class="card-title"><i data-lucide="history" aria-hidden="true"></i> ' + t("dashboard.activityLog", "Activite recente") + '</h3>' +
-            '<div style="display:flex;gap:8px;align-items:center">' +
+          '<div class="ledger__head ledger__head--stream">' +
+            '<h2 class="ledger__title">' + t("ledger.movements", "Mouvements") + '</h2>' +
+            '<div class="ledger__tabs" role="tablist" id="dashboardActivityTabs">' +
+              '<button type="button" role="tab" data-filter="all" class="active" onclick="app.switchDashboardActivity(\'all\')">' + t("activity.all", "Tout") + ' <span class="badge-count" id="actCount-all">0</span></button>' +
+              '<button type="button" role="tab" data-filter="sale" onclick="app.switchDashboardActivity(\'sale\')">' + t("activity.sales", "Ventes") + ' <span class="badge-count" id="actCount-sale">0</span></button>' +
+              '<button type="button" role="tab" data-filter="restock" onclick="app.switchDashboardActivity(\'restock\')">' + t("activity.restocks", "Restocks") + ' <span class="badge-count" id="actCount-restock">0</span></button>' +
+              '<button type="button" role="tab" data-filter="adjustment" onclick="app.switchDashboardActivity(\'adjustment\')">' + t("activity.adjustments", "Ajustements") + ' <span class="badge-count" id="actCount-adjustment">0</span></button>' +
+            '</div>' +
+            '<select class="ledger__tabs-select" id="dashboardActivitySelect" aria-label="' + t("ledger.filterActivity", "Filtrer lactivite") + '" onchange="app.switchDashboardActivity(this.value)">' +
+              '<option value="all" data-label="' + t("activity.all", "Tout") + '">' + t("activity.all", "Tout") + '</option>' +
+              '<option value="sale" data-label="' + t("activity.sales", "Ventes") + '">' + t("activity.sales", "Ventes") + '</option>' +
+              '<option value="restock" data-label="' + t("activity.restocks", "Restocks") + '">' + t("activity.restocks", "Restocks") + '</option>' +
+              '<option value="adjustment" data-label="' + t("activity.adjustments", "Ajustements") + '">' + t("activity.adjustments", "Ajustements") + '</option>' +
+            '</select>' +
+            '<div class="ledger__tools">' +
               '<button class="btn btn-ghost btn-sm" onclick="app.exportMovementsCSV()" data-tooltip="' + t("tooltip.exportCsv", "Exporter l\'historique des mouvements en CSV") + '" data-tooltip-pos="left" aria-label="' + t("export.movements", "Export CSV") + '"><i data-lucide="download" aria-hidden="true"></i></button>' +
               '<button class="btn btn-ghost btn-sm" onclick="app.showFullActivityLog()" data-tooltip="' + t("tooltip.viewAllActivity", "Voir l\'historique complet de tous les mouvements") + '" data-tooltip-pos="left">' + t("dashboard.viewAll", "Voir tout") + '</button>' +
             '</div>' +
           '</div>' +
-          '<div class="activity-tabs" role="tablist" id="dashboardActivityTabs">' +
-            '<button type="button" role="tab" data-filter="all"        class="active" onclick="app.switchDashboardActivity(\'all\')">' + t("activity.all",  "Tout")                  + ' <span class="badge-count" id="actCount-all">0</span></button>' +
-            '<button type="button" role="tab" data-filter="sale"       onclick="app.switchDashboardActivity(\'sale\')">'                    + t("activity.sales", "Ventes")               + ' <span class="badge-count" id="actCount-sale">0</span></button>' +
-            '<button type="button" role="tab" data-filter="restock"    onclick="app.switchDashboardActivity(\'restock\')">'                 + t("activity.restocks", "Restocks")          + ' <span class="badge-count" id="actCount-restock">0</span></button>' +
-            '<button type="button" role="tab" data-filter="adjustment" onclick="app.switchDashboardActivity(\'adjustment\')">'              + t("activity.adjustments", "Ajustements")    + ' <span class="badge-count" id="actCount-adjustment">0</span></button>' +
-          '</div>' +
-          '<div class="card-body" id="dashboardActivity"><div class="text-center py-lg"><div class="spinner"></div></div></div>' +
-        '</div>' +
+          '<div class="ledger__rows" id="dashboardActivity"><div class="text-center py-lg"><div class="spinner"></div></div></div>' +
+        '</section>' +
 
-        batchesCardHtml +
+        '<aside class="ledger-side">' +
+          batchesPanel +
+          '<section class="ledger-panel">' +
+            '<div class="ledger-panel__head">' +
+              '<h3 class="ledger-panel__title">' + t("ledger.stockValue", "Valeur du stock") + '</h3>' +
+            '</div>' +
+            '<div class="ledger-panel__body ledger-figures">' + figures + '</div>' +
+          '</section>' +
+          '<section class="ledger-panel" id="dashboardLatestOrderLabels">' +
+            '<div class="ledger-panel__head">' +
+              '<h3 class="ledger-panel__title">' + t("dashboard.latestOrderLabels", "Etiquette derniere commande") + '</h3>' +
+              '<button class="btn btn-ghost btn-sm" onclick="app.loadLatestOrderLabels()" data-tooltip="' + t("tooltip.refreshLatestOrder", "Recharger la derniere commande Shopify") + '" data-tooltip-pos="left" aria-label="' + t("action.refresh", "Actualiser") + '"><i data-lucide="refresh-cw" aria-hidden="true"></i></button>' +
+            '</div>' +
+            '<div class="ledger-panel__body" id="dashboardLatestOrderLabelsBody"><div class="text-center py-lg"><div class="spinner"></div></div></div>' +
+          '</section>' +
+        '</aside>' +
       '</div>';
-
     // Async loaders
     loadDashboardMovementsAndActivity();
     if (hasFeature("hasAnalytics")) loadDashboardSalesKpis();
@@ -1753,6 +1719,7 @@
       var movements = data.movements || [];
       dashboardActivityCache = movements;
       _updateActivityCounts(movements);
+      _renderLedgerDelta(movements);
       _renderActivityFiltered(dashboardActivityFilter);
       if (typeof lucide !== "undefined") lucide.createIcons();
     } catch (e) {
@@ -1769,6 +1736,8 @@
     Object.keys(counts).forEach(function(k) {
       var el = document.getElementById("actCount-" + k);
       if (el) el.textContent = counts[k];
+      var opt = document.querySelector("#dashboardActivitySelect option[value=\"" + k + "\"]");
+      if (opt) opt.textContent = (opt.getAttribute("data-label") || k) + " (" + counts[k] + ")";
     });
   }
 
@@ -1797,6 +1766,8 @@
       b.classList.toggle("active", on);
       b.setAttribute("aria-selected", on ? "true" : "false");
     });
+    var sel = document.getElementById("dashboardActivitySelect");
+    if (sel) sel.value = dashboardActivityFilter;
     _renderActivityFiltered(dashboardActivityFilter);
   }
 
@@ -1807,17 +1778,14 @@
       if (!res.ok) return; // silencieux : déjà rendu placeholder, le user upgrade autrement
       var data = await res.json();
       var k = data.kpis || {};
-      var timeline = data.timeline || [];
 
       var v1 = document.getElementById("kpiSales7Value");
       var v2 = document.getElementById("kpiOrders7Value");
       if (v1) v1.textContent = formatCurrency(k.totalRevenue || 0);
       if (v2) v2.textContent = String(k.totalOrders || 0);
 
-      _drawSparkline(document.getElementById("kpiSales7Spark"),
-        timeline.map(function(d) { return Number(d.revenue) || 0; }), { color: "success" });
-      _drawSparkline(document.getElementById("kpiOrders7Spark"),
-        timeline.map(function(d) { return Number(d.orders) || 0; }), { color: "accent" });
+      // Les sparklines du releve ont ete retirees (Chart.js n'est pas un materiau
+      // de ce monde visuel) : la serie 7 jours reste dans l'onglet Analyse.
     } catch (e) {
       // ignore : KPI ventes laissés à "—"
     }
@@ -2160,9 +2128,12 @@
   }
 
   // Réappro rapide (sélection produit)
-  function showQuickRestockModal() {
+  // preselectId : ouvre la modale sur un produit precis (action inline du releve).
+  function showQuickRestockModal(preselectId) {
+    var preselect = preselectId ? String(preselectId) : "";
     var productOptions = state.products.map(function(p) {
-      return '<option value="' + p.id + '" data-cmp="' + (p.averageCostPerGram || 0) + '">' + esc(p.title || p.name) + ' (' + formatWeight(p.totalGrams || 0) + ')</option>';
+      var selected = (preselect && String(p.id) === preselect) ? ' selected' : '';
+      return '<option value="' + p.id + '" data-cmp="' + (p.averageCostPerGram || 0) + '"' + selected + '>' + esc(p.title || p.name) + ' (' + formatWeight(p.totalGrams || 0) + ')</option>';
     }).join('');
 
     var currencySymbol = getCurrencySymbol();
@@ -3055,62 +3026,170 @@
 
   // Rendu pur de la carte "Activite recente" (avec avatars / profils).
   // N'effectue aucun fetch : les data viennent de loadDashboardMovementsAndActivity.
+  // Ligne de delta du relevé : ce qui a bougé depuis la dernière session.
+  // Le repère de session est posé une seule fois par onglet (sessionStorage),
+  // pour qu'un aller-retour entre onglets ne remette pas le compteur à zéro.
+  function _ledgerLastSeen() {
+    // Rien nest global : les reperes sont scopes par boutique (Principe produit 5).
+    var scope = String(CURRENT_SHOP || "default").replace(/[^a-z0-9._-]/gi, "_");
+    var LAST = "bsm_lastSeen_" + scope;
+    var STAMP = "bsm_sessionStamped_" + scope;
+    var HELD = "bsm_sessionLastSeen_" + scope;
+    try {
+      if (!sessionStorage.getItem(STAMP)) {
+        var previous = localStorage.getItem(LAST) || "";
+        sessionStorage.setItem(STAMP, "1");
+        sessionStorage.setItem(HELD, previous);
+        localStorage.setItem(LAST, new Date().toISOString());
+        return { since: previous || null, exact: !!previous };
+      }
+      var held = sessionStorage.getItem(HELD) || "";
+      return { since: held || null, exact: !!held };
+    } catch (_) {
+      // Stockage indisponible (iframe partitionne) : la fenetre nest plus "la derniere session".
+      return { since: null, exact: false };
+    }
+  }
+
+  function _renderLedgerDelta(movements) {
+    var body = document.getElementById("ledgerDeltaBody");
+    if (!body) return;
+
+    var seen = _ledgerLastSeen();
+    var sinceMs = seen.since ? Date.parse(seen.since) : NaN;
+    if (isNaN(sinceMs)) { sinceMs = Date.now() - 24 * 3600 * 1000; seen.exact = false; }
+
+    // Le libelle ne doit pas affirmer une fenetre quil ne tient pas.
+    var labelEl = document.getElementById("ledgerDeltaLabel");
+    if (labelEl) {
+      labelEl.textContent = seen.exact
+        ? t("ledger.sinceLast", "Depuis ta derniere session")
+        : t("ledger.since24h", "Sur les dernieres 24 h");
+    }
+
+    var net = 0, sales = 0, restocks = 0, adjustments = 0, counted = 0;
+    (movements || []).forEach(function (m) {
+      var ts = Date.parse(m.createdAt || m.date || m.ts || "");
+      if (isNaN(ts) || ts <= sinceMs) return;
+      counted++;
+      net += (m.delta || m.gramsDelta || 0);
+      var typ = m.type || m.source || "adjustment";
+      if (typ === "sale") sales++;
+      else if (typ === "restock") restocks++;
+      else adjustments++;
+    });
+
+    if (!counted) {
+      body.innerHTML = '<span class="ledger-delta__quiet">' + t("ledger.nothingMoved", "rien n'a bougé.") + '</span>';
+      return;
+    }
+
+    var parts = [];
+    if (sales) parts.push(sales + " " + (sales > 1 ? t("ledger.sales", "ventes") : t("ledger.sale", "vente")));
+    if (restocks) parts.push(restocks + " " + (restocks > 1 ? t("ledger.restocks", "restocks") : t("ledger.restock", "restock")));
+    if (adjustments) parts.push(adjustments + " " + (adjustments > 1 ? t("ledger.adjustments", "ajustements") : t("ledger.adjustment", "ajustement")));
+
+    var sign = net > 0 ? "is-up" : (net < 0 ? "is-down" : "");
+    body.innerHTML =
+      '<span class="ledger-delta__net ' + sign + '" data-net="' + net + '">' +
+        (net > 0 ? "+" : "") + formatWeight(net) +
+      '</span>' +
+      (parts.length ? '<span class="ledger-delta__parts">' + parts.join(" · ") + '</span>' : '');
+
+    // Le seul moment animé de la page : le delta se compte à sa valeur, une fois.
+    var netEl = body.querySelector(".ledger-delta__net");
+    var reduced = false;
+    try { reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches; } catch (_) {}
+    if (netEl && !reduced && net !== 0) {
+      var start = performance.now();
+      var span = 520;
+      var step = function (now) {
+        var p = Math.min(1, (now - start) / span);
+        var eased = 1 - Math.pow(1 - p, 4);
+        var v = net * eased;
+        netEl.textContent = (net > 0 ? "+" : "") + formatWeight(Math.round(v));
+        if (p < 1) requestAnimationFrame(step);
+      };
+      netEl.textContent = formatWeight(0);
+      requestAnimationFrame(step);
+    }
+  }
+
+  // Le flux de mouvements est un registre : une ligne par mouvement, groupée par jour,
+  // quantités tabulaires alignées à droite. Pas d'avatars, pas de fil de discussion.
   function renderDashboardActivityList(movements, container) {
     container = container || document.getElementById("dashboardActivity");
     if (!container) return;
 
     if (!movements || movements.length === 0) {
-      container.innerHTML = '<div class="empty-state-small"><div class="empty-icon"><i data-lucide="history"></i></div><p class="text-secondary">' + t("dashboard.noActivity", "Aucune activite") + '</p></div>';
+      container.innerHTML =
+        '<div class="ledger-note is-quiet"><p class="ledger-note__detail">' +
+          t("ledger.noMovements", "Aucun mouvement sur la période.") +
+        '</p></div>';
       return;
     }
 
     var UNDOABLE = { discovery_pack: 1, adjust_total: 1, restock: 1 };
     var reversedIds = {};
-    (dashboardActivityCache || []).forEach(function(x) { if (x.reversalOf) reversedIds[String(x.reversalOf)] = 1; });
+    (dashboardActivityCache || []).forEach(function (x) { if (x.reversalOf) reversedIds[String(x.reversalOf)] = 1; });
 
-    var html = '<div class="activity-list" style="max-height:280px;overflow-y:auto">';
-    movements.forEach(function(m) {
-      var mType = m.type || m.source || 'adjustment';
-      var mid = m.id ? String(m.id) : '';
-      var isReversal = m.source === 'reversal' || !!m.reversalOf;
+    var lang = (typeof I18N !== "undefined" && I18N.getLanguage) ? I18N.getLanguage() : "fr";
+    var locale = lang === "fr" ? "fr-FR" : "en-US";
+    var todayKey = new Date().toDateString();
+    var yesterdayKey = new Date(Date.now() - 86400000).toDateString();
+
+    var html = '';
+    var currentDay = null;
+
+    movements.forEach(function (m) {
+      var when = new Date(m.createdAt || m.date || m.ts || Date.now());
+      var dayKey = when.toDateString();
+
+      if (dayKey !== currentDay) {
+        currentDay = dayKey;
+        var dayLabel;
+        if (dayKey === todayKey) dayLabel = t("ledger.today", "Aujourd'hui");
+        else if (dayKey === yesterdayKey) dayLabel = t("ledger.yesterday", "Hier");
+        else {
+          try {
+            dayLabel = new Intl.DateTimeFormat(locale, { weekday: "short", day: "numeric", month: "short" }).format(when);
+          } catch (_) { dayLabel = when.toLocaleDateString(); }
+        }
+        html += '<div class="ledger-day">' + esc(dayLabel) + '</div>';
+      }
+
+      var mType = m.type || m.source || "adjustment";
+      var mid = m.id ? String(m.id) : "";
+      var isReversal = m.source === "reversal" || !!m.reversalOf;
       var alreadyUndone = mid && reversedIds[mid];
       var canUndo = !isReversal && UNDOABLE[m.source] && mid && !alreadyUndone;
-      var undoBtn = canUndo
-        ? '<button class="btn btn-ghost btn-sm" style="flex-shrink:0" title="' + t("activity.undo", "Annuler") + '" onclick="app.' +
-            (m.source === 'discovery_pack' && m.batchId
-              ? 'undoDiscoveryBatch(\'' + esc(String(m.batchId)) + '\',\'' + esc(mid) + '\')'
-              : 'undoMovement(\'' + esc(mid) + '\')') +
-          '"><i data-lucide="undo-2"></i></button>'
-        : (alreadyUndone
-            ? '<span class="badge" style="flex-shrink:0;opacity:0.6;font-size:10px">' + t("activity.undone", "Annulé") + '</span>'
-            : '');
-      var typeClass = getMovementClass(mType);
-      var typeLabel = getMovementLabel(mType);
-      var delta = m.delta || m.gramsDelta || 0;
-      var deltaStr = delta >= 0 ? '+' + formatWeight(delta) : formatWeight(delta);
-      var dateStr = formatRelativeDate(m.createdAt || m.date || m.ts);
-      var profileName = m.profileName || m.userName || 'User';
-      var profileColor = m.profileColor || '#6366f1';
-      var profileInitials = getInitials(profileName);
 
-      html += '<div class="activity-item" style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border-color)">' +
-        '<div class="activity-avatar" style="width:32px;height:32px;border-radius:50%;background:' + profileColor + ';display:flex;align-items:center;justify-content:center;color:white;font-size:11px;font-weight:600;flex-shrink:0">' + profileInitials + '</div>' +
-        '<div class="activity-content" style="flex:1;min-width:0">' +
-        '<div class="activity-action" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">' +
-        '<span style="font-weight:500;color:var(--text-primary)">' + esc(profileName) + '</span>' +
-        '<span style="color:var(--text-secondary)">' + getActivityVerb(mType) + '</span>' +
-        '<span style="font-weight:500;color:var(--text-primary)">' + esc(m.productName || m.product || 'Produit') + '</span>' +
-        '</div>' +
-        '<div class="activity-details" style="display:flex;align-items:center;gap:8px;margin-top:2px">' +
-        '<span class="badge badge-' + typeClass + '" style="font-size:10px">' + typeLabel + '</span>' +
-        '<span style="font-weight:600;color:var(--' + (delta >= 0 ? 'success' : 'danger') + ')">' + deltaStr + '</span>' +
-        '<span style="color:var(--text-tertiary);font-size:12px">' + dateStr + '</span>' +
-        '</div>' +
-        '</div>' +
-        undoBtn +
+      var tail = canUndo
+        ? '<button type="button" class="ledger-row__undo" title="' + t("activity.undo", "Annuler") + '" aria-label="' + t("activity.undo", "Annuler") + '" onclick="app.' +
+            (m.source === "discovery_pack" && m.batchId
+              ? "undoDiscoveryBatch('" + esc(String(m.batchId)) + "','" + esc(mid) + "')"
+              : "undoMovement('" + esc(mid) + "')") +
+          '"><i data-lucide="undo-2" aria-hidden="true"></i></button>'
+        : (alreadyUndone
+            ? '<span class="ledger-row__undone">' + t("activity.undone", "Annulé") + '</span>'
+            : '<span class="ledger-row__undo-slot" aria-hidden="true"></span>');
+
+      var delta = m.delta || m.gramsDelta || 0;
+      var deltaStr = (delta >= 0 ? "+" : "") + formatWeight(delta);
+      var timeStr;
+      try {
+        timeStr = new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit" }).format(when);
+      } catch (_) { timeStr = ""; }
+
+      html +=
+        '<div class="ledger-row ledger-row--move mv-' + esc(getMovementClass(mType)) + '">' +
+          '<span class="ledger-row__time">' + esc(timeStr) + '</span>' +
+          '<span class="ledger-row__type">' + esc(getMovementLabel(mType)) + '</span>' +
+          '<span class="ledger-row__label is-static">' + esc(m.productName || m.product || t("product.untitled", "Produit")) + '</span>' +
+          '<span class="ledger-row__qty ' + (delta >= 0 ? "is-up" : "is-down") + '">' + deltaStr + '</span>' +
+          tail +
         '</div>';
     });
-    html += '</div>';
 
     container.innerHTML = html;
   }
