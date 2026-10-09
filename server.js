@@ -871,6 +871,25 @@ router.use("/api", (req, _res, next) => {
 
 router.get("/health", (req, res) => res.status(200).send("ok"));
 
+// Front SPA : la meta shopify-api-key de public/index.html porte la cle de l'app de PROD.
+// Si SHOPIFY_API_KEY (env) est une autre cle (app de test sur le service Render de test),
+// on sert index.html avec cette cle. En prod les deux sont egales : fichier servi tel quel.
+let _indexHtmlCache = null;
+function sendIndexHtml(req, res) {
+  if (_indexHtmlCache === null) {
+    const raw = fs.readFileSync(INDEX_HTML, "utf8");
+    const envKey = String(process.env.SHOPIFY_API_KEY || "").trim();
+    const re = /(<meta name="shopify-api-key" content=)"?([a-f0-9]{32})"?/i;
+    const m = raw.match(re);
+    _indexHtmlCache = m && /^[a-f0-9]{32}$/i.test(envKey) && m[2] !== envKey
+      ? raw.replace(re, `$1"${envKey}"`)
+      : raw;
+  }
+  res.type("html").send(_indexHtmlCache);
+}
+router.get("/", sendIndexHtml);
+router.get("/index.html", sendIndexHtml);
+
 // Static
 if (fileExists(PUBLIC_DIR)) router.use(express.static(PUBLIC_DIR));
 router.use(express.static(ROOT_DIR, { index: false }));
@@ -8425,8 +8444,7 @@ router.use((err, req, res, next) => {
 });
 
 // Front SPA
-router.get("/", (req, res) => res.sendFile(INDEX_HTML));
-router.get(/^\/(?!api\/|webhooks\/|health|css\/|js\/).*/, (req, res) => res.sendFile(INDEX_HTML));
+router.get(/^\/(?!api\/|webhooks\/|health|css\/|js\/).*/, sendIndexHtml);
 
 // =====================================================
 // WEBHOOKS

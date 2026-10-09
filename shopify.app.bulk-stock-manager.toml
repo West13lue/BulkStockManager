@@ -2,11 +2,11 @@
 
 client_id = "97cfc1521ba544a2196d00c8bec599c9"
 name = "Bulk Stock Manager"
-application_url = "https://stock-cbd-manager-1.onrender.com"
+application_url = "https://stock-cbd-manager.onrender.com"
 embedded = true
 
 [build]
-automatically_update_urls_on_dev = true
+automatically_update_urls_on_dev = false
 dev_store_url = "bulk-stock-manager-2.myshopify.com"
 
 [access_scopes]
@@ -15,7 +15,7 @@ use_legacy_install_flow = false
 
 [auth]
 redirect_urls = [
-  "https://stock-cbd-manager-1.onrender.com/api/auth/callback"
+  "https://stock-cbd-manager.onrender.com/api/auth/callback"
 ]
 
 [webhooks]
