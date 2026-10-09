@@ -569,6 +569,9 @@ function getProductSnapshot(shop, productId) {
     totalGrams: clampMin0(cfg.totalGrams),
     averageCostPerGram: clampMin0(cfg.averageCostPerGram || 0),
     categoryIds: Array.isArray(cfg.categoryIds) ? cfg.categoryIds.slice() : [],
+    // Variantes (canSell par variante) : sans elles, pushProductInventoryToShopify() ne poussait rien
+    // apres une vente manuelle, un cadeau, une annulation ou un resync, et inventory-diff etait vide.
+    variants: buildProductView(cfg),
   };
 }
 
