@@ -12,6 +12,8 @@ web
 
 **Demain — ambition, pas encore un fait** : autres marchands Shopify dans des verticales à fort besoin de gestion de stock — produits réglementés (CBD, alcool, cosmétique), produits avec DLC (alimentaire, soins), grossistes. Profil : opérateur business, pas développeur, utilise Shopify Admin tous les jours mais cherche un outil dédié quand il franchit le seuil de "trop de SKUs pour le natif". Aucun marchand tiers n'utilise l'app à ce jour.
 
+**Cible tranchée par le propriétaire (2026-10-09)** : les marchands qui vendent **au poids / en vrac** — un stock commun en grammes par produit, réparti entre des formats (1 g, 5 g, 100 g, 1 kg…) : CBD, thé, café, épices, fruits secs, épicerie vrac, compléments, cosmétiques au poids, grossistes. **Hors cible** : le stock propre à chaque variante (vêtements, chaussures, tailles/couleurs), que Shopify gère déjà nativement ; ne pas développer de fonctionnalité pour ce cas.
+
 **Contexte d'usage** : ouvert dans un onglet pendant la journée de travail. Pas une app qu'on consulte 30 secondes — on y passe 20 à 60 minutes par session, plusieurs fois par semaine.
 
 ## Product Purpose
