@@ -68,6 +68,15 @@ const {
   createAppSubscription,
   getActiveAppSubscriptions,
   cancelAppSubscription,
+  getShopInfo,
+  listLocations,
+  listProducts,
+  getProduct,
+  getVariant,
+  listInventoryLevels,
+  setInventoryAvailable,
+  activateInventoryItem,
+  listOrders,
 } = require("./shopifyClient");
 
 // --- Stock (source de verite app)
@@ -625,8 +634,7 @@ async function getLocationIdForShop(shop) {
   }
 
   // 3) Sinon : on prend la 1ere location de CETTE boutique (dev/prod)
-  const client = shopifyFor(sh);
-  const locations = await client.location.list({ limit: 10 });
+  const locations = await listLocations(sh, { limit: 10 });
   const first = Array.isArray(locations) ? locations[0] : null;
   if (!first?.id) throw new Error("Aucune location Shopify trouvee");
 
@@ -646,7 +654,9 @@ async function getLocationIdForShop(shop) {
 async function pushProductInventoryToShopify(shop, productView) {
   if (!productView?.variants) return { pushed: 0, skipped: 0, failed: [] };
 
-  const client = shopifyFor(shop);
+  // Lève 401 missing_oauth_token (=> reauth_required cote safeJson) AVANT la boucle si le token est absent :
+  // dans la boucle, les erreurs sont avalees par variante (failed[]).
+  shopifyFor(shop);
   const locationId = await getLocationIdForShop(shop);
 
   let pushed = 0;
@@ -654,9 +664,9 @@ async function pushProductInventoryToShopify(shop, productView) {
   const failed = [];
 
   const trySet = async (inventoryItemId, available) => {
-    await client.inventoryLevel.set({
-      location_id: locationId,
-      inventory_item_id: inventoryItemId,
+    await setInventoryAvailable(shop, {
+      locationId,
+      inventoryItemId,
       available,
     });
   };
@@ -677,13 +687,15 @@ async function pushProductInventoryToShopify(shop, productView) {
       const info = extractShopifyError(err);
       const status = Number(info?.statusCode || 0);
       const bodyStr = info?.body ? JSON.stringify(info.body) : "";
-      const notStocked = status === 422 && /not stocked/i.test(bodyStr + " " + (info?.message || ""));
+      const notStocked =
+        err?.code === "ITEM_NOT_STOCKED_AT_LOCATION" ||
+        (status === 422 && /not stocked/i.test(bodyStr + " " + (info?.message || "")));
 
       if (notStocked) {
         try {
-          await client.inventoryLevel.connect({
-            location_id: locationId,
-            inventory_item_id: inventoryItemId,
+          await activateInventoryItem(shop, {
+            locationId,
+            inventoryItemId,
           });
           await trySet(inventoryItemId, unitsAvailable);
           pushed++;
@@ -920,11 +932,11 @@ router.get("/api/debug/shopify", (req, res) => {
     if (!shop) return apiError(res, 400, "Shop introuvable. Passe ?shop=xxx.myshopify.com ou configure SHOP_NAME.");
 
     const envShop = resolveShopFallback();
-    const client = shopifyFor(shop);
+    shopifyFor(shop); // 401 missing_oauth_token si pas de token (sinon "connection" avalerait l'erreur)
 
     let connection = { ok: false };
     try {
-      const s = await client.shop.get();
+      const s = await getShopInfo(shop);
       connection = { ok: true, shop: { id: Number(s.id), name: String(s.name || ""), domain: String(s.domain || "") } };
     } catch (e) {
       connection = { ok: false, error: extractShopifyError(e) };
@@ -932,7 +944,7 @@ router.get("/api/debug/shopify", (req, res) => {
 
     let locations = [];
     try {
-      const locs = await client.location.list({ limit: 10 });
+      const locs = await listLocations(shop, { limit: 10 });
       locations = (locs || []).map((l) => ({ id: Number(l.id), name: String(l.name || ""), active: !!l.active }));
     } catch (e) {
       logEvent("debug_locations_error", extractShopifyError(e), "error");
@@ -956,9 +968,8 @@ router.get("/api/shopify/locations", (req, res) => {
   safeJson(req, res, async () => {
     const shop = getShop(req);
     if (!shop) return apiError(res, 400, "Shop introuvable");
-    const client = shopifyFor(shop);
 
-    const locations = await client.location.list({ limit: 50 });
+    const locations = await listLocations(shop, { limit: 50 });
     const out = (locations || []).map((l) => ({
       id: Number(l.id),
       name: String(l.name || ""),
@@ -2683,16 +2694,15 @@ router.get("/api/shopify/products", (req, res) => {
   safeJson(req, res, async () => {
     const shop = getShop(req);
     if (!shop) return apiError(res, 400, "Shop introuvable");
-    const client = shopifyFor(shop);
 
     const limit = Math.min(Number(req.query.limit || 50), 250);
     const q = String(req.query.query || "").trim().toLowerCase();
 
-    const products = await client.product.list({ limit });
+    const products = await listProducts(shop, { limit, variants: false });
     let out = (products || []).map((p) => ({
       id: String(p.id),
       title: String(p.title || ""),
-      variantsCount: Array.isArray(p.variants) ? p.variants.length : 0,
+      variantsCount: Number(p.variants_count) || 0,
     }));
 
     if (q) out = out.filter((p) => p.title.toLowerCase().includes(q));
@@ -2735,13 +2745,11 @@ router.post("/api/import/product", (req, res) => {
       }
     }
 
-    const client = shopifyFor(shop);
-
     const productId = req.body?.productId ?? req.body?.id;
     const categoryIds = Array.isArray(req.body?.categoryIds) ? req.body.categoryIds : [];
     if (!productId) return apiError(res, 400, "productId manquant");
 
-    const p = await client.product.get(Number(productId));
+    const p = await getProduct(shop, productId);
     if (!p?.id) return apiError(res, 404, "Produit Shopify introuvable");
 
     const variants = {};
@@ -2802,13 +2810,8 @@ router.post("/api/sync/shopify", async (req, res) => {
     if (!shop) return apiError(res, 400, "Shop introuvable");
 
     try {
-      const client = getShopifyClient(shop);
-      if (!client) {
-        return apiError(res, 400, "Client Shopify non configuré");
-      }
-
-      // Récupérer les produits Shopify
-      const products = await client.product.list({ limit: 250 });
+      // Récupérer les produits Shopify (GraphQL, paginé jusqu'à 2 000 produits ; REST plafonnait à 250)
+      const products = await listProducts(shop, { limit: 2000 });
       
       let imported = 0;
       let updated = 0;
@@ -3006,7 +3009,7 @@ router.get("/api/admin/inventory-diff", (req, res) => {
     const local = stock.getProductSnapshot ? stock.getProductSnapshot(shop, productId) : null;
     if (!local) return apiError(res, 404, "Produit introuvable cote app");
 
-    const client = shopifyFor(shop);
+    shopifyFor(shop); // 401 missing_oauth_token => reauth_required (les erreurs par variante ci-dessous sont avalees)
     const locationId = await getLocationIdForShop(shop);
 
     const rows = [];
@@ -3023,9 +3026,9 @@ router.get("/api/admin/inventory-diff", (req, res) => {
 
       if (inventoryItemId) {
         try {
-          const levels = await client.inventoryLevel.list({
-            inventory_item_ids: inventoryItemId,
-            location_ids: locationId,
+          const levels = await listInventoryLevels(shop, {
+            inventoryItemIds: inventoryItemId,
+            locationIds: locationId,
           });
           connectedToLocation = Array.isArray(levels) && levels.length > 0;
           shopifyAvailable = connectedToLocation ? Number(levels[0]?.available || 0) : null;
@@ -3036,7 +3039,7 @@ router.get("/api/admin/inventory-diff", (req, res) => {
 
       if (v?.variantId) {
         try {
-          const variant = await client.productVariant.get(Number(v.variantId));
+          const variant = await getVariant(shop, Number(v.variantId));
           inventoryManagement = variant?.inventory_management ?? null;
           inventoryPolicy = variant?.inventory_policy ?? null;
           variantTitle = variant?.title ?? null;
@@ -4004,8 +4007,7 @@ router.get("/api/shop-locale", (req, res) => {
     if (!shop) return apiError(res, 400, "Shop introuvable");
 
     try {
-      const client = shopifyFor(shop);
-      const shopInfo = await client.shop.get();
+      const shopInfo = await getShopInfo(shop, { locale: true });
       
       const primaryLocale = shopInfo?.primary_locale || "en";
       const currency = shopInfo?.currency || "EUR";
@@ -4054,8 +4056,7 @@ router.get("/api/settings", (req, res) => {
     let shopLocale = null;
     if (settings.general?.language === "auto") {
       try {
-        const client = shopifyFor(shop);
-        const shopInfo = await client.shop.get();
+        const shopInfo = await getShopInfo(shop, { locale: true });
         const primaryLocale = shopInfo?.primary_locale || "en";
         
         const localeMap = {
@@ -4173,8 +4174,7 @@ router.get("/api/settings/diagnostic", (req, res) => {
 
     let shopifyStatus = "unknown";
     try {
-      const client = shopifyFor(shop);
-      const shopInfo = await client.shop.get();
+      const shopInfo = await getShopInfo(shop);
       shopifyStatus = shopInfo?.id ? "connected" : "error";
     } catch (e) {
       shopifyStatus = "error";
@@ -7366,20 +7366,16 @@ router.post("/api/sales-orders/import-shopify", async (req, res) => {
     });
 
     try {
-      // Recuperer les commandes Shopify via l'API
-      const client = shopifyFor(shop);
-      if (!client) return apiError(res, 500, "Client Shopify non disponible");
-
+      // Recuperer les commandes Shopify via l'API (GraphQL, paginees)
       const days = parseInt(req.query.days) || 30;
       const fromDate = new Date();
       fromDate.setDate(fromDate.getDate() - days);
 
-      const shopifyOrders = await client.order.list({
-        status: "any",
-        created_at_min: fromDate.toISOString(),
-        limit: 250,
-      });
-
+      const shopifyOrders = await listOrders(shop, { createdAtMin: fromDate, limit: 1000 });
+      if (shopifyOrders.customerDataAvailable === false) {
+        // Champs client (nom/e-mail) refuses par Shopify (protected customer data) : import fait sans eux.
+        logEvent("sales_import_customer_data_unavailable", { shop }, "warn");
+      }
       const result = salesOrderStore.importFromShopify(shop, shopifyOrders || [], productCostMap, variantGramsMap);
       res.json({ success: true, ...result });
     } catch (e) {
@@ -8625,10 +8621,6 @@ app.post("/webhooks/orders/create", express.raw({ type: "application/json" }), a
     const lineItems = Array.isArray(payload?.line_items) ? payload.line_items : [];
     if (!lineItems.length) return res.sendStatus(200);
 
-    // Client Shopify cree a la demande (seulement si une variante doit etre resolue via l'API).
-    let client = null;
-    const getClient = () => client || (client = shopifyFor(shop));
-
     for (const li of lineItems) {
       const productId = String(li?.product_id || "");
       const variantId = Number(li?.variant_id || 0);
@@ -8661,7 +8653,7 @@ app.post("/webhooks/orders/create", express.raw({ type: "application/json" }), a
         //    import) : on retrouve l'inventory item via Shopify. Si toutes l'ont,
         //    la variante vendue est inconnue de l'app, inutile d'appeler l'API.
         if (!gramsPerUnit && snapVariants.some((v) => !v.variantId)) {
-          const variant = await getClient().productVariant.get(variantId);
+          const variant = await getVariant(shop, variantId);
           const inventoryItemId = Number(variant?.inventory_item_id || 0);
           if (inventoryItemId) gramsPerUnit = findGramsPerUnitByInventoryItemId(currentSnap, inventoryItemId);
         }
