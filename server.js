@@ -924,7 +924,7 @@ router.get("/api/debug/shopify", (req, res) => {
       resolvedShop: shop,
       envShop,
       hasToken: Boolean(String(process.env.SHOPIFY_ADMIN_TOKEN || "").trim()),
-      apiVersion: process.env.SHOPIFY_API_VERSION || "2025-10",
+      apiVersion: process.env.SHOPIFY_API_VERSION || "2026-07",
       connection,
       locations,
     });
@@ -8697,7 +8697,9 @@ app.post("/webhooks/refunds/create", express.raw({ type: "application/json" }), 
       let origSale = null;
       try {
         const candidates = analyticsStore.listSales
-          ? analyticsStore.listSales({ shop, productId, limit: 5000 })
+          // listSales filtre par defaut sur 30 jours : un remboursement plus tardif
+          // ne retrouvait pas la vente (ni remise en stock ni cout inverse).
+          ? analyticsStore.listSales({ shop, productId, limit: 5000, from: new Date(Date.now() - 400 * 24 * 60 * 60 * 1000) })
           : [];
         origSale = (candidates || []).find((s) =>
           String(s.orderId || "") === origOrderId &&

@@ -71,7 +71,8 @@ function createShopifyClient(shopDomain, accessToken) {
   return new Shopify({
     shopName, // ex: "cloud-store-test"
     accessToken,
-    apiVersion: process.env.SHOPIFY_API_VERSION || "2025-10",
+    // Version stable Shopify : 2025-10 retiree le 2026-10-16. 2026-07 accessible jusqu'au 2027-07-16.
+    apiVersion: process.env.SHOPIFY_API_VERSION || "2026-07",
   });
 }
 

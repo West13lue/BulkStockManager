@@ -1,0 +1,55 @@
+# Configuration de l'app de PRODUCTION (celle installee sur Cloud Store CBD).
+# client_id = SHOPIFY_API_KEY du service Render "BulkStockManager" (stock-cbd-manager-1).
+# Recuperee depuis Shopify le 2026-10-09 (shopify app config link), puis :
+#   - webhooks api_version 2025-10 -> 2026-07 (2025-10 retiree le 2026-10-16)
+#   - ajout de refunds/create (handler present dans server.js depuis 938eac5, jamais publie)
+#
+# Publier : shopify app deploy --config prod
+# Ne JAMAIS lancer `shopify app dev --config prod` : cela remplacerait l'URL de prod par un tunnel.
+# L'autre fichier (shopify.app.bulk-stock-manager.toml) vise l'app de dev 97cfc..., pas la prod.
+
+client_id = "af29943af7d0b46cd218987c99b15929"
+name = "Bulk Stock Manager"
+application_url = "https://stock-cbd-manager-1.onrender.com"
+embedded = true
+
+[build]
+automatically_update_urls_on_dev = false
+
+[webhooks]
+api_version = "2026-07"
+
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/customers/data_request"
+  compliance_topics = [ "customers/data_request" ]
+
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/customers/redact"
+  compliance_topics = [ "customers/redact" ]
+
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/shop/redact"
+  compliance_topics = [ "shop/redact" ]
+
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/orders/create"
+  topics = [ "orders/create" ]
+
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/refunds/create"
+  topics = [ "refunds/create" ]
+
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/app_subscriptions/update"
+  topics = [ "app_subscriptions/update" ]
+
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/app/uninstalled"
+  topics = [ "app/uninstalled" ]
+
+[access_scopes]
+scopes = "read_locations,read_orders,read_products,write_inventory"
+use_legacy_install_flow = false
+
+[auth]
+redirect_urls = [ "https://stock-cbd-manager-1.onrender.com/api/auth/callback" ]
