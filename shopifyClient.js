@@ -486,7 +486,8 @@ async function getShopInfo(shop, opts = {}) {
 
 /**
  * Équivalent de client.location.list({ limit }) : [{ id, name, active, address1, city, country }].
- * Actifs + inactifs + legacy (comme REST), triés par ID (REST : premier = plus ancien emplacement).
+ * Actifs + inactifs + legacy (comme REST), triés par NOM : ordre constaté en REST (boutique de dev, 09/10/2026),
+ * dont dépend le choix du 1er emplacement dans getLocationIdForShop().
  * `country` = code pays ISO (comme le champ REST `country`).
  */
 async function listLocations(shop, opts = {}) {
@@ -495,7 +496,7 @@ async function listLocations(shop, opts = {}) {
     shop,
     `
     query ListLocations($first: Int!) {
-      locations(first: $first, includeInactive: true, includeLegacy: true, sortKey: ID) {
+      locations(first: $first, includeInactive: true, includeLegacy: true, sortKey: NAME) {
         nodes { id name isActive address { address1 city countryCode } }
       }
     }
@@ -530,7 +531,7 @@ const VARIANT_FIELDS = `
 
 const PRODUCTS_QUERY = `
   query ListProducts($first: Int!, $after: String, $variantsFirst: Int!) {
-    products(first: $first, after: $after, sortKey: ID) {
+    products(first: $first, after: $after, sortKey: TITLE) {
       nodes {
         id
         title
@@ -547,7 +548,7 @@ const PRODUCTS_QUERY = `
 
 const PRODUCTS_BASIC_QUERY = `
   query ListProductsBasic($first: Int!, $after: String) {
-    products(first: $first, after: $after, sortKey: ID) {
+    products(first: $first, after: $after, sortKey: TITLE) {
       nodes { id title handle variantsCount { count } }
       pageInfo { hasNextPage endCursor }
     }
@@ -643,7 +644,7 @@ async function mapProductWithVariants(shop, p) {
 
 /**
  * Équivalent de client.product.list({ limit }) mais paginé (plafond PRODUCTS_MAX, défaut 250 = ancienne limite REST).
- * Triés par ID croissant (ordre REST). opts.variants === false => liste légère { id, title, handle, variants_count }.
+ * Triés par titre (ordre constaté en REST, 09/10/2026 : liste du sélecteur d'import). opts.variants === false => liste légère { id, title, handle, variants_count }.
  */
 async function listProducts(shop, opts = {}) {
   const max = Math.min(Math.max(Number(opts.limit) || 250, 1), PRODUCTS_MAX);
