@@ -866,6 +866,31 @@ async function setInventoryAvailable(shop, { inventoryItemId, locationId, availa
   const payload = data?.inventorySetQuantities;
   if (!payload) throw new Error("inventorySetQuantities: réponse Shopify vide");
   throwOnUserErrors("inventorySetQuantities", payload.userErrors);
+
+  if (!payload.inventoryAdjustmentGroup) {
+    // Shopify renvoie un groupe null SANS userErrors dans deux cas : quantité déjà égale (rien à écrire)
+    // OU article non stocké à l'emplacement (rien n'est écrit ; constaté sur la boutique de dev le 09/10/2026,
+    // là où REST renvoyait une erreur). On relit le niveau pour distinguer : absent => même erreur que REST
+    // (« not stocked ») afin que l'appelant active l'article puis réessaie ; présent mais différent => erreur.
+    const levels = await listInventoryLevels(shop, { inventoryItemIds: inventoryItemId, locationIds: locationId });
+    const level = levels[0];
+    if (!level) {
+      const err = new Error("inventorySetQuantities: article non stocké à cet emplacement (not stocked at location)");
+      err.statusCode = 422;
+      err.code = "ITEM_NOT_STOCKED_AT_LOCATION";
+      err.response = { statusCode: 422, headers: {}, body: { errors: ["Inventory item not stocked at location"] } };
+      throw err;
+    }
+    if (level.available !== null && Number(level.available) !== quantity) {
+      const err = new Error(
+        `inventorySetQuantities: quantité non appliquée (Shopify ${level.available}, attendu ${quantity})`
+      );
+      err.statusCode = 409;
+      err.code = "QUANTITY_NOT_APPLIED";
+      err.response = { statusCode: 409, headers: {}, body: { errors: [err.message] } };
+      throw err;
+    }
+  }
   return { available: quantity };
 }
 
