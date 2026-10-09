@@ -6689,22 +6689,44 @@ router.post("/api/notifications/check", (req, res) => {
       const snapshot = stock.getCatalogSnapshot ? stock.getCatalogSnapshot(shop) : { products: [] };
       const products = Array.isArray(snapshot.products) ? snapshot.products : [];
       
-      // Récupérer les settings pour les seuils
+      // Recuperer les settings pour les seuils.
+      // Seuils en GRAMMES, memes valeurs et memes defauts que le tableau de bord
+      // (/api/analytics/dashboard). Avant : multiplies par 1000 (10 g -> 10 kg),
+      // ce qui marquait presque tout le catalogue en stock critique.
       const settings = settingsStore.loadSettings ? settingsStore.loadSettings(shop) : {};
-      const criticalThreshold = (settings.stock && settings.stock.criticalThreshold) || 50;
-      const lowThreshold = (settings.stock && settings.stock.lowStockThreshold) || 200;
+      const criticalThreshold = Number(settings.stock && settings.stock.criticalThreshold) > 0
+        ? Number(settings.stock.criticalThreshold) : 50;
+      const lowThreshold = Number(settings.stock && settings.stock.lowStockThreshold) > 0
+        ? Number(settings.stock.lowStockThreshold) : 200;
       
       let alertsGenerated = 0;
+      let newAlerts = 0;
+      let resolvedAlerts = 0;
+      const STOCK_TYPES = ["out_of_stock", "critical_stock", "low_stock"];
+      const add = (alert) => {
+        alertsGenerated++;
+        // addAlert renvoie la nouvelle alerte, ou null si elle existe deja / est desactivee.
+        if (notificationStore.addAlert(shop, alert)) newAlerts++;
+      };
       
       // Vérifier chaque produit
       products.forEach(p => {
         const totalGrams = p.totalGrams || 0;
         const productId = p.productId;
         const productName = p.name || "Produit";
+
+        // Etat courant ; les alertes de stock qui ne correspondent plus (ex. fausses
+        // alertes creees par l'ancien calcul x1000, ou produit reapprovisionne) sont resolues.
+        const state = totalGrams <= 0 ? "out_of_stock"
+          : totalGrams < criticalThreshold ? "critical_stock"
+          : totalGrams < lowThreshold ? "low_stock" : null;
+        if (notificationStore.resolveAlertsForProduct) {
+          resolvedAlerts += notificationStore.resolveAlertsForProduct(shop, productId, STOCK_TYPES.filter(t => t !== state)) || 0;
+        }
         
         // Rupture de stock
         if (totalGrams <= 0) {
-          notificationStore.addAlert(shop, {
+          add({
             type: "out_of_stock",
             priority: "high",
             title: "Rupture de stock",
@@ -6712,31 +6734,28 @@ router.post("/api/notifications/check", (req, res) => {
             productId,
             productName
           });
-          alertsGenerated++;
         }
         // Stock critique
-        else if (totalGrams < criticalThreshold * 1000) { // Convertir en grammes
-          notificationStore.addAlert(shop, {
+        else if (totalGrams < criticalThreshold) {
+          add({
             type: "critical_stock",
             priority: "high",
             title: "Stock critique",
-            message: productName + " a un stock critique",
+            message: productName + " a un stock critique (" + Math.round(totalGrams) + " g)",
             productId,
             productName
           });
-          alertsGenerated++;
         }
         // Stock bas
-        else if (totalGrams < lowThreshold * 1000) { // Convertir en grammes
-          notificationStore.addAlert(shop, {
+        else if (totalGrams < lowThreshold) {
+          add({
             type: "low_stock",
             priority: "medium",
             title: "Stock bas",
-            message: productName + " a un stock bas",
+            message: productName + " a un stock bas (" + Math.round(totalGrams) + " g)",
             productId,
             productName
           });
-          alertsGenerated++;
         }
       });
       
@@ -6745,11 +6764,13 @@ router.post("/api/notifications/check", (req, res) => {
       data.lastCheck = new Date().toISOString();
       notificationStore.saveNotifications(shop, data);
       
-      logEvent("notifications_check", { shop, alertsGenerated }, "info");
+      logEvent("notifications_check", { shop, alertsGenerated, newAlerts, resolvedAlerts }, "info");
       
       res.json({ 
         success: true, 
         alertsGenerated,
+        newAlerts,
+        resolvedAlerts,
         lastCheck: data.lastCheck 
       });
     } catch (e) {
@@ -8571,17 +8592,24 @@ app.post("/webhooks/orders/create", express.raw({ type: "application/json" }), a
       return res.sendStatus(200);
     }
 
-    // --- DEDUPLICATION: skip if this order was already processed ---
+    // --- DEDUPLICATION ---
+    // La commande n'est marquee traitee qu'a la fin. Avant, elle l'etait des la
+    // reception : si une ligne plantait (erreur API), Shopify renvoyait le webhook
+    // et ce retry etait ignore -> lignes suivantes jamais decomptees. Chaque ligne
+    // a sa propre cle, posee avant traitement et retiree en cas d'echec.
     const orderId = String(payload?.id || "");
-    if (isWebhookDuplicate(orderId)) {
-      logEvent("webhook_duplicate_skipped", { shop, orderId, orderNumber: payload?.order_number }, "info");
+    const orderNumber = payload?.order_number || payload?.name || "";
+    if (orderId && processedWebhooks.has(orderId)) {
+      logEvent("webhook_duplicate_skipped", { shop, orderId, orderNumber }, "info");
       return res.sendStatus(200);
     }
 
     const lineItems = Array.isArray(payload?.line_items) ? payload.line_items : [];
     if (!lineItems.length) return res.sendStatus(200);
 
-    const client = shopifyFor(shop);
+    // Client Shopify cree a la demande (seulement si une variante doit etre resolue via l'API).
+    let client = null;
+    const getClient = () => client || (client = shopifyFor(shop));
 
     for (const li of lineItems) {
       const productId = String(li?.product_id || "");
@@ -8590,14 +8618,61 @@ app.post("/webhooks/orders/create", express.raw({ type: "application/json" }), a
       if (!productId || !variantId || qty <= 0) continue;
 
       const currentSnap = stock.getStockSnapshot ? stock.getStockSnapshot(shop)?.[productId] : null;
-      if (!currentSnap) continue;
+      if (!currentSnap) {
+        // Produit non gere par l'app (accessoire, etc.) : normal, trace seulement.
+        logEvent("order_line_unmanaged", { shop, orderId, orderNumber, productId, title: li?.title || "" }, "info");
+        continue;
+      }
 
-      const variant = await client.productVariant.get(variantId);
-      const inventoryItemId = Number(variant?.inventory_item_id || 0);
-      if (!inventoryItemId) continue;
+      const lineKey = orderId + ":" + String(li?.id || variantId);
+      if (processedWebhooks.has(lineKey)) continue;
+      processedWebhooks.set(lineKey, Date.now());
 
-      const gramsPerUnit = findGramsPerUnitByInventoryItemId(currentSnap, inventoryItemId);
-      if (!gramsPerUnit) continue;
+      let gramsPerUnit = null;
+      try {
+        // 1. Variante connue de l'app : pas d'appel API.
+        const snapVariants = Object.values(currentSnap.variants || {}).filter(Boolean);
+        for (const v of snapVariants) {
+          if (v.variantId && String(v.variantId) === String(variantId)) {
+            const g = Number(v.gramsPerUnit);
+            if (Number.isFinite(g) && g > 0) gramsPerUnit = g;
+            break;
+          }
+        }
+        // 2. Sinon, seulement si une variante de l'app n'a pas de variantId (ancien
+        //    import) : on retrouve l'inventory item via Shopify. Si toutes l'ont,
+        //    la variante vendue est inconnue de l'app, inutile d'appeler l'API.
+        if (!gramsPerUnit && snapVariants.some((v) => !v.variantId)) {
+          const variant = await getClient().productVariant.get(variantId);
+          const inventoryItemId = Number(variant?.inventory_item_id || 0);
+          if (inventoryItemId) gramsPerUnit = findGramsPerUnitByInventoryItemId(currentSnap, inventoryItemId);
+        }
+      } catch (e) {
+        processedWebhooks.delete(lineKey); // le retry Shopify pourra retraiter cette ligne
+        throw e;
+      }
+
+      if (!gramsPerUnit) {
+        // Produit gere par l'app mais variante inconnue (ex. variante creee dans
+        // Shopify apres l'import) : le stock en grammes n'est PAS decompte.
+        const variantTitle = li?.variant_title || "";
+        logEvent("order_line_skipped", { shop, orderId, orderNumber, productId, variantId, variantTitle, qty }, "warn");
+        try {
+          notificationStore.addAlert(shop, {
+            type: "order_line_skipped",
+            priority: "high",
+            title: "Vente non decomptee",
+            message: "Commande " + (payload?.name || ("#" + orderNumber)) + " : " + qty + " x " +
+              (currentSnap.name || li?.title || productId) + (variantTitle ? " (" + variantTitle + ")" : "") +
+              " - variante inconnue de l'app, stock non decompte. Resynchronisez le produit puis corrigez le stock.",
+            productId,
+            productName: currentSnap.name || li?.title || "",
+          });
+        } catch (e) {
+          logEvent("order_line_skipped_alert_error", { shop, productId, error: e.message }, "error");
+        }
+        continue;
+      }
 
       const gramsToSubtract = gramsPerUnit * qty;
 
@@ -8647,6 +8722,7 @@ app.post("/webhooks/orders/create", express.raw({ type: "application/json" }), a
       logEvent("analytics_record_error", { shop, orderId: payload?.id, error: e.message }, "error");
     }
 
+    if (orderId) processedWebhooks.set(orderId, Date.now()); // commande entierement traitee
     return res.sendStatus(200);
   } catch (e) {
     logEvent("webhook_error", extractShopifyError(e), "error");
