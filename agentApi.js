@@ -15,10 +15,15 @@
 //   GET  /agent/v1/products?q=
 //   POST /agent/v1/import   { productId, categoryIds?, requestId, dryRun? }
 //   POST /agent/v1/restock  { productId, grams, purchasePricePerGram, supplier?, invoice?, note?, requestId, dryRun? }
+//   POST /agent/v1/invoices { requestId, dryRun?, supplier{name,...}, invoice{number,date,productsHT,shippingHT,taxTotal,totalTTC,...},
+//                             lines[{productId,grams,pricePerGram}], shippingAllocation?, pdf{filename,contentBase64}? }
+//                           -> fournisseur + PO (COMPLETE) + PDF + entrees de stock au prix de revient (port reparti). Corps jusqu'a 15 Mo.
+//   GET  /agent/v1/purchase-orders?limit=20&invoiceNumber=&supplierId=   (lecture seule : ce qui est deja enregistre)
 //
 // deps (tout est injecte depuis server.js, rien n'est require ici hors express / express-rate-limit) :
 //   requis : stock, movementStore, normalizeShopDomain, logEvent, pushProductInventoryToShopify, parseGramsFromVariant
-//   optionnels : productOverridesStore (archives), planManager (limites d'import),
+//   optionnels : productOverridesStore (archives), planManager (limites d'import, hasFeature('hasPurchaseOrders')),
+//                supplierStore + purchaseOrderStore + documentStore (requis par /invoices et /purchase-orders),
 //                getShopifyProduct(shop, productId) -> produit au format REST {id,title,handle,variants[]}
 //                  (a defaut : shopifyFor(shop).product.get(Number(id)))  | shopifyFor(shop),
 //                dataDir (defaut env DATA_DIR ou /var/data), env (defaut process.env)
@@ -34,6 +39,10 @@ const MIN_KEY_LENGTH = 32;
 const MAX_GRAMS = 20000;
 const MAX_PRICE_PER_GRAM = 50;
 const MAX_STORED_REQUESTS = 2000;
+const MAX_INVOICE_LINES = 50;
+const MONEY_TOLERANCE = 0.02; // EUR : ecart accepte entre les totaux de la facture et la somme des lignes
+const MAX_MONEY = 10000000;
+const INVOICE_BODY_LIMIT = "15mb"; // PDF 10 Mo max -> ~13,4 Mo en base64
 const DEFAULT_RATE_LIMIT_PER_MIN = 30;
 const AGENT_PROFILE_NAME = "Agent Hermes";
 const AGENT_PROFILE_COLOR = "#14b8a6";
@@ -229,6 +238,9 @@ function registerAgentRoutes(app, deps = {}) {
   const { stock, movementStore, normalizeShopDomain, pushProductInventoryToShopify, parseGramsFromVariant } = deps;
   const productOverridesStore = deps.productOverridesStore || null;
   const planManager = deps.planManager || null;
+  const supplierStore = deps.supplierStore || null;
+  const purchaseOrderStore = deps.purchaseOrderStore || null;
+  const documentStore = deps.documentStore || null;
   const dataDir = deps.dataDir || env.DATA_DIR || "/var/data";
   const keyDigest = sha256(apiKey);
   const requests = createRequestStore(dataDir, logEvent);
@@ -392,7 +404,10 @@ function registerAgentRoutes(app, deps = {}) {
     next();
   });
 
-  router.use(express.json({ limit: "100kb" }));
+  // 100 ko partout, sauf POST /invoices (PDF en base64) : parser a part, lu seulement APRES l'auth ci-dessus.
+  const smallJson = express.json({ limit: "100kb" });
+  const invoiceJson = express.json({ limit: INVOICE_BODY_LIMIT });
+  router.use((req, res, next) => (req.method === "POST" && req.path === "/invoices" ? invoiceJson(req, res, next) : smallJson(req, res, next)));
 
   // =============================================================
   // GET /products
@@ -712,6 +727,448 @@ function registerAgentRoutes(app, deps = {}) {
     })
   );
 
+  // =============================================================
+  // POST /invoices : facture fournisseur reelle -> fournisseur + PO (COMPLETE) + PDF + entrees de stock
+  //   (prix de revient = prix facture + port reparti ; PAS de passage par /receive : le stock n'est ajoute qu'une fois)
+  // =============================================================
+  const round2 = (n) => Math.round(n * 100) / 100;
+  const round4 = (n) => Math.round(n * 10000) / 10000;
+  const sameMoney = (a, b) => Math.abs(a - b) <= MONEY_TOLERANCE + 1e-9;
+  const norm = (s) => String(s || "").trim().toLowerCase();
+
+  function requireObject(v, field) {
+    if (!v || typeof v !== "object" || Array.isArray(v)) throw new ApiError(400, `invalid_${field}`, `${field} doit etre un objet`);
+    return v;
+  }
+  function requiredString(v, field, code, max) {
+    const s = optString(v, field, max);
+    if (!s) throw new ApiError(400, code, `${field} requis`);
+    return s;
+  }
+  function readMoney(v, field) {
+    const n = parseNumber(v);
+    if (!Number.isFinite(n) || n < 0 || n > MAX_MONEY) throw new ApiError(400, "invalid_amount", `${field} invalide (nombre >= 0 et <= ${MAX_MONEY})`);
+    return n;
+  }
+  function readInvoiceDate(v) {
+    const s = typeof v === "string" ? v.trim() : "";
+    const d = /^\d{4}-\d{2}-\d{2}$/.test(s) ? new Date(`${s}T00:00:00Z`) : null;
+    if (!d || Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== s) {
+      throw new ApiError(400, "invalid_invoice_date", "invoice.date doit etre une date reelle au format YYYY-MM-DD");
+    }
+    return s;
+  }
+
+  function parseInvoiceBody(body) {
+    const s = requireObject(body.supplier, "supplier");
+    const supplier = {
+      name: requiredString(s.name, "supplier.name", "invalid_supplier", 200),
+      siret: optString(s.siret, "supplier.siret", 40),
+      vat: optString(s.vat, "supplier.vat", 40),
+      address: optString(s.address, "supplier.address", 300),
+      phone: optString(s.phone, "supplier.phone", 40),
+      email: optString(s.email, "supplier.email", 200),
+    };
+
+    const i = requireObject(body.invoice, "invoice");
+    const invoice = {
+      number: requiredString(i.number, "invoice.number", "invalid_invoice_number", 100),
+      date: readInvoiceDate(i.date),
+      orderRef: optString(i.orderRef, "invoice.orderRef", 100),
+      paymentMethod: optString(i.paymentMethod, "invoice.paymentMethod", 100),
+      productsHT: readMoney(i.productsHT, "invoice.productsHT"),
+      shippingHT: readMoney(i.shippingHT, "invoice.shippingHT"),
+      taxTotal: readMoney(i.taxTotal, "invoice.taxTotal"),
+      totalTTC: readMoney(i.totalTTC, "invoice.totalTTC"),
+    };
+    invoice.totalHT = round2(invoice.productsHT + invoice.shippingHT);
+    if (i.totalHT !== undefined && i.totalHT !== null && !sameMoney(readMoney(i.totalHT, "invoice.totalHT"), invoice.totalHT)) {
+      throw new ApiError(400, "totals_mismatch", "productsHT + shippingHT ne correspond pas a totalHT", {
+        productsHT: invoice.productsHT,
+        shippingHT: invoice.shippingHT,
+        totalHT: Number(i.totalHT),
+      });
+    }
+    if (!sameMoney(invoice.totalHT + invoice.taxTotal, invoice.totalTTC)) {
+      throw new ApiError(400, "totals_mismatch", "totalHT + taxTotal ne correspond pas a totalTTC", {
+        totalHT: invoice.totalHT,
+        taxTotal: invoice.taxTotal,
+        totalTTC: invoice.totalTTC,
+      });
+    }
+
+    if (!Array.isArray(body.lines) || body.lines.length < 1 || body.lines.length > MAX_INVOICE_LINES) {
+      throw new ApiError(400, "invalid_lines", `lines doit etre un tableau de 1 a ${MAX_INVOICE_LINES} lignes`);
+    }
+    const lines = body.lines.map((l, idx) => {
+      const where = `lines[${idx}]`;
+      requireObject(l, "lines");
+      const productId = String(l.productId ?? "").trim();
+      if (!productId || productId.length > 40) throw new ApiError(400, "invalid_product_id", `${where}.productId manquant ou invalide`);
+      const grams = parseNumber(l.grams);
+      if (!Number.isFinite(grams) || grams <= 0 || grams > MAX_GRAMS) {
+        throw new ApiError(400, "invalid_grams", `${where}.grams invalide (nombre > 0 et <= ${MAX_GRAMS})`);
+      }
+      const pricePerGram = parseNumber(l.pricePerGram);
+      if (!Number.isFinite(pricePerGram) || pricePerGram < 0 || pricePerGram > MAX_PRICE_PER_GRAM) {
+        throw new ApiError(400, "invalid_price", `${where}.pricePerGram invalide (nombre >= 0 et <= ${MAX_PRICE_PER_GRAM})`);
+      }
+      return { productId, grams, pricePerGram, label: optString(l.label, `${where}.label`, 200) };
+    });
+    const linesTotal = round2(lines.reduce((sum, l) => sum + l.grams * l.pricePerGram, 0));
+    if (!sameMoney(linesTotal, invoice.productsHT)) {
+      throw new ApiError(400, "totals_mismatch", "La somme des lignes (grams x pricePerGram) ne correspond pas a invoice.productsHT", {
+        linesTotal,
+        productsHT: invoice.productsHT,
+      });
+    }
+
+    const allocation = body.shippingAllocation === undefined || body.shippingAllocation === null ? "weight" : body.shippingAllocation;
+    if (allocation !== "weight" && allocation !== "value") {
+      throw new ApiError(400, "invalid_shipping_allocation", "shippingAllocation doit valoir 'weight' ou 'value'");
+    }
+
+    let pdf = null;
+    if (body.pdf !== undefined && body.pdf !== null) {
+      requireObject(body.pdf, "pdf");
+      if (!documentStore) throw new ApiError(500, "not_configured", "documentStore indisponible");
+      try {
+        const buffer = documentStore.decodePdfBase64(body.pdf.contentBase64);
+        pdf = {
+          buffer,
+          filename: optString(body.pdf.filename, "pdf.filename", 200) || `facture-${invoice.number}.pdf`,
+          sha256: crypto.createHash("sha256").update(buffer).digest("hex"),
+        };
+      } catch (e) {
+        if (e instanceof ApiError) throw e;
+        if (e && e.status && e.code) throw new ApiError(e.status, e.code, e.message);
+        throw e;
+      }
+    }
+    return { supplier, invoice, lines, allocation, pdf, linesTotal };
+  }
+
+  // Prix de revient par gramme : prix facture + port reparti (au poids, ou a la valeur), arrondi a 4 decimales.
+  function landedPrices(lines, shippingHT, allocation) {
+    const totalGrams = lines.reduce((s, l) => s + l.grams, 0);
+    const totalValue = lines.reduce((s, l) => s + l.grams * l.pricePerGram, 0);
+    const byValue = allocation === "value" && totalValue > 0;
+    return lines.map((l) => round4(l.pricePerGram + (byValue ? (shippingHT * l.pricePerGram) / totalValue : shippingHT / totalGrams)));
+  }
+
+  function findSupplier(shop, name) {
+    return supplierStore.loadSuppliers(shop).find((s) => norm(s.name) === norm(name)) || null;
+  }
+
+  function invoiceSummaryOf(po) {
+    const inv = po.invoice || null;
+    return {
+      id: po.id,
+      number: po.number,
+      status: po.status,
+      supplierId: po.supplierId || null,
+      supplierName: po.supplierName || "",
+      createdAt: po.createdAt,
+      receivedAt: po.receivedAt || null,
+      invoice: inv,
+      invoiceNumber: inv ? inv.number : null,
+      subtotal: po.subtotal,
+      shippingCost: po.shippingCost,
+      total: po.total,
+      currency: po.currency,
+      lineCount: (po.lines || []).length,
+      totalGrams: (po.lines || []).reduce((s, l) => s + (Number(l.orderedGrams) || 0), 0),
+      documentIds: Array.isArray(po.documentIds) ? po.documentIds : [],
+    };
+  }
+
+  router.post(
+    "/invoices",
+    wrap(async (req, res) => {
+      const shop = req.agentShop;
+      const body = readBody(req);
+      const dryRun = readDryRun(body);
+      const requestId = readRequestId(body, dryRun);
+      const { supplier, invoice, lines, allocation, pdf } = parseInvoiceBody(body);
+
+      const totalGrams = lines.reduce((s, l) => s + l.grams, 0);
+
+      const execute = async (persist) => {
+        if (!supplierStore || !purchaseOrderStore || !documentStore || typeof stock.restockProduct !== "function") {
+          throw new ApiError(500, "not_configured", "Modules fournisseurs / commandes / documents indisponibles");
+        }
+        if (planManager && typeof planManager.hasFeature === "function" && !planManager.hasFeature(shop, "hasPurchaseOrders")) {
+          return { status: 403, body: { error: "plan_limit", message: "Factures fournisseur reservees au plan Business", upgrade: "business", feature: "hasPurchaseOrders" } };
+        }
+
+        // --- Validation de l'etat (AUCUNE ecriture avant la fin de ce bloc)
+        const catalog = catalogProducts(shop).products;
+        const overrides = overridesOf(shop);
+        const resolved = lines.map((l) => {
+          const product = catalog.find((p) => String(p.productId) === l.productId);
+          if (!product) {
+            throw new ApiError(404, "product_not_found", `Produit ${l.productId} absent du catalogue de l'app (importer d'abord)`, { productId: l.productId });
+          }
+          if (overrides[l.productId]?.archived === true) {
+            throw new ApiError(409, "product_archived", `Produit ${l.productId} archive : entree de stock refusee`, { productId: l.productId });
+          }
+          return product;
+        });
+
+        const existingSupplier = findSupplier(shop, supplier.name);
+        const duplicate = purchaseOrderStore
+          .listPurchaseOrders(shop, { limit: 100000 })
+          .find((po) => po.status !== "cancelled" && po.invoice && norm(po.invoice.number) === norm(invoice.number) && norm(po.supplierName) === norm(supplier.name));
+        if (duplicate) {
+          throw new ApiError(409, "invoice_already_recorded", "Une facture avec ce numero est deja enregistree pour ce fournisseur", {
+            purchaseOrder: { id: duplicate.id, number: duplicate.number },
+          });
+        }
+
+        // --- Calcul (stock/CMP simules ligne apres ligne : un meme produit peut apparaitre 2 fois)
+        const landed = landedPrices(lines, invoice.shippingHT, allocation);
+        const sim = new Map();
+        const plan = lines.map((l, idx) => {
+          const product = resolved[idx];
+          const state = sim.get(l.productId) || {
+            grams: product.totalGrams,
+            cmp: stock.getProductCMPSnapshot ? stock.getProductCMPSnapshot(shop, l.productId) : product.averageCostPerGram,
+          };
+          const cmpAfter =
+            landed[idx] > 0 && typeof stock.calculateWeightedAverageCost === "function"
+              ? stock.calculateWeightedAverageCost(state.grams, state.cmp, l.grams, landed[idx])
+              : state.cmp;
+          sim.set(l.productId, { grams: state.grams + l.grams, cmp: cmpAfter });
+          return {
+            product: summary(product),
+            grams: l.grams,
+            invoicePricePerGram: l.pricePerGram,
+            landedPricePerGram: landed[idx],
+            totalGramsBefore: state.grams,
+            totalGramsAfter: state.grams + l.grams,
+            cmpBefore: state.cmp,
+            cmpAfterEstimate: cmpAfter,
+          };
+        });
+
+        const poLines = lines.map((l, idx) => ({ productId: l.productId, productName: resolved[idx].name, grams: l.grams, pricePerGram: l.pricePerGram }));
+        const poInvoice = {
+          number: invoice.number,
+          date: invoice.date,
+          orderRef: invoice.orderRef,
+          taxTotal: invoice.taxTotal,
+          totalTTC: invoice.totalTTC,
+          paymentMethod: invoice.paymentMethod,
+        };
+        const totals = {
+          productsHT: invoice.productsHT,
+          shippingHT: invoice.shippingHT,
+          totalHT: invoice.totalHT,
+          taxTotal: invoice.taxTotal,
+          totalTTC: invoice.totalTTC,
+        };
+
+        if (dryRun) {
+          let docKnown = false;
+          if (pdf) docKnown = documentStore.listDocuments(shop, {}).some((d) => d.sha256 === pdf.sha256);
+          return {
+            status: 200,
+            body: {
+              dryRun: true,
+              supplier: { name: supplier.name, exists: !!existingSupplier, id: existingSupplier ? existingSupplier.id : null },
+              purchaseOrder: {
+                status: "complete",
+                invoice: poInvoice,
+                lines: poLines.map((l) => ({ ...l, lineTotal: round2(l.grams * l.pricePerGram) })),
+                subtotal: invoice.productsHT,
+                shippingCost: invoice.shippingHT,
+                total: invoice.totalHT,
+              },
+              document: pdf ? { filename: documentStore.sanitizeFilename(pdf.filename), size: pdf.buffer.length, sha256: pdf.sha256, alreadyStored: docKnown } : null,
+              shippingAllocation: allocation,
+              totalGrams,
+              lines: plan,
+            },
+          };
+        }
+
+        // --- Ecritures : fournisseur -> PO -> PDF -> stock par ligne
+        let supplierRecord = existingSupplier;
+        let supplierCreated = false;
+        if (!supplierRecord) {
+          const notes = [supplier.siret ? `SIRET ${supplier.siret}` : "", supplier.vat ? `TVA ${supplier.vat}` : ""].filter(Boolean).join(" - ");
+          supplierRecord = supplierStore.createSupplier(shop, {
+            name: supplier.name,
+            contact: { email: supplier.email || "", phone: supplier.phone || "" },
+            address: { street: supplier.address || "" },
+            notes: notes ? `${notes} (cree depuis une facture via l'API agent)` : "Cree depuis une facture via l'API agent",
+          });
+          supplierCreated = true;
+        }
+
+        const po = purchaseOrderStore.createCompletedPurchaseOrder(shop, {
+          supplierId: supplierRecord.id,
+          supplierName: supplierRecord.name,
+          shippingCost: invoice.shippingHT,
+          lines: poLines,
+          invoice: poInvoice,
+          notes: `Facture ${invoice.number}`,
+          internalNotes: `Saisie via l'API agent (requestId ${requestId})`,
+          createdBy: AGENT_PROFILE_NAME,
+        });
+
+        let doc = null;
+        let docDeduped = false;
+        if (pdf) {
+          const saved = documentStore.saveDocument(shop, {
+            buffer: pdf.buffer,
+            filename: pdf.filename,
+            kind: "invoice",
+            supplierId: supplierRecord.id,
+            supplierName: supplierRecord.name,
+            purchaseOrderId: po.id,
+            invoiceNumber: invoice.number,
+            invoiceDate: invoice.date,
+            totals,
+            createdBy: AGENT_PROFILE_NAME,
+          });
+          doc = saved.document;
+          docDeduped = saved.deduped;
+          purchaseOrderStore.attachDocument(shop, po.id, doc.id);
+        }
+
+        const resultLines = [];
+        const updatedProducts = [];
+        for (let idx = 0; idx < lines.length; idx++) {
+          const l = lines[idx];
+          const cmpBefore = stock.getProductCMPSnapshot ? stock.getProductCMPSnapshot(shop, l.productId) : 0;
+          const totalBefore = (stock.getProductSnapshot ? stock.getProductSnapshot(shop, l.productId)?.totalGrams : undefined) ?? plan[idx].totalGramsBefore;
+          const updated = await stock.restockProduct(shop, l.productId, l.grams, landed[idx]);
+          if (!updated) {
+            throw new ApiError(500, "restock_failed", `Entree de stock impossible pour le produit ${l.productId} (PO ${po.number} deja cree)`, {
+              purchaseOrder: { id: po.id, number: po.number },
+            });
+          }
+          let mv = null;
+          if (movementStore.addMovement) {
+            mv = movementStore.addMovement(
+              {
+                source: "restock",
+                productId: l.productId,
+                productName: updated.name,
+                gramsDelta: Math.abs(l.grams),
+                purchasePricePerGram: landed[idx] > 0 ? landed[idx] : undefined,
+                cmpBefore: landed[idx] > 0 ? cmpBefore : undefined,
+                totalAfter: updated.totalGrams,
+                profileId: null,
+                profileName: AGENT_PROFILE_NAME,
+                profileColor: AGENT_PROFILE_COLOR,
+                meta: {
+                  supplier: supplierRecord.name,
+                  invoice: invoice.number,
+                  purchaseOrderId: po.id,
+                  documentId: doc ? doc.id : undefined,
+                  requestId,
+                  via: "agent-api",
+                },
+                shop,
+              },
+              shop
+            );
+          }
+          updatedProducts.push(updated);
+          resultLines.push({
+            product: summary(updated),
+            grams: l.grams,
+            invoicePricePerGram: l.pricePerGram,
+            landedPricePerGram: landed[idx],
+            totalGramsBefore: totalBefore,
+            totalGramsAfter: updated.totalGrams,
+            cmpBefore,
+            cmpAfter: updated.averageCostPerGram,
+            movementId: mv ? mv.id : null,
+            inventorySync: { ok: null },
+          });
+        }
+
+        const result = {
+          success: true,
+          requestId,
+          purchaseOrder: { id: po.id, number: po.number },
+          documentId: doc ? doc.id : null,
+          documentDeduped: docDeduped,
+          supplierId: supplierRecord.id,
+          supplierCreated,
+          shippingAllocation: allocation,
+          lines: resultLines,
+          inventorySync: { ok: null },
+        };
+        // Enregistre AVANT les appels Shopify (lents) : un rejeu ne doit jamais re-appliquer le stock.
+        let stored = persist(result);
+
+        // Un seul push par produit (le plus recent etat), compte rendu ligne par ligne.
+        const pushed = new Map();
+        for (let idx = 0; idx < lines.length; idx++) {
+          const pid = lines[idx].productId;
+          if (!pushed.has(pid)) {
+            const latest = updatedProducts.filter((u) => String(u.productId) === pid).pop();
+            try {
+              await pushProductInventoryToShopify(shop, latest);
+              pushed.set(pid, { ok: true });
+            } catch (e) {
+              logEvent("inventory_push_error", { shop, productId: pid, message: e?.message }, "error");
+              pushed.set(pid, { ok: false, error: String(e?.message || "push Shopify en echec").slice(0, 200) });
+            }
+          }
+          resultLines[idx].inventorySync = pushed.get(pid);
+        }
+        const failed = [...pushed.values()].filter((p) => !p.ok).length;
+        result.inventorySync = { ok: failed === 0, failed };
+        stored = persist(result) && stored;
+        if (!stored) result.warning = "idempotence non persistee";
+        return { status: 200, body: result };
+      };
+
+      if (dryRun) {
+        const out = await execute(() => true);
+        return res.status(out.status).json(out.body);
+      }
+      return runWrite(req, res, {
+        route: "invoices",
+        shop,
+        requestId,
+        fingerprint: fingerprintOf({
+          route: "invoices",
+          supplier,
+          invoice,
+          lines: lines.map((l) => [l.productId, l.grams, l.pricePerGram]),
+          allocation,
+          pdf: pdf ? pdf.sha256 : null,
+        }),
+        grams: totalGrams,
+        execute,
+      });
+    })
+  );
+
+  // =============================================================
+  // GET /purchase-orders?limit=20&invoiceNumber=&supplierId=   (lecture seule)
+  // =============================================================
+  router.get(
+    "/purchase-orders",
+    wrap(async (req, res) => {
+      const shop = req.agentShop;
+      if (!purchaseOrderStore) throw new ApiError(500, "not_configured", "purchaseOrderStore indisponible");
+      const limit = Math.min(100, Math.max(1, Number.parseInt(req.query.limit, 10) || 20));
+      const supplierId = String(req.query.supplierId || "").trim();
+      const invoiceNumber = norm(req.query.invoiceNumber);
+      let orders = purchaseOrderStore.listPurchaseOrders(shop, { limit: 100000, supplierId: supplierId || undefined });
+      if (invoiceNumber) orders = orders.filter((po) => po.invoice && norm(po.invoice.number).includes(invoiceNumber));
+      const total = orders.length;
+      res.json({ shop, count: Math.min(total, limit), total, purchaseOrders: orders.slice(0, limit).map(invoiceSummaryOf) });
+    })
+  );
+
   // --- 404 JSON + erreurs (JSON invalide, body trop gros)
   router.use((req, res) => reply404(res));
   router.use((err, req, res, _next) => {
@@ -719,7 +1176,8 @@ function registerAgentRoutes(app, deps = {}) {
       return res.status(400).json({ error: "invalid_json", message: "JSON invalide" });
     }
     if (err?.type === "entity.too.large") {
-      return res.status(413).json({ error: "payload_too_large", message: "Corps trop volumineux (max 100 ko)" });
+      const big = req.path === "/invoices";
+      return res.status(413).json({ error: "payload_too_large", message: `Corps trop volumineux (max ${big ? "15 Mo" : "100 ko"})` });
     }
     logEvent("agent_api_error", { route: req.path, message: String(err?.message || err) }, "error");
     return res.status(500).json({ error: "internal_error", message: "Erreur serveur" });
