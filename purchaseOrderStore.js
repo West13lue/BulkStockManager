@@ -227,6 +227,31 @@ function cancelPurchaseOrder(shop, poId, reason = "") {
   return orders[index];
 }
 
+// Entrees de stock d'une reception : prix de revient = prix de ligne + part des frais (port + autres)
+// repartie au poids sur les grammes COMMANDES du PO. Arrondi a 4 decimales (precision CMP).
+function computeReceiptStockEntries(po, receptionLines) {
+  const lines = Array.isArray(po?.lines) ? po.lines : [];
+  const totalOrdered = lines.reduce((s, l) => s + (Number(l.orderedGrams) || 0), 0);
+  const extra = (Number(po?.shippingCost) || 0) + (Number(po?.otherCosts) || 0);
+  const extraPerGram = totalOrdered > 0 ? extra / totalOrdered : 0;
+  const out = [];
+  for (const rl of receptionLines || []) {
+    const line = lines.find((l) => l.id === rl.lineId);
+    const grams = Number(rl.receivedGrams) || 0;
+    if (!line || !(grams > 0) || !line.productId) continue;
+    const price = Number(line.pricePerGram) || 0;
+    out.push({
+      lineId: line.id,
+      productId: String(line.productId),
+      productName: line.productName || "",
+      grams,
+      pricePerGram: price,
+      landedPricePerGram: Math.round((price + extraPerGram) * 10000) / 10000,
+    });
+  }
+  return out;
+}
+
 function receiveItems(shop, poId, receivedLines, options = {}) {
   const po = getPurchaseOrder(shop, poId);
   if (!po) throw new Error(`PO non trouv: ${poId}`);
@@ -350,6 +375,7 @@ module.exports = {
   confirmPurchaseOrder,
   cancelPurchaseOrder,
   receiveItems,
+  computeReceiptStockEntries,
   listPurchaseOrders,
   getPendingOrders,
   getPOStats,

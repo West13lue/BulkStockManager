@@ -7177,9 +7177,18 @@ router.post("/api/purchase-orders/:id/receive", async (req, res) => {
     if (!purchaseOrderStore) return apiError(res, 500, "Module commandes non disponible");
 
     try {
-      const result = purchaseOrderStore.receiveItems(shop, req.params.id, req.body.lines, {
-        notes: req.body.notes,
-        createBatches: req.body.createBatches !== false,
+      // Sans `lines` (cas de l'UI : bouton "Confirmer reception"), on recoit le reste a livrer de chaque ligne.
+      let receivedLines = req.body?.lines;
+      if (!Array.isArray(receivedLines)) {
+        const current = purchaseOrderStore.getPurchaseOrder(shop, req.params.id);
+        receivedLines = (current?.lines || []).map((l) => ({
+          lineId: l.id,
+          receivedGrams: Math.max(0, (Number(l.orderedGrams) || 0) - (Number(l.receivedGrams) || 0)),
+        }));
+      }
+      const result = purchaseOrderStore.receiveItems(shop, req.params.id, receivedLines, {
+        notes: req.body?.notes,
+        createBatches: req.body?.createBatches !== false,
       });
 
       // Creer les lots et mettre a jour le stock
@@ -7194,18 +7203,64 @@ router.post("/api/purchase-orders/:id/receive", async (req, res) => {
               expiryDate: batchData.expiryDate,
               expiryType: batchData.expiryType,
             });
-
-            // Mettre a jour le stock
-            if (stock.addStock) {
-              stock.addStock(shop, batchData.productId, batchData.grams, batchData.pricePerGram);
-            }
           } catch (e) {
             logEvent("lot_creation_error", { error: e.message }, "warn");
           }
         }
       }
 
-      res.json({ success: true, ...result });
+      // Stock + CMP (prix de revient = prix de ligne + part du port/frais au poids) + push Shopify + mouvement.
+      // (stock.addStock n'a jamais existe : la reception creait des lots mais ne touchait pas au stock.)
+      const stockUpdates = [];
+      const profileId = req.body?.profileId || null;
+      const profileName = req.body?.profileName || "User";
+      const profileColor = req.body?.profileColor || "#6366f1";
+      for (const entry of purchaseOrderStore.computeReceiptStockEntries(result.purchaseOrder, result.reception.lines)) {
+        try {
+          const cmpBefore = stock.getProductCMPSnapshot ? stock.getProductCMPSnapshot(shop, entry.productId) : 0;
+          const updated = await stock.restockProduct(shop, entry.productId, entry.grams, entry.landedPricePerGram);
+          if (!updated) {
+            logEvent("po_receive_product_missing", { shop, productId: entry.productId, purchaseOrderId: result.purchaseOrder.id }, "warn");
+            stockUpdates.push({ productId: entry.productId, grams: entry.grams, ok: false, error: "product_not_found" });
+            continue;
+          }
+          try {
+            await pushProductInventoryToShopify(shop, updated);
+          } catch (e) {
+            logEvent("inventory_push_error", { shop, productId: entry.productId, ...extractShopifyError(e) }, "error");
+          }
+          if (movementStore.addMovement) {
+            movementStore.addMovement(
+              {
+                source: "purchase_order_receive",
+                productId: entry.productId,
+                productName: updated.name,
+                gramsDelta: Math.abs(entry.grams),
+                purchasePricePerGram: entry.landedPricePerGram > 0 ? entry.landedPricePerGram : undefined,
+                cmpBefore: entry.landedPricePerGram > 0 ? cmpBefore : undefined,
+                totalAfter: updated.totalGrams,
+                profileId,
+                profileName,
+                profileColor,
+                meta: {
+                  purchaseOrderId: result.purchaseOrder.id,
+                  poNumber: result.purchaseOrder.number,
+                  supplierId: result.purchaseOrder.supplierId || null,
+                  invoiceNumber: result.purchaseOrder.invoice?.number || null,
+                },
+                shop,
+              },
+              shop
+            );
+          }
+          stockUpdates.push({ productId: entry.productId, grams: entry.grams, landedPricePerGram: entry.landedPricePerGram, totalAfter: updated.totalGrams, ok: true });
+        } catch (e) {
+          logEvent("po_receive_stock_error", { shop, productId: entry.productId, error: e.message }, "error");
+          stockUpdates.push({ productId: entry.productId, grams: entry.grams, ok: false, error: "stock_update_failed" });
+        }
+      }
+
+      res.json({ success: true, ...result, stockUpdates });
     } catch (e) {
       return apiError(res, 400, e.message);
     }
