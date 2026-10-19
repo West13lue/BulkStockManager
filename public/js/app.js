@@ -86,6 +86,7 @@
     'importShopifyOrders',
     'showCreatePOModal', 'savePO', 'openPODetails', 'confirmPO', 'sendPO',
     'addPOLine', 'removePOLine', 'updatePOTotal', 'onPOSupplierChange', 'onPOFileSelected',
+    'openPODocument', 'uploadPODocument', 'deletePODocument',
     'updateQuickRestockCMP', 'updateQuickRestockTotal',
     'selectSearchResultByIndex', 'toggleSection', 'searchQuickAction',
     // Analytics ventes refonte
@@ -3442,6 +3443,7 @@
       'kit_assemble': 'puzzle',
       'kit_disassemble': 'puzzle',
       'po_receive': 'package-check',
+      'purchase_order_receive': 'package-check',
       'inventory_apply': 'clipboard-check'
     };
     return icons[type] || 'activity';
@@ -3467,6 +3469,7 @@
       'kit_assemble': 'success',
       'kit_disassemble': 'warning',
       'po_receive': 'success',
+      'purchase_order_receive': 'success',
       'inventory_apply': 'primary'
     };
     return classes[type] || '';
@@ -3492,6 +3495,7 @@
       'kit_assemble': t("movement.kitAssemble", "Assemblage kit"),
       'kit_disassemble': t("movement.kitDisassemble", "Desassemblage kit"),
       'po_receive': t("movement.poReceive", "Reception commande"),
+      'purchase_order_receive': t("movement.poReceive", "Reception commande"),
       'inventory_apply': t("movement.inventoryApply", "Application inventaire")
     };
     return labels[type] || type;
@@ -5365,7 +5369,11 @@
     var rows = orders.map(function(po) {
       var statusBadge = getPOStatusBadge(po.status);
       return '<tr class="order-row" onclick="app.openPODetails(\'' + esc(po.id) + '\')">' +
-        '<td><span class="order-number">' + esc(po.number) + '</span></td>' +
+        '<td><span class="order-number">' + esc(po.number) + '</span>' +
+        (po.documentIds && po.documentIds.length
+          ? ' <i data-lucide="paperclip" class="po-doc-icon" style="width:14px;height:14px;vertical-align:-2px;color:var(--text-secondary)" title="' + esc(t("invoice.hasInvoice", "Facture jointe")) + '"></i>'
+          : '') +
+        '</td>' +
         '<td>' + esc(po.supplierName || '-') + '</td>' +
         '<td class="u-num">' + (po.lines?.length || 0) + ' ' + t("orders.items", "articles") + '</td>' +
         '<td class="u-num">' + formatCurrency(po.total || 0) + '</td>' +
@@ -5384,6 +5392,7 @@
       '<th>' + t("orders.date", "Date") + '</th>' +
       '<th>' + t("orders.status", "Statut") + '</th>' +
       '</tr></thead><tbody>' + rows + '</tbody></table></div></div>';
+    if (typeof lucide !== "undefined") lucide.createIcons();
   }
 
   function getPOStatusBadge(status) {
@@ -5400,6 +5409,8 @@
   }
 
   function showCreatePOModal() {
+    poUploadedFile = null;
+    poUploadedFileName = null;
     // Options fournisseurs
     var supplierOptions = '<option value="">' + t("orders.selectSupplier", "Selectionner...") + '</option>';
     if (suppliersData && suppliersData.suppliers) {
@@ -5459,12 +5470,14 @@
 
   var poUploadedFileBase64 = null;
   var poUploadedFileName = null;
+  var poUploadedFile = null; // File PDF choisi dans la modale de creation : stocke avec le PO a l'enregistrement
 
   function onPOFileSelected(event) {
     var file = event.target.files ? event.target.files[0] : null;
     if (!file) return;
 
     poUploadedFileName = file.name;
+    poUploadedFile = file.type === "application/pdf" || /\.pdf$/i.test(file.name || "") ? file : null;
     var statusEl = document.getElementById("poFileStatus");
     if (!statusEl) return;
 
@@ -5830,8 +5843,20 @@
 
       if (!res.ok) throw new Error("Erreur");
 
+      // Facture PDF deposee dans la modale : on la range avec la commande (echec = simple avertissement).
+      var createdPO = await res.json().catch(function () { return {}; });
+      var pdfToStore = poUploadedFile;
+      poUploadedFile = null;
+
       closeModal();
       showToast(t("orders.poCreated", "Commande creee"), "success");
+      if (pdfToStore && createdPO && createdPO.order && createdPO.order.id) {
+        try {
+          await storePODocument(createdPO.order.id, pdfToStore);
+        } catch (e) {
+          showToast(t("invoice.uploadFailed", "La commande est creee mais la facture PDF n'a pas pu etre enregistree") + ": " + e.message, "warning");
+        }
+      }
       loadPurchaseOrders();
 
     } catch (e) {
@@ -5894,11 +5919,14 @@
           '<div class="po-total-row"><span>' + t("orders.subtotal", "Sous-total") + ':</span><span>' + formatCurrency(po.subtotal || 0) + '</span></div>' +
           (po.shippingCost ? '<div class="po-total-row"><span>' + t("orders.shipping", "Frais de port") + ':</span><span>' + formatCurrency(po.shippingCost) + '</span></div>' : '') +
           '<div class="po-total-row po-total-final"><span>' + t("orders.total", "Total") + ':</span><span>' + formatCurrency(po.total || 0) + '</span></div>' +
-          '</div>',
+          '</div>' +
+          renderPOInvoiceBlock(po),
         footer:
           '<button class="btn btn-ghost" onclick="app.closeModal()">' + t("action.close", "Fermer") + '</button>' +
           actionsHtml
       });
+      if (typeof lucide !== "undefined") lucide.createIcons();
+      loadPODocuments(po);
 
     } catch (e) {
       showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
@@ -5908,6 +5936,154 @@
   // Helper local : URL d'une PO (toujours encodee).
   function _poUrl(poId, suffix) {
     return "/purchase-orders/" + encodeURIComponent(poId) + (suffix || "");
+  }
+
+  // === FACTURES FOURNISSEUR (PDF) d'un bon de commande ===
+
+  // Bloc "Facture" de la fiche PO : donnees de facture (si connues), PDF joints, ajout d'un PDF.
+  function renderPOInvoiceBlock(po) {
+    var inv = po.invoice || null;
+    var rows = [];
+    function row(label, value) {
+      if (value !== null && value !== undefined && value !== "") {
+        rows.push('<div class="po-total-row"><span>' + label + ':</span><span>' + value + '</span></div>');
+      }
+    }
+    if (inv) {
+      row(t("invoice.number", "Numero de facture"), esc(inv.number));
+      row(t("invoice.date", "Date de facture"), esc(inv.date));
+      row(t("invoice.orderRef", "Reference de commande"), esc(inv.orderRef));
+      row(t("invoice.payment", "Paiement"), esc(inv.paymentMethod));
+      row(t("invoice.totalHT", "Total HT"), formatCurrency(po.total || 0));
+      if (inv.taxTotal !== null && inv.taxTotal !== undefined) row(t("invoice.tax", "TVA"), formatCurrency(inv.taxTotal));
+      if (inv.totalTTC !== null && inv.totalTTC !== undefined) row(t("invoice.totalTTC", "Total TTC"), formatCurrency(inv.totalTTC));
+    }
+    return '<div class="po-invoice-block" style="margin-top:16px;padding-top:12px;border-top:1px solid var(--border-color)">' +
+      '<h4 style="margin:0 0 8px;display:flex;align-items:center;gap:6px"><i data-lucide="file-text" style="width:16px;height:16px"></i>' + t("invoice.title", "Facture fournisseur") + '</h4>' +
+      (rows.length ? '<div class="po-total-section">' + rows.join("") + '</div>' : '') +
+      '<div id="poDocsList" style="margin-top:8px"></div>' +
+      '<div style="margin-top:8px">' +
+      '<input type="file" id="poInvoiceFile" accept="application/pdf,.pdf" style="display:none" onchange="app.uploadPODocument(\'' + esc(po.id) + '\', this)">' +
+      '<button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById(\'poInvoiceFile\').click()"><i data-lucide="paperclip"></i> ' + t("invoice.attach", "Joindre une facture (PDF)") + '</button>' +
+      '</div></div>';
+  }
+
+  // Liste les PDF rattaches au PO (po.documentIds) avec "Voir la facture (PDF)" et suppression.
+  async function loadPODocuments(po) {
+    var el = document.getElementById("poDocsList");
+    if (!el) return;
+    var ids = Array.isArray(po.documentIds) ? po.documentIds : [];
+    var none = '<span class="text-secondary text-sm">' + t("invoice.none", "Aucune facture jointe.") + '</span>';
+    if (!ids.length) {
+      el.innerHTML = none;
+      return;
+    }
+    try {
+      var res = await authFetch(apiUrl("/documents"));
+      var data = await res.json().catch(function () { return {}; });
+      if (!res.ok) throw new Error(data.message || data.error || "Erreur");
+      var docs = (data.documents || []).filter(function (d) { return ids.indexOf(d.id) !== -1; });
+      if (!docs.length) {
+        el.innerHTML = none;
+        return;
+      }
+      el.innerHTML = docs.map(function (d) {
+        return '<div class="po-doc-row" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">' +
+          '<i data-lucide="file-text" style="width:16px;height:16px"></i>' +
+          '<span style="flex:1;min-width:120px">' + esc(d.filename) + ' <span class="text-secondary text-sm">(' + Math.max(1, Math.round((d.size || 0) / 1024)) + ' ' + t("invoice.sizeKb", "Ko") + ')</span></span>' +
+          '<button type="button" class="btn btn-primary btn-sm" onclick="app.openPODocument(\'' + esc(d.id) + '\')"><i data-lucide="external-link"></i> ' + t("invoice.view", "Voir la facture (PDF)") + '</button>' +
+          '<button type="button" class="btn btn-ghost btn-sm" title="' + esc(t("invoice.delete", "Supprimer la facture")) + '" onclick="app.deletePODocument(\'' + esc(d.id) + '\', \'' + esc(po.id) + '\')"><i data-lucide="trash-2"></i></button>' +
+          '</div>';
+      }).join("");
+      if (typeof lucide !== "undefined") lucide.createIcons();
+    } catch (e) {
+      el.innerHTML = '<span class="text-danger text-sm">' + esc(e.message) + '</span>';
+    }
+  }
+
+  // Ouvre le PDF : le fichier n'est joignable qu'avec le JWT -> fetch (authFetch) -> Blob -> nouvel onglet.
+  async function openPODocument(docId) {
+    try {
+      var res = await authFetch(apiUrl("/documents/" + encodeURIComponent(docId) + "/file"));
+      if (!res.ok) {
+        var err = await res.json().catch(function () { return {}; });
+        throw new Error(err.message || err.error || t("invoice.errorOpen", "Impossible d'ouvrir la facture"));
+      }
+      var raw = await res.blob();
+      var url = URL.createObjectURL(new Blob([raw], { type: "application/pdf" }));
+      var win = window.open(url, "_blank");
+      if (!win) {
+        // Popup bloquee (iframe Shopify) : repli sur un telechargement.
+        var a = document.createElement("a");
+        a.href = url;
+        a.download = "facture-" + docId + ".pdf";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+      }
+      setTimeout(function () { URL.revokeObjectURL(url); }, 5 * 60 * 1000);
+    } catch (e) {
+      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
+    }
+  }
+
+  function readFileAsBase64(file) {
+    return new Promise(function (resolve, reject) {
+      var reader = new FileReader();
+      reader.onerror = function () { reject(new Error(t("invoice.errorRead", "Lecture du fichier impossible"))); };
+      reader.onload = function () {
+        var dataUrl = String(reader.result || "");
+        resolve(dataUrl.slice(dataUrl.indexOf(",") + 1));
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  // Envoie un PDF (File) et le rattache au PO. Retourne { deduped }.
+  async function storePODocument(poId, file) {
+    if (file.type !== "application/pdf" && !/\.pdf$/i.test(file.name || "")) {
+      throw new Error(t("invoice.errorPdfOnly", "Seuls les fichiers PDF sont acceptes"));
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      throw new Error(t("invoice.errorTooBig", "Fichier trop volumineux (10 Mo max)"));
+    }
+    var payload = { purchaseOrderId: poId, filename: file.name, contentBase64: await readFileAsBase64(file) };
+    if (activeProfile) payload.profileName = activeProfile.name;
+    var res = await authFetch(apiUrl("/documents"), { method: "POST", body: JSON.stringify(payload) });
+    var data = await res.json().catch(function () { return {}; });
+    if (!res.ok) throw new Error(data.message || data.error || "Erreur");
+    return { deduped: !!data.deduped };
+  }
+
+  async function uploadPODocument(poId, input) {
+    var file = input && input.files ? input.files[0] : null;
+    if (!file) return;
+    try {
+      var out = await storePODocument(poId, file);
+      showToast(out.deduped ? t("invoice.alreadyStored", "Cette facture etait deja enregistree") : t("invoice.uploaded", "Facture enregistree"), "success");
+      openPODetails(poId);
+      loadPurchaseOrders();
+    } catch (e) {
+      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
+      if (input) input.value = "";
+    }
+  }
+
+  async function deletePODocument(docId, poId) {
+    var ok = await showConfirmDialog(t("invoice.confirmDelete", "Supprimer ce PDF de l'application ? Cette action est definitive."), { danger: true });
+    if (!ok) return;
+    try {
+      var res = await authFetch(apiUrl("/documents/" + encodeURIComponent(docId)), { method: "DELETE" });
+      if (!res.ok) {
+        var err = await res.json().catch(function () { return {}; });
+        throw new Error(err.message || err.error || "Erreur");
+      }
+      showToast(t("invoice.deleted", "Facture supprimee"), "success");
+      openPODetails(poId);
+      loadPurchaseOrders();
+    } catch (e) {
+      showToast(t("msg.error", "Erreur") + ": " + e.message, "error");
+    }
   }
 
   async function sendPO(poId) {
@@ -13167,6 +13343,9 @@
     updatePOTotal: updatePOTotal,
     onPOSupplierChange: onPOSupplierChange,
     onPOFileSelected: onPOFileSelected,
+    openPODocument: openPODocument,
+    uploadPODocument: uploadPODocument,
+    deletePODocument: deletePODocument,
     savePO: savePO,
     openPODetails: openPODetails,
     sendPO: sendPO,
