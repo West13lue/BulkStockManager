@@ -67,10 +67,40 @@ function saveOrdersByYear(shop, year, orders) {
   return orders;
 }
 
+// Facture fournisseur rattachee au PO (optionnelle) : {number, date, orderRef, taxTotal, totalTTC, paymentMethod}
+function normalizeInvoice(inv) {
+  if (!inv || typeof inv !== "object" || Array.isArray(inv)) return null;
+  const str = (v, max) => (v === undefined || v === null ? "" : String(v).trim().slice(0, max));
+  const num = (v) => {
+    if (v === undefined || v === null || v === "") return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  };
+  return {
+    number: str(inv.number, 100),
+    date: str(inv.date, 10),
+    orderRef: str(inv.orderRef, 100),
+    taxTotal: num(inv.taxTotal),
+    totalTTC: num(inv.totalTTC),
+    paymentMethod: str(inv.paymentMethod, 100),
+  };
+}
+
+function normalizeDocumentIds(ids) {
+  if (!Array.isArray(ids)) return [];
+  return [...new Set(ids.map((x) => String(x || "").trim()).filter(Boolean))].slice(0, 50);
+}
+
 function createPurchaseOrder(shop, poData) {
   const year = new Date().getFullYear();
   const orders = loadOrdersByYear(shop, year);
-  
+  const po = buildPurchaseOrder(shop, poData);
+  orders.push(po);
+  saveOrdersByYear(shop, year, orders);
+  return po;
+}
+
+function buildPurchaseOrder(shop, poData) {
   const po = {
     id: `po_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
     number: generatePONumber(shop),
@@ -101,14 +131,84 @@ function createPurchaseOrder(shop, poData) {
     receptions: [],
     updatedAt: new Date().toISOString(),
     createdBy: poData.createdBy || null,
+    invoice: normalizeInvoice(poData.invoice),
+    documentIds: normalizeDocumentIds(poData.documentIds),
   };
   
   po.subtotal = po.lines.reduce((sum, l) => sum + l.lineTotal, 0);
   po.total = po.subtotal + po.shippingCost + po.otherCosts;
   
+  return po;
+}
+
+const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+
+// PO cree directement au statut COMPLETE pour une facture deja livree (pas de send/confirm/receive) :
+// receivedGrams = orderedGrams, receivedAt = maintenant. Ne touche NI au stock NI aux lots :
+// l'appelant (route agent facture) s'en charge.
+function createCompletedPurchaseOrder(shop, poData) {
+  const year = new Date().getFullYear();
+  const orders = loadOrdersByYear(shop, year);
+  const po = buildPurchaseOrder(shop, poData);
+  const now = new Date().toISOString();
+
+  po.lines.forEach((l) => {
+    l.receivedGrams = l.orderedGrams;
+    l.lineTotal = round2(l.orderedGrams * l.pricePerGram);
+  });
+  po.subtotal = round2(po.lines.reduce((sum, l) => sum + l.lineTotal, 0));
+  po.shippingCost = round2(po.shippingCost);
+  po.otherCosts = round2(po.otherCosts);
+  po.total = round2(po.subtotal + po.shippingCost + po.otherCosts);
+  po.status = PO_STATUS.COMPLETE;
+  po.sentAt = now;
+  po.receivedAt = now;
+  po.receptions = [
+    {
+      id: `rec_${Date.now()}`,
+      date: now,
+      lines: po.lines.map((l) => ({ lineId: l.id, receivedGrams: l.receivedGrams })),
+      notes: poData.receptionNotes || "Facture deja livree (saisie directe)",
+    },
+  ];
+  po.updatedAt = now;
+
   orders.push(po);
   saveOrdersByYear(shop, year, orders);
   return po;
+}
+
+// Lie un document (facture PDF) a un PO, quel que soit son statut.
+function attachDocument(shop, poId, documentId) {
+  const po = getPurchaseOrder(shop, poId);
+  if (!po) throw new Error(`Bon de commande non trouve: ${poId}`);
+  const orders = loadOrdersByYear(shop, po._year);
+  const index = orders.findIndex((o) => o.id === po.id);
+  orders[index].documentIds = normalizeDocumentIds([...(orders[index].documentIds || []), documentId]);
+  orders[index].updatedAt = new Date().toISOString();
+  saveOrdersByYear(shop, po._year, orders);
+  return orders[index];
+}
+
+// Retire un document de TOUS les PO qui le referencent (suppression d'un document). Retourne le nb de PO modifies.
+function detachDocumentEverywhere(shop, documentId) {
+  const dir = poDir(shop);
+  let changed = 0;
+  for (const file of fs.readdirSync(dir).filter((f) => f.endsWith(".json"))) {
+    const year = parseInt(file.replace(".json", ""));
+    const orders = loadOrdersByYear(shop, year);
+    let dirty = false;
+    for (const o of orders) {
+      if (Array.isArray(o.documentIds) && o.documentIds.includes(documentId)) {
+        o.documentIds = o.documentIds.filter((x) => x !== documentId);
+        o.updatedAt = new Date().toISOString();
+        dirty = true;
+        changed++;
+      }
+    }
+    if (dirty) saveOrdersByYear(shop, year, orders);
+  }
+  return changed;
 }
 
 function getPurchaseOrder(shop, poId) {
@@ -159,6 +259,8 @@ function updatePurchaseOrder(shop, poId, updates) {
   
   if (updates.notes !== undefined) orders[index].notes = updates.notes;
   if (updates.internalNotes !== undefined) orders[index].internalNotes = updates.internalNotes;
+  if (updates.invoice !== undefined) orders[index].invoice = normalizeInvoice(updates.invoice);
+  if (updates.documentIds !== undefined) orders[index].documentIds = normalizeDocumentIds(updates.documentIds);
   orders[index].updatedAt = new Date().toISOString();
   
   saveOrdersByYear(shop, year, orders);
@@ -251,6 +353,7 @@ function computeReceiptStockEntries(po, receptionLines) {
   }
   return out;
 }
+
 
 function receiveItems(shop, poId, receivedLines, options = {}) {
   const po = getPurchaseOrder(shop, poId);
@@ -368,6 +471,10 @@ module.exports = {
   PO_STATUS,
   PO_STATUS_LABELS,
   createPurchaseOrder,
+  createCompletedPurchaseOrder,
+  attachDocument,
+  detachDocumentEverywhere,
+  normalizeInvoice,
   getPurchaseOrder,
   updatePurchaseOrder,
   deletePurchaseOrder,

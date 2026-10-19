@@ -104,6 +104,14 @@ try {
   // PurchaseOrderStore optionnel non charge
 }
 
+// --- Documents (factures fournisseur PDF, multi-shop)
+let documentStore = null;
+try {
+  documentStore = require("./documentStore");
+} catch (e) {
+  // DocumentStore optionnel non charge
+}
+
 // --- Sales Order Store (multi-shop) - PRO
 let salesOrderStore = null;
 try {
@@ -826,8 +834,10 @@ if (rateLimit) {
   logEvent("rate_limit_enabled", { windowMs: 900000, max: 200 });
 }
 
-// JSON (uniquement /api)
-router.use("/api", express.json({ limit: "2mb" }));
+// JSON (uniquement /api). Exception : POST /api/documents (upload PDF en base64) a son propre parser (15 Mo),
+// place apres l'auth dans documentRoutes.js. Tout autre chemin (casse/slash final inclus) garde la limite de 2 Mo.
+const apiJsonParser = express.json({ limit: "2mb" });
+router.use("/api", (req, res, next) => (req.method === "POST" && req.path === "/documents" ? next() : apiJsonParser(req, res, next)));
 
 // CORS (simple)
 router.use((req, res, next) => {
@@ -7299,6 +7309,22 @@ router.delete("/api/purchase-orders/:id", (req, res) => {
   });
 });
 
+// Factures fournisseur (PDF) : GET/POST/DELETE /api/documents* (JWT + plan Business). Voir documentRoutes.js.
+try {
+  require("./documentRoutes").registerDocumentRoutes(router, {
+    getShop,
+    apiError,
+    safeJson,
+    planManager,
+    purchaseOrderStore,
+    supplierStore,
+    documentStore,
+    logEvent,
+  });
+} catch (e) {
+  logEvent("document_routes_register_error", { message: e?.message }, "error");
+}
+
 // ============================================
 // COMMANDES DE VENTE (Sales Orders) - PRO
 // ============================================
@@ -8584,6 +8610,11 @@ app.post("/webhooks/shop/redact", express.raw({ type: "application/json" }), asy
     const shop = getShopFromWebhook(req, payload);
     if (!shop) return res.sendStatus(200);
 
+    // Factures fournisseur (dossier documents/ + documents.json) : uniquement sur shop/redact (effacement RGPD,
+    // ~48 h apres la desinstallation) - pas sur app/uninstalled, qui appelle aussi purgeShopData : ces PDF sont
+    // des pieces comptables a conserver tant que le marchand n'a pas demande l'effacement.
+    // AVANT purgeShopData : si celle-ci leve une erreur, l'effacement des PDF (donnees personnelles) a deja eu lieu.
+    if (documentStore?.purgeShopDocuments) documentStore.purgeShopDocuments(normalizeShopDomain(shop));
     await purgeShopData(shop);
 
     res.sendStatus(200);
@@ -8927,6 +8958,9 @@ try {
     movementStore,
     productOverridesStore,
     planManager,
+    supplierStore,
+    purchaseOrderStore,
+    documentStore,
     shopifyFor,
     // getProduct (GraphQL) n'existe que sur la branche de migration ; sinon REST product.get.
     getShopifyProduct: (shop, id) =>
