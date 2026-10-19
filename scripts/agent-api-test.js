@@ -301,6 +301,7 @@ const sha = (s) => crypto.createHash("sha256").update(s).digest("hex");
       "9001": { id: 9001, title: "Fleur Importee", handle: "fleur-importee", variants: [
         { id: 70001, inventory_item_id: 80001, grams: 3 }, { id: 70002, inventory_item_id: 80002, grams: 10 }, { id: 70003, inventory_item_id: 80003, grams: 0, title: "Default" }] },
       "9002": { id: 9002, title: "Accessoire sans poids", variants: [{ id: 71001, inventory_item_id: 81001, grams: 0, title: "Default Title" }] },
+      "9003": { id: 9003, title: "Fleur 1,5 g", handle: "fleur-15", variants: [{ id: 72001, inventory_item_id: 82001, grams: 2, title: "1,5", option1: "1,5" }, { id: 72002, inventory_item_id: 82002, grams: 3, title: "3", option1: "3" }, { id: 72003, inventory_item_id: 82003, grams: 30, title: "25", option1: "25" }] },
     };
     let pushes = [];
     let planAllowed = true;
@@ -338,6 +339,11 @@ const sha = (s) => crypto.createHash("sha256").update(s).digest("hex");
     r = await fcall("POST", "/agent/v1/import", { productId: "9001", requestId: "imp-real-00001", categoryIds: [] });
     check("  rejeu -> replayed:true, pas de 2e push ni de 2e mouvement", r.status === 200 && r.json.replayed === true && pushes.length === 1 && readImportMovements(SHOP_F).length === 1, r);
     r = await fcall("POST", "/agent/v1/import", { productId: "9001", requestId: "imp-real-00002" });
+    {
+      const r15 = await fcall("POST", "/agent/v1/import", { productId: "9003", requestId: "imp-15g-000001", dryRun: true });
+      const gs = JSON.stringify(r15.json);
+      check("import : variante \"1,5\" (REST grams=2) gardee a 1,5 g ; 25 g pese 30 g laisse a 30 (donnee Shopify)", r15.status === 200 && gs.includes("1.5") && !gs.includes('"gramsPerUnit":2') && gs.includes("30"), r15.json);
+    }
     check("  nouvel appel (autre requestId) -> 409 already_imported, pas de re-import", r.status === 409 && r.json.error === "already_imported" && pushes.length === 1, r);
     r = await fcall("POST", "/agent/v1/restock", { productId: "9001", grams: 30, purchasePricePerGram: 4, invoice: "FA-IMPORT-1", requestId: "imp-restock-0001" });
     check("  puis restock du produit importe : 30 g, CMP 4, push avec canSell [10,3]", r.status === 200 && r.json.totalGramsAfter === 30 && near(r.json.cmpAfter, 4) && pushes.length === 2 &&

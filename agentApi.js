@@ -500,8 +500,15 @@ function registerAgentRoutes(app, deps = {}) {
 
         const variants = {};
         for (const v of p.variants || []) {
-          const grams = parseGramsFromVariant(v);
+          let grams = parseGramsFromVariant(v);
           if (!grams) continue;
+          // Le champ REST `grams` est un entier : une variante "1,5" pesee 1,5 g remonte grams=2.
+          // Si le titre est un nombre decimal dont l'arrondi vaut ce `grams`, la valeur du titre fait foi.
+          const titleNum = String(v?.option1 ?? v?.title ?? "").trim().replace(",", ".");
+          if (/^\d+\.\d+$/.test(titleNum)) {
+            const n = Number(titleNum);
+            if (n > 0 && Number.isInteger(Number(v?.grams)) && Math.round(n) === Number(v.grams)) grams = n;
+          }
           variants[String(grams)] = {
             gramsPerUnit: grams,
             inventoryItemId: Number(v.inventory_item_id),
