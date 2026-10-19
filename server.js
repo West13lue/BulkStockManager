@@ -8864,6 +8864,28 @@ app.post("/webhooks/refunds/create", express.raw({ type: "application/json" }), 
   }
 });
 
+// API agent (header X-Agent-Key) : montee sur `app`, HORS router => requireApiAuth/JWT de /api inchanges.
+// Desactivee (404) tant que AGENT_API_KEY (>= 32 car.) n'est pas definie ; boutique = AGENT_SHOP. Voir agentApi.js.
+try {
+  require("./agentApi").registerAgentRoutes(app, {
+    stock,
+    movementStore,
+    productOverridesStore,
+    planManager,
+    shopifyFor,
+    // getProduct (GraphQL) n'existe que sur la branche de migration ; sinon REST product.get.
+    getShopifyProduct: (shop, id) =>
+      typeof getProduct === "function" ? getProduct(shop, id) : shopifyFor(shop).product.get(Number(id)),
+    parseGramsFromVariant,
+    pushProductInventoryToShopify,
+    logEvent,
+    normalizeShopDomain,
+    dataDir: process.env.DATA_DIR || "/var/data",
+  });
+} catch (e) {
+  logEvent("agent_api_register_error", { message: e?.message }, "error");
+}
+
 // Mount router en "prefix-safe"
 app.use("/", router);
 app.use("/apps/:appSlug", router);
